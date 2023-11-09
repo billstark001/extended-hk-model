@@ -1,1 +1,1 @@
-# extended-hk-model
+# Extended Hegselmann-Krause Model
