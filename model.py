@@ -1,71 +1,124 @@
-import networkx as nx
-import numpy as np
+from typing import List, Optional, Tuple, Callable
+
 import random
-from typing import Dict, Optional, Callable, Iterable, List
+import networkx as nx
+from mesa import Agent, Model
+from mesa.time import RandomActivation
+from mesa.space import NetworkGrid
+import dataclasses
 
 
-def init_opinion(G: nx.graph):
-  o = {node: random.uniform(-1, 1) for node in G.nodes()}
-  return o
+class HKAgent(Agent):
+
+  model: 'HKModel' = None
+
+  def __init__(
+      self,
+      unique_id: int,
+      model: 'HKModel',
+      opinion: Optional[float] = None
+  ):
+    super().__init__(unique_id, model)
+
+    # current state
+    self.cur_opinion = opinion if opinion is not None else random.uniform(0, 1)
+
+    # future state
+    self.next_opinion = 0
+    self.next_follow: Optional[Tuple['HKAgent', 'HKAgent']] = None
+
+  def step(self):
+    # clear data
+    self.next_opinion = self.cur_opinion
+    self.next_follow = None
+
+    # get the neighbors
+    neighbors: List['HKAgent'] = self.model.grid.get_neighbors(
+        self.unique_id, include_center=False)
+    recommended: List['HKAgent'] = self.model.get_recommendation(
+        self, neighbors)
+    if not (len(neighbors) + len(recommended)):
+      return
+
+    # calculate concordant set
+    epsilon = self.model.p.tolerance
+    gamma = self.model.p.rewiring_rate
+    concordant: List['HKAgent'] = []
+    concordant_recommended: List['HKAgent'] = []
+    discordant: List['HKAgent'] = []
+    for a in neighbors:
+      if abs(self.cur_opinion - a.cur_opinion) <= epsilon:
+        concordant.append(a)
+      else:
+        discordant.append(a)
+    for a in recommended:
+      if abs(self.cur_opinion - a.cur_opinion) <= epsilon:
+        concordant.append(a)
+        concordant_recommended.append(a)
+      else:
+        discordant.append(a)
+
+    # update value
+    if concordant:
+      avg_new_opinion = sum(
+          [a.cur_opinion for a in concordant]) / len(concordant)
+      self.next_opinion = avg_new_opinion
+
+    # handle rewiring
+    if gamma > 0 and discordant and concordant_recommended and random.random() < gamma:
+      follow = random.choice(concordant_recommended)
+      unfollow = random.choice(discordant)
+      self.next_follow = (unfollow, follow)
 
 
-def sample_rec(
-  G: nx.Graph,
-  current: float,
-  epsilon: float,
-  target: float,
-  count: int,
-) -> List[int]:
-  raise 'NIE' # TODO
+HKModelRecommendationSystem = Callable[[
+    NetworkGrid, 
+    HKAgent,
+    List[HKAgent],
+    float
+], List[HKAgent]]
 
 
-def iterate_opinion(
-  G: nx.Graph, 
-  opinions: Dict[int, float], 
-  epsilon: float = 0.25, 
-  tolerance: float = 0.005,
-  recsys: Optional[Callable[[
-      float, # current opinion
-      List[float], # neighbor opinion
-      List[int], # close neighbor
-      List[int], # not close neighbor
-      float, # rate
-    ], float]] = None,
-  recsys_rate: float = 0.5,
-  rewiring_rate: float = 0.1,
-):
-  new_opinions = {}
-  max_diff = 0
-  
-  rewiring_set = []
-  
-  for x in G.nodes():
-    ox = opinions[x]
-    close_set = [n for n in G.neighbors(x) if abs(opinions[n] - ox) <= epsilon]
-    not_close_set = [n for n in G.neighbors(x) if abs(opinions[n] - ox) > epsilon]
-    neighbor_opinions = [opinions[n] for n in close_set]
-    
-    # call recommendation system
-    samples: Optional[List[int]] = None
-    if recsys is not None:
-      target = recsys(ox, neighbor_opinions, close_set, not_close_set)
-      count = int(recsys_rate * (len(close_set) + len(not_close_set)) + 0.5, recsys_rate)
-      samples = sample_rec(G, ox, epsilon, target, count)
-      close_set += samples
-    
-    if len(neighbor_opinions) > 0:
-      o = np.mean(neighbor_opinions)
-      max_diff = max(max_diff, abs(o - opinions[x]))
-    else:
-      o = opinions[x]
-    new_opinions[x] = o
+@dataclasses.dataclass
+class HKModelParams:
+  tolerance: float = 0.25
+  recsys_rate: float = 0.5
+  rewiring_rate: float = 0.1
+  recsys: Optional[HKModelRecommendationSystem] = None
 
-    if not_close_set and samples and rewiring_rate > 0:
-      pass # TODO handle rewiring
 
-  if max_diff < tolerance:
-    return None # the model halts at convergence
-  
-  return new_opinions
+class HKModel(Model):
 
+  def __init__(
+      self,
+      graph: nx.DiGraph,
+      params: HKModelParams
+  ):
+    self.graph = graph
+    self.grid = NetworkGrid(self.graph)
+    self.schedule = RandomActivation(self)
+    self.p = params
+
+    for node in self.graph.nodes():
+      a = HKAgent(node, self)
+      self.grid.place_agent(a, node)
+      self.schedule.add(a)
+
+  def step(self):
+    agents: List['HKAgent'] = self.schedule.agents
+    # let agents execute operations
+    self.schedule.step()
+    # commit changes
+    for a in agents:
+      a.cur_opinion = a.next_opinion
+      if a.next_follow:
+        unfollow, follow = a.next_follow
+        self.graph.remove_edge(a.unique_id, unfollow.unique_id)
+        self.graph.add_edge(a.unique_id, follow.unique_id)
+
+  def get_recommendation(self, agent: HKAgent, neighbors: Optional[List['HKAgent']] = None) -> List['HKAgent']:
+    neighbors = neighbors if neighbors is not None else self.grid.get_neighbors(
+        agent.unique_id, include_center=False)
+    return self.p.recsys(self.grid, agent, neighbors, self.p.recsys_rate) \
+      if self.p.recsys else []
 

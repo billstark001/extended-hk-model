@@ -1,2 +1,4 @@
 numpy
 networkx
+mesa
+matplotlib
