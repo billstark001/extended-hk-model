@@ -6,6 +6,7 @@ from mesa import Agent, Model
 from mesa.time import RandomActivation
 from mesa.space import NetworkGrid
 import dataclasses
+import abc
 
 
 class HKAgent(Agent):
@@ -71,42 +72,32 @@ class HKAgent(Agent):
       self.next_follow = (unfollow, follow)
 
 
-HKModelRecommendationSystem = Callable[[
-    NetworkGrid, 
-    HKAgent,
-    List[HKAgent],
-    float
-], List[HKAgent]]
-
-
-@dataclasses.dataclass
-class HKModelParams:
-  tolerance: float = 0.25
-  recsys_rate: float = 0.5
-  rewiring_rate: float = 0.1
-  recsys: Optional[HKModelRecommendationSystem] = None
-
-
 class HKModel(Model):
 
   def __init__(
       self,
       graph: nx.DiGraph,
-      params: HKModelParams
+      params: 'HKModelParams',
   ):
     self.graph = graph
+    self.p = params
+    self.recsys = params.recsys_factory(
+        self) if params.recsys_factory else None
+
     self.grid = NetworkGrid(self.graph)
     self.schedule = RandomActivation(self)
-    self.p = params
-
     for node in self.graph.nodes():
       a = HKAgent(node, self)
       self.grid.place_agent(a, node)
       self.schedule.add(a)
+    if self.recsys:
+      self.recsys.post_init()
 
   def step(self):
     agents: List['HKAgent'] = self.schedule.agents
     # let agents execute operations
+    if self.recsys:
+      self.recsys.pre_step()
     self.schedule.step()
     # commit changes
     for a in agents:
@@ -115,10 +106,44 @@ class HKModel(Model):
         unfollow, follow = a.next_follow
         self.graph.remove_edge(a.unique_id, unfollow.unique_id)
         self.graph.add_edge(a.unique_id, follow.unique_id)
+    if self.recsys:
+      self.recsys.post_step()
 
-  def get_recommendation(self, agent: HKAgent, neighbors: Optional[List['HKAgent']] = None) -> List['HKAgent']:
+  def get_recommendation(self, agent: HKAgent, neighbors: Optional[List[HKAgent]] = None) -> List[HKAgent]:
+    if not self.recsys:
+      return []
     neighbors = neighbors if neighbors is not None else self.grid.get_neighbors(
         agent.unique_id, include_center=False)
-    return self.p.recsys(self.grid, agent, neighbors, self.p.recsys_rate) \
-      if self.p.recsys else []
+    return self.recsys(agent, neighbors, self.p.recsys_rate)
 
+
+class HKModelRecommendationSystem(abc.ABC):
+
+  def __init__(self, model: HKModel):
+    self.model = model
+
+  @abc.abstractmethod
+  def post_init():
+    pass
+
+  @abc.abstractmethod
+  def pre_step():
+    pass
+
+  @abc.abstractmethod
+  def recommend(agent: HKAgent, neighbors: List[HKAgent], rate: float) -> List[HKAgent]:
+    pass
+
+  @abc.abstractmethod
+  def post_step():
+    pass
+
+
+@dataclasses.dataclass
+class HKModelParams:
+  tolerance: float = 0.25
+  recsys_rate: float = 0.5
+  rewiring_rate: float = 0.1
+
+  recsys_factory: Optional[Callable[[HKModel],
+                                    HKModelRecommendationSystem]] = None
