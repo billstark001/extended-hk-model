@@ -22,7 +22,7 @@ class HKAgent(Agent):
     super().__init__(unique_id, model)
 
     # current state
-    self.cur_opinion = opinion if opinion is not None else np.random.normal(0, 1)
+    self.cur_opinion = opinion if opinion is not None else np.random.uniform(-1, 1)
 
     # future state
     self.next_opinion = self.cur_opinion
