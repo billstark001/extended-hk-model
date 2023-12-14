@@ -1,8 +1,8 @@
 from typing import List, Optional, Tuple, Callable
 
-import random
+import numpy as np
 import networkx as nx
-from mesa import Agent, Model
+from mesa import Agent, DataCollector, Model
 from mesa.time import RandomActivation
 from mesa.space import NetworkGrid
 import dataclasses
@@ -22,10 +22,10 @@ class HKAgent(Agent):
     super().__init__(unique_id, model)
 
     # current state
-    self.cur_opinion = opinion if opinion is not None else random.uniform(0, 1)
+    self.cur_opinion = opinion if opinion is not None else np.random.normal(0, 1)
 
     # future state
-    self.next_opinion = 0
+    self.next_opinion = self.cur_opinion
     self.next_follow: Optional[Tuple['HKAgent', 'HKAgent']] = None
 
   def step(self):
@@ -47,11 +47,13 @@ class HKAgent(Agent):
     concordant: List['HKAgent'] = []
     concordant_recommended: List['HKAgent'] = []
     discordant: List['HKAgent'] = []
+    discordant_neighbor: List['HKAgent'] = []
     for a in neighbors:
       if abs(self.cur_opinion - a.cur_opinion) <= epsilon:
         concordant.append(a)
       else:
         discordant.append(a)
+        discordant_neighbor.append(a)
     for a in recommended:
       if abs(self.cur_opinion - a.cur_opinion) <= epsilon:
         concordant.append(a)
@@ -61,14 +63,15 @@ class HKAgent(Agent):
 
     # update value
     if concordant:
-      avg_new_opinion = sum(
-          [a.cur_opinion for a in concordant]) / len(concordant)
-      self.next_opinion = avg_new_opinion
+      diff_new_opinion = sum(
+          [a.cur_opinion for a in concordant]
+      ) / len(concordant) - self.cur_opinion
+      self.next_opinion += diff_new_opinion * self.model.p.decay
 
     # handle rewiring
-    if gamma > 0 and discordant and concordant_recommended and random.random() < gamma:
-      follow = random.choice(concordant_recommended)
-      unfollow = random.choice(discordant)
+    if gamma > 0 and discordant_neighbor and concordant_recommended and np.random.uniform() < gamma:
+      follow = np.random.choice(concordant_recommended)
+      unfollow = np.random.choice(discordant_neighbor)
       self.next_follow = (unfollow, follow)
 
 
@@ -92,6 +95,9 @@ class HKModel(Model):
       self.schedule.add(a)
     if self.recsys:
       self.recsys.post_init()
+      
+    self.datacollector = DataCollector(agent_reporters=dict(Opinion='cur_opinion'))
+    self.datacollector.collect(self)
 
   def step(self):
     agents: List['HKAgent'] = self.schedule.agents
@@ -108,13 +114,15 @@ class HKModel(Model):
         self.graph.add_edge(a.unique_id, follow.unique_id)
     if self.recsys:
       self.recsys.post_step()
+    # collect data
+    self.datacollector.collect(self)
 
   def get_recommendation(self, agent: HKAgent, neighbors: Optional[List[HKAgent]] = None) -> List[HKAgent]:
     if not self.recsys:
       return []
     neighbors = neighbors if neighbors is not None else self.grid.get_neighbors(
         agent.unique_id, include_center=False)
-    return self.recsys(agent, neighbors, self.p.recsys_rate)
+    return self.recsys.recommend(agent, neighbors, self.p.recsys_rate)
 
 
 class HKModelRecommendationSystem(abc.ABC):
@@ -123,25 +131,27 @@ class HKModelRecommendationSystem(abc.ABC):
     self.model = model
 
   @abc.abstractmethod
-  def post_init():
+  def post_init(self):
     pass
 
   @abc.abstractmethod
-  def pre_step():
+  def pre_step(self):
     pass
 
   @abc.abstractmethod
-  def recommend(agent: HKAgent, neighbors: List[HKAgent], rate: float) -> List[HKAgent]:
+  def recommend(self, agent: HKAgent, neighbors: List[HKAgent], rate: float) -> List[HKAgent]:
     pass
 
   @abc.abstractmethod
-  def post_step():
+  def post_step(self):
     pass
 
 
 @dataclasses.dataclass
 class HKModelParams:
   tolerance: float = 0.25
+  decay: float = 1
+  # retweet_rate: float = 0.3
   recsys_rate: float = 0.5
   rewiring_rate: float = 0.1
 
