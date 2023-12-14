@@ -2,24 +2,29 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from model import HKModel, HKModelParams
-from recsys import Random
+from recsys import Random, Nearest
+
+n_agent = 500
+n_edges = 20
+n_step = 800
 
 G = nx.erdos_renyi_graph(
-  n=200,
-  p=0.2,
-  directed=True
+    n=n_agent,
+    p=n_edges / (n_agent - 1),
+    directed=True
 )
 G_start = nx.DiGraph(G)
 
 params = HKModelParams(
-  tolerance=0.3,
-  decay=0.1,
-  rewiring_rate=0.3,
-  recsys_factory=lambda _: Random(_)
+    tolerance=0.3,
+    decay=0.1,
+    rewiring_rate=0.3,
+    recsys_rate=0.8,
+    # recsys_factory=Random,
 )
 
 model = HKModel(G, params)
-for _ in tqdm(range(100)):
+for _ in tqdm(range(n_step)):
   model.step()
 
 data = model.datacollector.get_agent_vars_dataframe()
@@ -31,4 +36,5 @@ opinion = data['Opinion'].unstack()
 
 # plt.figure()
 opinion.plot()
+plt.legend([])
 plt.show()
