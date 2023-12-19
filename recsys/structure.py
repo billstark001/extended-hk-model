@@ -1,7 +1,6 @@
 from typing import List, Dict
 import numpy as np
 from model import HKAgent, HKModel, HKModelRecommendationSystem
-from scipy.sparse import lil_matrix
 from tqdm import tqdm
 import networkx as nx
 

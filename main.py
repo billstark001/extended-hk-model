@@ -4,9 +4,9 @@ from tqdm import tqdm
 from model import HKModel, HKModelParams
 from recsys import Random, Opinion, Structure
 
-n_agent = 500
+n_agent = 1000
 n_edges = 20
-n_step = 120
+n_step = 200
 
 G = nx.erdos_renyi_graph(
     n=n_agent,
@@ -35,6 +35,6 @@ opinion = data['Opinion'].unstack()
 # plt.show()
 
 # plt.figure()
-opinion.plot()
+opinion.plot(lw = 0.5)
 plt.legend([])
 plt.show()
