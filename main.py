@@ -2,11 +2,11 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from model import HKModel, HKModelParams
-from recsys import Random, Opinion
+from recsys import Random, Opinion, Structure
 
 n_agent = 500
 n_edges = 20
-n_step = 800
+n_step = 120
 
 G = nx.erdos_renyi_graph(
     n=n_agent,
@@ -20,7 +20,7 @@ params = HKModelParams(
     decay=0.1,
     rewiring_rate=0.05,
     recsys_rate=0.8,
-    recsys_factory=Opinion,
+    recsys_factory=Structure,
 )
 
 model = HKModel(G, params)

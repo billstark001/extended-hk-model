@@ -106,14 +106,18 @@ class HKModel(Model):
       self.recsys.pre_step()
     self.schedule.step()
     # commit changes
+    if self.recsys:
+      self.recsys.pre_commit()
+    changed: List[int] = []
     for a in agents:
       a.cur_opinion = a.next_opinion
       if a.next_follow:
         unfollow, follow = a.next_follow
         self.graph.remove_edge(a.unique_id, unfollow.unique_id)
         self.graph.add_edge(a.unique_id, follow.unique_id)
+        changed.extend([a.unique_id, unfollow.unique_id, follow.unique_id])
     if self.recsys:
-      self.recsys.post_step()
+      self.recsys.post_step(changed)
     # collect data
     self.datacollector.collect(self)
 
@@ -143,7 +147,11 @@ class HKModelRecommendationSystem(abc.ABC):
     pass
 
   @abc.abstractmethod
-  def post_step(self):
+  def pre_commit(self):
+    pass
+
+  @abc.abstractmethod
+  def post_step(self, changed: List[int]):
     pass
 
 

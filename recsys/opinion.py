@@ -8,7 +8,6 @@ class Opinion(HKModelRecommendationSystem):
 
   def post_init(self):
     self.num_nodes = self.model.graph.number_of_nodes()
-    self.all_ids = np.arange(1, self.num_nodes + 1, dtype=int)
     self.agents: List[HKAgent] = list(self.model.schedule.agents)
     self.agent_indices: Dict[int, int] = {}
 
@@ -46,5 +45,8 @@ class Opinion(HKModelRecommendationSystem):
 
     return ret
 
-  def post_step(self):
+  def post_step(self, changed: List[int]):
+    pass
+  
+  def pre_commit(self):
     pass
