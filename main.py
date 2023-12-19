@@ -6,7 +6,7 @@ from recsys import Random, Opinion, Structure
 
 n_agent = 1000
 n_edges = 20
-n_step = 200
+n_step = 1000
 
 G = nx.erdos_renyi_graph(
     n=n_agent,
@@ -20,7 +20,7 @@ params = HKModelParams(
     decay=0.1,
     rewiring_rate=0.05,
     recsys_rate=0.8,
-    recsys_factory=Structure,
+    recsys_factory=Opinion,
 )
 
 model = HKModel(G, params)
