@@ -2,7 +2,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from model import HKModel, HKModelParams
-from recsys import Random, Nearest
+from recsys import Random, Opinion
 
 n_agent = 500
 n_edges = 20
@@ -18,9 +18,9 @@ G_start = nx.DiGraph(G)
 params = HKModelParams(
     tolerance=0.3,
     decay=0.1,
-    rewiring_rate=0.3,
+    rewiring_rate=0.05,
     recsys_rate=0.8,
-    # recsys_factory=Random,
+    recsys_factory=Opinion,
 )
 
 model = HKModel(G, params)
