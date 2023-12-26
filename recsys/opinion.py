@@ -23,9 +23,8 @@ class Opinion(HKModelRecommendationSystem):
       self.agent_indices[a.unique_id] = i
     self.epsilon = np.random.normal(0, self.sigma, (self.num_nodes, ))
 
-  def recommend(self, agent: HKAgent, neighbors: List[HKAgent], rate: float) -> List[HKAgent]:
+  def recommend(self, agent: HKAgent, neighbors: List[HKAgent], count: int) -> List[HKAgent]:
     neighbor_ids = set([x.unique_id for x in neighbors])
-    count = int(rate * len(neighbors) + 0.5)
     o = agent.cur_opinion + self.epsilon[agent.unique_id]
 
     i_pre = self.agent_indices[agent.unique_id] - 1

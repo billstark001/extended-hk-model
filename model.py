@@ -1,4 +1,5 @@
-from typing import List, Optional, Tuple, Callable
+from typing import List, Optional, Tuple, Callable, Union, Iterable, Dict
+from numpy.typing import NDArray
 
 import numpy as np
 import networkx as nx
@@ -80,24 +81,31 @@ class HKModel(Model):
   def __init__(
       self,
       graph: nx.DiGraph,
-      params: 'HKModelParams',
+      opinion: Union[None, Iterable[float], NDArray, Dict[int, float]],
+      params: 'HKModelParams' = None,
+      collect = False
   ):
+    params = params if params is not None else HKModelParams()
+    opinion = opinion if opinion is not None else \
+      np.random.uniform(-1, 1, (graph.number_of_nodes(), ))
     self.graph = graph
     self.p = params
     self.recsys = params.recsys_factory(
         self) if params.recsys_factory else None
+    self.collect = collect
 
     self.grid = NetworkGrid(self.graph)
     self.schedule = RandomActivation(self)
     for node in self.graph.nodes():
-      a = HKAgent(node, self)
+      a = HKAgent(node, self, opinion[node])
       self.grid.place_agent(a, node)
       self.schedule.add(a)
     if self.recsys:
       self.recsys.post_init()
       
-    self.datacollector = DataCollector(agent_reporters=dict(Opinion='cur_opinion'))
-    self.datacollector.collect(self)
+    if self.collect:
+      self.datacollector = DataCollector(agent_reporters=dict(Opinion='cur_opinion'))
+      self.datacollector.collect(self)
 
   def step(self):
     agents: List['HKAgent'] = self.schedule.agents
@@ -119,14 +127,15 @@ class HKModel(Model):
     if self.recsys:
       self.recsys.post_step(changed)
     # collect data
-    self.datacollector.collect(self)
+    if self.collect:
+      self.datacollector.collect(self)
 
   def get_recommendation(self, agent: HKAgent, neighbors: Optional[List[HKAgent]] = None) -> List[HKAgent]:
     if not self.recsys:
       return []
     neighbors = neighbors if neighbors is not None else self.grid.get_neighbors(
         agent.unique_id, include_center=False)
-    return self.recsys.recommend(agent, neighbors, self.p.recsys_rate)
+    return self.recsys.recommend(agent, neighbors, self.p.recsys_count)
 
 
 class HKModelRecommendationSystem(abc.ABC):
@@ -143,7 +152,7 @@ class HKModelRecommendationSystem(abc.ABC):
     pass
 
   @abc.abstractmethod
-  def recommend(self, agent: HKAgent, neighbors: List[HKAgent], rate: float) -> List[HKAgent]:
+  def recommend(self, agent: HKAgent, neighbors: List[HKAgent], count: int) -> List[HKAgent]:
     pass
 
   @abc.abstractmethod
@@ -160,7 +169,7 @@ class HKModelParams:
   tolerance: float = 0.25
   decay: float = 1
   # retweet_rate: float = 0.3
-  recsys_rate: float = 0.5
+  recsys_count: int = 10
   rewiring_rate: float = 0.1
 
   recsys_factory: Optional[Callable[[HKModel],

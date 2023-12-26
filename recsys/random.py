@@ -16,13 +16,12 @@ class Random(HKModelRecommendationSystem):
   def pre_step(self):
     pass
 
-  def recommend(self, agent: HKAgent, neighbors: List[HKAgent], rate: float) -> List[HKAgent]:
+  def recommend(self, agent: HKAgent, neighbors: List[HKAgent], count: int) -> List[HKAgent]:
     exclude_ids = np.array([x.unique_id for x in neighbors])
-    required_count = int(rate * len(neighbors) + 0.5)
     candidates = np.random.randint(
-        0, self.num_nodes, (required_count + len(neighbors), ))
+        0, self.num_nodes, (count + len(neighbors), ))
     ret = np.setdiff1d(candidates, exclude_ids)
-    return [self.agent_map[a] for a in ret[:required_count]]
+    return [self.agent_map[a] for a in ret[:count]]
 
   def post_step(self, changed: List[int]):
     pass

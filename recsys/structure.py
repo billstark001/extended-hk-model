@@ -41,7 +41,7 @@ class Structure(HKModelRecommendationSystem):
   def pre_step(self):
     pass
 
-  def recommend(self, agent: HKAgent, neighbors: List[HKAgent], rate: float) -> List[HKAgent]:
+  def recommend(self, agent: HKAgent, neighbors: List[HKAgent], count: int) -> List[HKAgent]:
     a = agent.unique_id
     vals = self.conn_mat[:, a].flatten() + \
         self.conn_mat[a, :].flatten()
@@ -51,7 +51,6 @@ class Structure(HKModelRecommendationSystem):
     if self.eta != 1:
       ret1 = ret1 ** self.eta
 
-    count = int(rate * len(neighbors) + 0.5)
     exclude_ids = np.array([x.unique_id for x in neighbors])
     ret = np.setdiff1d(np.argpartition(
         ret1, len(neighbors) + count), exclude_ids)
