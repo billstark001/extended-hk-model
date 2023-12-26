@@ -26,14 +26,16 @@ class HKAgent(Agent):
     self.cur_opinion = opinion if opinion is not None else np.random.uniform(-1, 1)
 
     # future state
-    self.diff_opinion = 0
+    self.diff_neighbor = 0
+    self.diff_recommended = 0
     self.next_opinion = self.cur_opinion
     self.next_follow: Optional[Tuple['HKAgent', 'HKAgent']] = None
 
   def step(self):
     # clear data
     self.next_opinion = self.cur_opinion
-    self.diff_opinion = 0
+    self.diff_neighbor = 0
+    self.diff_recommended = 0
     self.next_follow = None
 
     # get the neighbors
@@ -47,30 +49,29 @@ class HKAgent(Agent):
     # calculate concordant set
     epsilon = self.model.p.tolerance
     gamma = self.model.p.rewiring_rate
-    concordant: List['HKAgent'] = []
+    concordant_neighbor: List['HKAgent'] = []
     concordant_recommended: List['HKAgent'] = []
-    discordant: List['HKAgent'] = []
+    discordant_recommended: List['HKAgent'] = []
     discordant_neighbor: List['HKAgent'] = []
     for a in neighbors:
       if abs(self.cur_opinion - a.cur_opinion) <= epsilon:
-        concordant.append(a)
+        concordant_neighbor.append(a)
       else:
-        discordant.append(a)
         discordant_neighbor.append(a)
     for a in recommended:
       if abs(self.cur_opinion - a.cur_opinion) <= epsilon:
-        concordant.append(a)
         concordant_recommended.append(a)
       else:
-        discordant.append(a)
+        discordant_recommended.append(a)
 
     # update value
-    if concordant:
-      diff_new_opinion = sum(
-          [a.cur_opinion for a in concordant]
-      ) / len(concordant) - self.cur_opinion
-      self.diff_opinion = diff_new_opinion * self.model.p.decay
-      self.next_opinion += self.diff_opinion
+    n_concordant = len(concordant_neighbor) + len(concordant_recommended)
+    if n_concordant > 0:
+      sum_n = sum(a.cur_opinion for a in concordant_neighbor)
+      sum_r = sum(a.cur_opinion for a in concordant_recommended)
+      self.diff_neighbor = sum_n / n_concordant - self.cur_opinion
+      self.diff_recommended = sum_r / n_concordant - self.cur_opinion
+      self.next_opinion += ((sum_r + sum_n) / n_concordant - self.cur_opinion) * self.model.p.decay
 
     # handle rewiring
     if gamma > 0 and discordant_neighbor and concordant_recommended and np.random.uniform() < gamma:
