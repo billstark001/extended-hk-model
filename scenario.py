@@ -61,7 +61,7 @@ class Scenario:
     graph = nx.DiGraph(self.model.graph)
     agents: List[HKAgent] = []
     # opinion
-    opinion: Dict[int, float] = {}
+    opinion = np.zeros((self.model.graph.number_of_nodes(), ), dtype=float)
     for a in agents:
       opinion[a.unique_id] = a.cur_opinion
     # data
@@ -96,4 +96,21 @@ class Scenario:
     dn = data['DiffNeighbor'].unstack().to_numpy()
     dr = data['DiffRecommended'].unstack().to_numpy()
     return opinion, dn, dr
+  
+  def collect_stats(self):
+    graph, o_slice, _ = self.dump()
+    
+    # distance distribution
+    o_slice_mat = np.tile(o_slice.reshape((o_slice.size, 1)), o_slice.size)
+    o_slice_dist = np.abs(o_slice_mat - o_slice_mat.T)
+    
+    # closed triads' count
+    triads = nx.triangles(nx.Graph(graph))
+    
+    
+    # clustering coefficient
+
+
+
+    # segregation index
     

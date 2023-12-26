@@ -16,7 +16,7 @@ params = HKModelParams(
     decay=0.1,
     rewiring_rate=0.03,
     recsys_count=10,
-    recsys_factory=Opinion,
+    recsys_factory=Random,
 )
 
 S = Scenario(s_params, params)
@@ -36,11 +36,13 @@ mr = np.mean(dr, axis=1)
 sr = np.std(dr, axis=1)
 plt.plot(sn, lw=1)
 plt.plot(sr, lw=1)
-plt.legend(['Neighbor', 'Recommended'])
-plt.title('Variance')
+plt.plot(sn + sr, lw=1)
+plt.legend(['Neighbor', 'Recommended', 'Total'])
+plt.title('Standard Deviation')
 plt.show()
 plt.plot(mn, lw=1)
 plt.plot(mr, lw=1)
-plt.legend(['Neighbor', 'Recommended'])
+plt.plot(mn + mr, lw=1)
+plt.legend(['Neighbor', 'Recommended', 'Total'])
 plt.title('Mean')
 plt.show()
