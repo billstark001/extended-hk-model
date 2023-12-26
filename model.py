@@ -26,12 +26,14 @@ class HKAgent(Agent):
     self.cur_opinion = opinion if opinion is not None else np.random.uniform(-1, 1)
 
     # future state
+    self.diff_opinion = 0
     self.next_opinion = self.cur_opinion
     self.next_follow: Optional[Tuple['HKAgent', 'HKAgent']] = None
 
   def step(self):
     # clear data
     self.next_opinion = self.cur_opinion
+    self.diff_opinion = 0
     self.next_follow = None
 
     # get the neighbors
@@ -67,7 +69,8 @@ class HKAgent(Agent):
       diff_new_opinion = sum(
           [a.cur_opinion for a in concordant]
       ) / len(concordant) - self.cur_opinion
-      self.next_opinion += diff_new_opinion * self.model.p.decay
+      self.diff_opinion = diff_new_opinion * self.model.p.decay
+      self.next_opinion += self.diff_opinion
 
     # handle rewiring
     if gamma > 0 and discordant_neighbor and concordant_recommended and np.random.uniform() < gamma:
@@ -118,7 +121,9 @@ class HKModel(Model):
       self.recsys.pre_commit()
     changed: List[int] = []
     for a in agents:
+      # opinion
       a.cur_opinion = a.next_opinion
+      # rewiring
       if a.next_follow:
         unfollow, follow = a.next_follow
         self.graph.remove_edge(a.unique_id, unfollow.unique_id)

@@ -7,7 +7,7 @@ from recsys import Random, Opinion, Structure
 s_params = ScenarioParams(
     n_agent=1000,
     n_edges=15,
-    n_step=200,
+    n_step=300,
 )
 
 params = HKModelParams(
@@ -15,18 +15,19 @@ params = HKModelParams(
     decay=0.1,
     rewiring_rate=0.03,
     recsys_count=10,
-    recsys_factory=Random,
+    recsys_factory=Opinion,
 )
 
 S = Scenario(s_params, params)
 S.init()
 S.step()
-opinion = S.get_opinion_data()
-# plt.figure()
-# nx.draw_networkx(G)
-# plt.show()
+opinion, difference = S.get_opinion_data()
 
 # plt.figure()
 opinion.plot(lw=0.5)
+plt.legend([])
+plt.show()
+
+difference.plot(lw=0.5)
 plt.legend([])
 plt.show()

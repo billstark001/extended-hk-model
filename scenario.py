@@ -42,7 +42,8 @@ class Scenario:
     
   def init_data(self, collect=True):
     self.datacollector = DataCollector(agent_reporters=dict(
-      Opinion='cur_opinion'
+      Opinion='cur_opinion',
+      Difference='diff_opinion',
     ))
     if collect:
       self.datacollector.collect(self.model)
@@ -91,5 +92,6 @@ class Scenario:
   def get_opinion_data(self):
     data = self.datacollector.get_agent_vars_dataframe()
     opinion = data['Opinion'].unstack()
-    return opinion
+    difference = data['Difference'].unstack()
+    return opinion, difference
     
