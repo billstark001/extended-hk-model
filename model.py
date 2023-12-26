@@ -67,11 +67,11 @@ class HKAgent(Agent):
     # update value
     n_concordant = len(concordant_neighbor) + len(concordant_recommended)
     if n_concordant > 0:
-      sum_n = sum(a.cur_opinion for a in concordant_neighbor)
-      sum_r = sum(a.cur_opinion for a in concordant_recommended)
-      self.diff_neighbor = sum_n / n_concordant - self.cur_opinion
-      self.diff_recommended = sum_r / n_concordant - self.cur_opinion
-      self.next_opinion += ((sum_r + sum_n) / n_concordant - self.cur_opinion) * self.model.p.decay
+      sum_n = sum(a.cur_opinion - self.cur_opinion for a in concordant_neighbor)
+      sum_r = sum(a.cur_opinion - self.cur_opinion for a in concordant_recommended)
+      self.diff_neighbor = sum_n / n_concordant
+      self.diff_recommended = sum_r / n_concordant
+      self.next_opinion += ((sum_r + sum_n) / n_concordant) * self.model.p.decay
 
     # handle rewiring
     if gamma > 0 and discordant_neighbor and concordant_recommended and np.random.uniform() < gamma:

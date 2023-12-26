@@ -16,7 +16,7 @@ params = HKModelParams(
     decay=0.1,
     rewiring_rate=0.03,
     recsys_count=10,
-    recsys_factory=Structure,
+    recsys_factory=Opinion,
 )
 
 S = Scenario(s_params, params)
@@ -30,9 +30,9 @@ plt.plot(opinion, lw=0.5)
 plt.title('Opinion')
 plt.show()
 
-mn = np.mean(np.abs(dn), axis=1)
+mn = np.mean(dn, axis=1)
 sn = np.std(dn, axis=1)
-mr = np.mean(np.abs(dr), axis=1)
+mr = np.mean(dr, axis=1)
 sr = np.std(dr, axis=1)
 plt.plot(sn, lw=1)
 plt.plot(sr, lw=1)
