@@ -2,3 +2,5 @@ numpy
 networkx
 mesa
 matplotlib
+seaborn
+tqdm
