@@ -29,37 +29,26 @@ S.step()
 
 sns.set()
 
-opinion, dn, dr = S.get_opinion_data()
-# (t, n)
+opinion, dn, dr = S.get_opinion_data()  # (t, n)
 
-# plt.figure()
 plt.plot(opinion, lw=0.5)
 plt.title('Opinion')
 plt.show()
 
-mn = np.mean(dn, axis=1)
 sn = np.std(dn, axis=1)
-mr = np.mean(dr, axis=1)
 sr = np.std(dr, axis=1)
 
 plt.plot(sn, lw=1)
 plt.plot(sr, lw=1)
 plt.plot(sn + sr, lw=1)
 plt.legend(['Neighbor', 'Recommended', 'Total'])
-plt.title('Standard Deviation')
+plt.title('Standard Deviation of Contribution')
 plt.show()
-
-# plt.plot(mn, lw=1)
-# plt.plot(mr, lw=1)
-# plt.plot(mn + mr, lw=1)
-# plt.legend(['Neighbor', 'Recommended', 'Total'])
-# plt.title('Mean')
-# plt.show()
 
 stats = S.stats
 stats_index = sorted(stats.keys())
 distance, triads, clustering, segregation = [
-    [stats[i][n] for i in stats_index] \
+    [stats[i][n] for i in stats_index]
     for n in range(4)
 ]
 

@@ -30,7 +30,9 @@ class ScenarioParams:
     opinion = np.random.uniform(*self.opinion_range, (self.agent_count, ))
     return graph, opinion
 
+
 StatsType = Tuple[Tuple[NDArray[Any], NDArray[Any]], int, float, float]
+
 
 class Scenario:
 
@@ -48,12 +50,12 @@ class Scenario:
     self.model_params = model_params
     self.stats = {}
     self.steps = 0
-    
+
   def init_data(self, collect=True):
     self.datacollector = DataCollector(agent_reporters=dict(
-      Opinion='cur_opinion',
-      DiffNeighbor='diff_neighbor',
-      DiffRecommended='diff_recommended'
+        Opinion='cur_opinion',
+        DiffNeighbor='diff_neighbor',
+        DiffRecommended='diff_recommended'
     ))
     self.stats = {}
     if collect:
@@ -82,13 +84,13 @@ class Scenario:
     return graph, opinion, data, self.stats, self.steps
 
   def load(
-      self, 
-      graph: nx.DiGraph, 
-      opinion: Dict[int, float], 
+      self,
+      graph: nx.DiGraph,
+      opinion: Dict[int, float],
       data: Optional[Tuple[dict, dict, dict]] = None,
       stats: Dict[int, StatsType] = None,
       step: int = 0,
-    ):
+  ):
     self.model = HKModel(graph, opinion, self.model_params)
     if data is not None:
       self.init_data(collect=False)
@@ -101,57 +103,58 @@ class Scenario:
     if stats is not None:
       self.stats = stats
     self.steps = step or 0
-      
+
   def step_once(self):
     self.model.step()
     self.steps += 1
-    
+
     if self.steps % self.scenario_params.data_interval == 0:
       self.datacollector.collect(self.model)
     if self.steps % self.scenario_params.stat_interval == 0:
       self.add_stats()
-    
+
   def step(self, count: int = 0):
     if count < 1:
       count = self.scenario_params.total_step
     for _ in tqdm(range(count)):
       self.step_once()
-      
+
   def get_opinion_data(self):
     data = self.datacollector.get_agent_vars_dataframe()
     opinion = data['Opinion'].unstack().to_numpy()
     dn = data['DiffNeighbor'].unstack().to_numpy()
     dr = data['DiffRecommended'].unstack().to_numpy()
     return opinion, dn, dr
-  
+
   def add_stats(self):
     self.stats[self.steps] = self.collect_stats()
-  
+
   def collect_stats(self, hist_interval=0.05):
     digraph, opinion, _, _, _ = self.dump()
     graph = nx.Graph(digraph)
     n = graph.number_of_nodes()
-    
+
     # distance distribution
     o_slice_mat = np.tile(opinion.reshape((opinion.size, 1)), opinion.size)
     o_sample = np.abs(o_slice_mat - o_slice_mat.T).flatten()
-    distance_dist = np.histogram(o_sample, bins=np.arange(-1, 1 + hist_interval, hist_interval))
-    
+    distance_dist = np.histogram(
+        o_sample, bins=np.arange(-1, 1 + hist_interval, hist_interval))
+
     # closed triads' count
     triads = nx.triangles(graph)
     triads_count = sum(triads.values()) // 3
-    
+
     # clustering coefficient
     clustering = nx.average_clustering(graph)
 
     # segregation index
     positive_amount = max(1, np.sum(opinion > 0))
     negative_amount = max(1, n - positive_amount)
-    edge_interconnection = len([None for u, v in graph.edges if opinion[u] * opinion[v] <= 0])
-    
+    edge_interconnection = len(
+        [None for u, v in graph.edges if opinion[u] * opinion[v] <= 0])
+
     density = graph.number_of_edges() / (n * (n - 1) / 2)
     s_index: float = 1 - edge_interconnection / \
-      (2 * density * positive_amount * negative_amount)
-      
+        (2 * density * positive_amount * negative_amount)
+
     return distance_dist, triads_count, clustering, s_index
-    
