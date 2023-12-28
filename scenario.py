@@ -138,7 +138,7 @@ class Scenario:
     o_slice_mat = np.tile(opinion.reshape((opinion.size, 1)), opinion.size)
     o_sample = np.abs(o_slice_mat - o_slice_mat.T).flatten()
     distance_dist = np.histogram(
-        o_sample, bins=np.arange(-1, 1 + hist_interval, hist_interval))
+        o_sample, bins=np.arange(0, np.max(o_sample) + hist_interval, hist_interval))
 
     # closed triads' count
     triads = nx.triangles(graph)

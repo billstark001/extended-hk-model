@@ -7,9 +7,9 @@ from scenario import ScenarioParams, Scenario
 from recsys import Random, Opinion, Structure
 
 s_params = ScenarioParams(
-    agent_count=1000,
+    agent_count=3000,
     agent_follow=15,
-    total_step=500,
+    total_step=800,
     stat_interval=15,
 )
 
