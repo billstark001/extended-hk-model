@@ -1,8 +1,9 @@
 from typing import List, Dict
 import numpy as np
-from model import HKAgent, HKModel, HKModelRecommendationSystem
 from tqdm import tqdm
 import networkx as nx
+
+from base import HKAgent, HKModel, HKModelRecommendationSystem
 
 
 def common_neighbors_count(G: nx.DiGraph, u: int, v: int):

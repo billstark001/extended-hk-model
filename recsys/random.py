@@ -1,6 +1,6 @@
 from typing import List, Dict
 import numpy as np
-from model import HKAgent, HKModelRecommendationSystem
+from base import HKAgent, HKModelRecommendationSystem
 
 
 class Random(HKModelRecommendationSystem):

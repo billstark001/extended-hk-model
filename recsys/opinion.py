@@ -1,6 +1,6 @@
 from typing import List, Dict
 import numpy as np
-from model import HKAgent, HKModel, HKModelRecommendationSystem
+from base import HKAgent, HKModel, HKModelRecommendationSystem
 
 
 class Opinion(HKModelRecommendationSystem):

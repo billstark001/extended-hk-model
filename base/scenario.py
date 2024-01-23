@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, List, Optional, Any
+from typing import Dict, Tuple, List, Optional, Any, Protocol
 from numpy.typing import NDArray
 
 import dataclasses
@@ -6,33 +6,25 @@ import dataclasses
 import networkx as nx
 import numpy as np
 
-from model import HKModel, HKModelParams, HKAgent
+from base.model import HKModel, HKModelParams, HKAgent
 from mesa import DataCollector
 
 from tqdm import tqdm
 
+from collections import Counter
 
+StatsType = Tuple[List[NDArray], Tuple[NDArray[Any], NDArray[Any]], int, float, float]
+
+class EnvironmentProvider(Protocol):
+  
+  def generate(self, *args, **kwargs) -> Tuple[nx.DiGraph, NDArray]:
+    pass
+  
 @dataclasses.dataclass
-class ScenarioParams:
-  agent_count: int = 1000
-  agent_follow: int = 20
+class SimulationParams:
   total_step: int = 1000
   data_interval: int = 1
   stat_interval: int = 20
-  opinion_range: Tuple[int, int] = (-1, 1)
-
-  def generate(self):
-    graph: nx.DiGraph = nx.erdos_renyi_graph(
-        n=self.agent_count,
-        p=self.agent_follow / (self.agent_count - 1),
-        directed=True
-    )
-    opinion = np.random.uniform(*self.opinion_range, (self.agent_count, ))
-    return graph, opinion
-
-
-StatsType = Tuple[Tuple[NDArray[Any], NDArray[Any]], int, float, float]
-
 
 class Scenario:
 
@@ -43,10 +35,12 @@ class Scenario:
 
   def __init__(
       self,
-      scenario_params: ScenarioParams,
+      env_provider: EnvironmentProvider,
       model_params: HKModelParams,
+      sim_params: SimulationParams,
   ):
-    self.scenario_params = scenario_params
+    self.env_provider = env_provider
+    self.sim_params = sim_params
     self.model_params = model_params
     self.stats = {}
     self.steps = 0
@@ -56,15 +50,17 @@ class Scenario:
         Opinion='cur_opinion',
         DiffNeighbor='diff_neighbor',
         DiffRecommended='diff_recommended'
+    ), model_reporters=dict(
+        Step=lambda _: self.steps
     ))
     self.stats = {}
     if collect:
-      self.datacollector.collect(self.model)
+      self.add_data()
       self.add_stats()
     self.model.datacollector = self.datacollector
 
-  def init(self):
-    graph, opinion = self.scenario_params.generate()
+  def init(self, *args, **kwargs):
+    graph, opinion = self.env_provider.generate(*args, **kwargs)
     model = HKModel(graph, opinion, self.model_params)
     self.model = model
     self.steps = 0
@@ -73,11 +69,12 @@ class Scenario:
   def dump(self):
     # graph
     graph = nx.DiGraph(self.model.graph)
-    agents: List[HKAgent] = self.model.schedule.agents
+    for n in graph:
+      del graph.nodes[n]['agent']
+      
     # opinion
-    opinion = np.zeros((self.model.graph.number_of_nodes(), ), dtype=float)
-    for a in agents:
-      opinion[a.unique_id] = a.cur_opinion
+    opinion = self.get_current_opinion()
+    
     # data
     c = self.datacollector
     data = (c.model_vars, c._agent_records, c.tables)
@@ -108,31 +105,49 @@ class Scenario:
     self.model.step()
     self.steps += 1
 
-    if self.steps % self.scenario_params.data_interval == 0:
-      self.datacollector.collect(self.model)
-    if self.steps % self.scenario_params.stat_interval == 0:
+    if self.steps % self.sim_params.data_interval == 0:
+      self.add_data()
+    if self.steps % self.sim_params.stat_interval == 0:
       self.add_stats()
 
   def step(self, count: int = 0):
     if count < 1:
-      count = self.scenario_params.total_step
+      count = self.sim_params.total_step
     for _ in tqdm(range(count)):
       self.step_once()
 
+  def get_current_opinion(self):
+    agents: List[HKAgent] = self.model.schedule.agents
+    opinion = np.zeros((self.model.graph.number_of_nodes(), ), dtype=float)
+    for a in agents:
+      opinion[a.unique_id] = a.cur_opinion
+    return opinion
+
   def get_opinion_data(self):
-    data = self.datacollector.get_agent_vars_dataframe()
-    opinion = data['Opinion'].unstack().to_numpy()
-    dn = data['DiffNeighbor'].unstack().to_numpy()
-    dr = data['DiffRecommended'].unstack().to_numpy()
-    return opinion, dn, dr
+    data = self.datacollector.get_agent_vars_dataframe().unstack()
+    steps = data.index.to_numpy()
+    opinion = data['Opinion'].to_numpy()
+    dn = data['DiffNeighbor'].to_numpy()
+    dr = data['DiffRecommended'].to_numpy()
+    return steps, opinion, dn, dr
+
+  def add_data(self):
+    self.datacollector.collect(self.model)
 
   def add_stats(self):
     self.stats[self.steps] = self.collect_stats()
 
   def collect_stats(self, hist_interval=0.05):
-    digraph, opinion, _, _, _ = self.dump()
+    digraph = self.model.graph
     graph = nx.Graph(digraph)
     n = graph.number_of_nodes()
+    
+    opinion = self.get_current_opinion()
+    
+    # in-degree distribution
+    in_degree_dict = dict(digraph.in_degree())
+    in_degree_dist = Counter(in_degree_dict.values())
+    in_degree = np.array(sorted(in_degree_dist.items())).T
 
     # distance distribution
     o_slice_mat = np.tile(opinion.reshape((opinion.size, 1)), opinion.size)
@@ -157,4 +172,4 @@ class Scenario:
     s_index: float = 1 - edge_interconnection / \
         (2 * density * positive_amount * negative_amount)
 
-    return distance_dist, triads_count, clustering, s_index
+    return in_degree, distance_dist, triads_count, clustering, s_index
