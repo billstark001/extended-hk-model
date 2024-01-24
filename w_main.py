@@ -8,33 +8,10 @@ import traceback
 from w_scenarios import all_scenarios
 import w_snapshots as ss
 
-import logging
-
-snapshot_interval = 5 * 60
+snapshot_interval = 2 * 60
 max_snapshots = 5
 
-# logger
-
-ss.init()
-
-logger = logging.getLogger(__name__)
-
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
-
-file_handler = logging.FileHandler(ss.DEFAULT_ROOT_PATH + 'logfile.log')
-file_handler.setLevel(logging.INFO)
-
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-
-console_handler.setFormatter(formatter)
-file_handler.setFormatter(formatter)
-
-logger.addHandler(console_handler)
-logger.addHandler(file_handler)
-
-logger.setLevel(logging.DEBUG)
-
+from w_logger import logger
 
 if __name__ == "__main__":
 
@@ -72,6 +49,12 @@ if __name__ == "__main__":
     while not model.should_halt():
       try:
         model.step_once()
+        
+        if model.steps % 100 == 0:
+          logger.info(f'Model at step {model.steps}.')
+        elif model.steps % 10 == 0:
+          logger.debug(f'Model at step {model.steps}.')
+        
         cur_timestamp = time.time()
         if cur_timestamp - last_timestamp > snapshot_interval:
           # save snapshot
@@ -94,3 +77,5 @@ if __name__ == "__main__":
       logger.info(
           f'Simulation completed for scenario `{scenario_name}`. {model.steps} steps simulated in total.')
       do_save()
+    else:
+      break

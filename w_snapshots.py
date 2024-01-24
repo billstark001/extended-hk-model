@@ -30,10 +30,14 @@ def load_latest(scenario_name: str, root_path=DEFAULT_ROOT_PATH):
       snapshots.append(filename)
   if snapshots:
     snapshots.sort()
-    latest_snapshot = snapshots[-1]
-    snapshot_path = os.path.join(root_path, latest_snapshot)
-    with open(snapshot_path, 'rb') as f:
-      return pickle.load(f), latest_snapshot
+    for latest_snapshot in snapshots[::-1]:
+      snapshot_path = os.path.join(root_path, latest_snapshot)
+      try:
+        with open(snapshot_path, 'rb') as f:
+          ret = pickle.load(f)
+        return ret, latest_snapshot
+      except:
+        continue
   return None, None
 
 

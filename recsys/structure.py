@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Optional, Callable
 import time
 import numpy as np
 from tqdm import tqdm
@@ -23,9 +23,12 @@ class Structure(HKModelRecommendationSystem):
       eta: float = 1,
       sigma: float = 0.5,
       matrix_init: bool = False,
+      log: Optional[Callable[[str], None]] = None,
   ):
     super().__init__(model)
     self.matrix_init = matrix_init
+    self.log = log
+    
     self.eta = eta if eta > 0 else 0
     self.sigma = sigma if sigma > 0 else -sigma
     self.agent_map: Dict[int, HKAgent] = {}
@@ -36,13 +39,11 @@ class Structure(HKModelRecommendationSystem):
     # calculate full connection matrix 
     # recommend to use matrix calculation if n <= 1500
     
+    tstart = time.time()
     if self.matrix_init:
-      tstart = time.time()
       adj_mat = nx.to_numpy_array(self.model.graph, dtype=int)
       adj_mat += adj_mat.T
       self.conn_mat = np.array(adj_mat @ adj_mat)
-      tend = time.time()
-      print(f'Connection matrix generation costs {tend - tstart}s.')
     
     else:
       conn_mat = np.zeros((n, n), dtype=int)
@@ -51,6 +52,10 @@ class Structure(HKModelRecommendationSystem):
         for v in range(u + 1, self.num_nodes):  # v > u
           conn_mat[u, v] = common_neighbors_count(G, u, v)
       self.conn_mat = conn_mat
+      
+    tend = time.time()
+    if self.log:
+      self.log(f'Connection matrix generation costs {tend - tstart}s.')
     
     # build agent map
     for a in self.model.schedule.agents:

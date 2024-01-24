@@ -4,6 +4,8 @@ from recsys import Random, Opinion, Structure
 
 from dataclasses import asdict
 
+from w_logger import logger
+
 # model parameters
 
 model_p_random = HKModelParams(
@@ -18,19 +20,19 @@ model_p_opinion = HKModelParams(**asdict(model_p_random))
 model_p_opinion.recsys_factory = Opinion
 
 model_p_structure = HKModelParams(**asdict(model_p_random))
-model_p_structure.recsys_factory = Structure
+model_p_structure.recsys_factory = lambda m: Structure(m, matrix_init=True, log=logger.debug)
 
 # simulation parameters
 
 sim_p_standard = SimulationParams(
-    total_step=800,
+    total_step=1000,
     stat_interval=15,
 )
 
 # network providers
 
 provider_random = RandomNetworkProvider(
-    agent_count=1000,
+    agent_count=1500,
     agent_follow=15,
 )
 
