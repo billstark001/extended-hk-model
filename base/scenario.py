@@ -115,6 +115,9 @@ class Scenario:
       count = self.sim_params.total_step
     for _ in tqdm(range(count)):
       self.step_once()
+      
+  def should_halt(self):
+    return self.steps >= self.sim_params.total_step
 
   def get_current_opinion(self):
     agents: List[HKAgent] = self.model.schedule.agents

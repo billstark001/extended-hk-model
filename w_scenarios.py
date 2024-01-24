@@ -24,7 +24,7 @@ model_p_structure.recsys_factory = Structure
 
 sim_p_standard = SimulationParams(
     total_step=800,
-    stat_interval=15
+    stat_interval=15,
 )
 
 # network providers
@@ -32,8 +32,6 @@ sim_p_standard = SimulationParams(
 provider_random = RandomNetworkProvider(
     agent_count=1000,
     agent_follow=15,
-    total_step=800,
-    stat_interval=15,
 )
 
 # scenario settings

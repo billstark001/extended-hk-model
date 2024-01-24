@@ -2,16 +2,16 @@ import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from base import HKModel, HKModelParams, Scenario, SimulationParams
+from base import HKModelParams, Scenario, SimulationParams
 from env import RandomNetworkProvider
 from recsys import Random, Opinion, Structure
 
 s_params = RandomNetworkProvider(
-    agent_count=1000,
+    agent_count=5000,
     agent_follow=15,
 )
 sim_p_standard = SimulationParams(
-  total_step=800,
+  total_step=1200,
   stat_interval=15,
 )
 
@@ -20,7 +20,7 @@ params = HKModelParams(
     decay=0.1,
     rewiring_rate=0.03,
     recsys_count=10,
-    recsys_factory=Random,
+    recsys_factory=lambda m: Structure(m),
 )
 
 S = Scenario(s_params, params, sim_p_standard)

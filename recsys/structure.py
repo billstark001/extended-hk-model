@@ -1,4 +1,5 @@
 from typing import List, Dict
+import time
 import numpy as np
 from tqdm import tqdm
 import networkx as nx
@@ -20,21 +21,37 @@ class Structure(HKModelRecommendationSystem):
       self,
       model: HKModel,
       eta: float = 1,
-      sigma: float = 0.5
+      sigma: float = 0.5,
+      matrix_init: bool = False,
   ):
     super().__init__(model)
+    self.matrix_init = matrix_init
     self.eta = eta if eta > 0 else 0
     self.sigma = sigma if sigma > 0 else -sigma
     self.agent_map: Dict[int, HKAgent] = {}
 
   def post_init(self):
     self.num_nodes = n = self.model.graph.number_of_nodes()
-    self.conn_mat = np.zeros((n, n), dtype=int)
-    # calculate full connection matrix
-    G = self.model.graph
-    for u in tqdm(range(0, self.num_nodes)):
-      for v in range(u + 1, self.num_nodes):  # v > u
-        self.conn_mat[u, v] = common_neighbors_count(G, u, v)
+    
+    # calculate full connection matrix 
+    # recommend to use matrix calculation if n <= 1500
+    
+    if self.matrix_init:
+      tstart = time.time()
+      adj_mat = nx.to_numpy_array(self.model.graph, dtype=int)
+      adj_mat += adj_mat.T
+      self.conn_mat = np.array(adj_mat @ adj_mat)
+      tend = time.time()
+      print(f'Connection matrix generation costs {tend - tstart}s.')
+    
+    else:
+      conn_mat = np.zeros((n, n), dtype=int)
+      G = self.model.graph
+      for u in tqdm(range(0, self.num_nodes)):
+        for v in range(u + 1, self.num_nodes):  # v > u
+          conn_mat[u, v] = common_neighbors_count(G, u, v)
+      self.conn_mat = conn_mat
+    
     # build agent map
     for a in self.model.schedule.agents:
       self.agent_map[a.unique_id] = a
