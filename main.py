@@ -3,11 +3,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from base import HKModelParams, Scenario, SimulationParams
-from env import RandomNetworkProvider
+from env import RandomNetworkProvider, ScaleFreeNetworkProvider
 from recsys import Random, Opinion, Structure
 
-s_params = RandomNetworkProvider(
-    agent_count=5000,
+s_params = ScaleFreeNetworkProvider(
+    agent_count=500,
     agent_follow=15,
 )
 sim_p_standard = SimulationParams(
