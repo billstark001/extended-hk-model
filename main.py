@@ -7,11 +7,11 @@ from env import RandomNetworkProvider, ScaleFreeNetworkProvider
 from recsys import Random, Opinion, Structure
 
 s_params = ScaleFreeNetworkProvider(
-    agent_count=500,
+    agent_count=1000,
     agent_follow=15,
 )
 sim_p_standard = SimulationParams(
-  total_step=1200,
+  total_step=500,
   stat_interval=15,
 )
 
@@ -47,21 +47,17 @@ plt.legend(['Neighbor', 'Recommended', 'Total'])
 plt.title('Standard Deviation of Contribution')
 plt.show()
 
-stats = S.stats
-stats_index = sorted(stats.keys())
-in_degree, distance, triads, clustering, segregation = [
-    [stats[i][n] for i in stats_index]
-    for n in range(5)
-]
+stats = S.generate_stats()
+stats_index = stats['step']
 
-plt.plot(stats_index, triads)
+plt.plot(stats_index, stats['closed triads\' count'])
 plt.title('Count of Closed Triads')
 plt.show()
 
-plt.plot(stats_index, clustering)
+plt.plot(stats_index, stats['clustering coefficient'])
 plt.title('Average Clustering Coefficient')
 plt.show()
 
-plt.plot(stats_index, segregation)
+plt.plot(stats_index, stats['segregation index'])
 plt.title('Segregation Index')
 plt.show()

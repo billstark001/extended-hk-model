@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, List, Optional, Any, Protocol
+from typing import Dict, Tuple, List, Optional, Any, Protocol, Union
 from numpy.typing import NDArray
 
 import dataclasses
@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 from collections import Counter
 
-StatsType = Tuple[List[NDArray], Tuple[NDArray[Any], NDArray[Any]], int, float, float]
+StatsType = Dict[str, Union[NDArray, int, float]]
 
 class EnvironmentProvider(Protocol):
   
@@ -158,6 +158,12 @@ class Scenario:
     distance_dist = np.histogram(
         o_sample, bins=np.arange(0, np.max(o_sample) + hist_interval, hist_interval))
 
+    # subjective distance distribution
+    neighbors = np.array(digraph.edges)[:, 1]
+    o_sample_neighbors = opinion[neighbors]
+    s_distance_dist = np.histogram(
+        o_sample_neighbors, bins=np.arange(0, np.max(o_sample_neighbors) + hist_interval, hist_interval))
+
     # closed triads' count
     triads = nx.triangles(graph)
     triads_count = sum(triads.values()) // 3
@@ -174,5 +180,38 @@ class Scenario:
     density = graph.number_of_edges() / (n * (n - 1) / 2)
     s_index: float = 1 - edge_interconnection / \
         (2 * density * positive_amount * negative_amount)
+        
+    ret_dict = {
+      'in-degree': in_degree,
+      'distance distribution': distance_dist,
+      'subjective distance distribution': s_distance_dist,
+      'closed triads\' count': triads_count,
+      'clustering coefficient': clustering, 
+      'segregation index': s_index,
+    }
 
-    return in_degree, distance_dist, triads_count, clustering, s_index
+    return ret_dict
+  
+  def generate_stats(self):
+    step_indices = list(self.stats.keys())
+    item_set = set()
+    for v in self.stats.values():
+      if isinstance(v, dict):
+        for k in v.keys():
+          item_set.add(k)
+          
+    ret_dict = {
+      'step': step_indices
+    }
+    for item in item_set:
+      ret_dict[item] = []
+    
+    for step in step_indices:
+      step_dict = self.stats[step]
+      if not isinstance(step_dict, dict):
+        step_dict = {}
+      for item in item_set:
+        ret_dict[item].append(step_dict[item] if item in step_dict else None)
+      
+    return ret_dict
+    
