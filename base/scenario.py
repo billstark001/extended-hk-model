@@ -159,8 +159,8 @@ class Scenario:
         o_sample, bins=np.arange(0, np.max(o_sample) + hist_interval, hist_interval))
 
     # subjective distance distribution
-    neighbors = np.array(digraph.edges)[:, 1]
-    o_sample_neighbors = opinion[neighbors]
+    neighbors = np.array(digraph.edges)
+    o_sample_neighbors = np.abs(opinion[neighbors[:, 1]] - opinion[neighbors[:, 0]])
     s_distance_dist = np.histogram(
         o_sample_neighbors, bins=np.arange(0, np.max(o_sample_neighbors) + hist_interval, hist_interval))
 
