@@ -12,8 +12,9 @@ def ideal_dist_init(x: float):
     return 0
   return x / -2 + 1
 
+
 def ideal_dist_init_array(x: NDArray):
-  ret_array =  x / -2 + 1
+  ret_array = x / -2 + 1
   ret_array[x > 2] = 0
   ret_array[x < 0] = 0
   return ret_array
@@ -95,12 +96,6 @@ class DistanceCollectorContinuous:
         self.prefix + '-final-s': kl_divergence(s_sample, ideal_dist_final_s()),
     }
 
-    # histogram (deprecated)
-    # distance_dist = np.histogram(
-    #     o_sample, bins=np.arange(0, np.max(o_sample) + hist_interval, hist_interval))
-    # s_distance_dist = np.histogram(
-    #     o_sample_neighbors, bins=np.arange(0, np.max(o_sample_neighbors) + hist_interval, hist_interval))
-
 
 def get_pmf(
     data: NDArray,
@@ -111,7 +106,7 @@ def get_pmf(
   bins_orig = np.arange(rmin, rmax + hist_interval, hist_interval) \
       if hist_interval is not None else None
   count, bins = np.histogram(data, range=range) if bins_orig is None else \
-    np.histogram(data, bins=bins_orig, range=range)
+      np.histogram(data, bins=bins_orig, range=range)
   axis = (bins[:-1] + bins[1:]) / 2
   dist = count / np.sum(count)
   return axis, dist
@@ -139,8 +134,10 @@ class DistanceCollectorDiscrete:
     s_sample = np.abs(
         opinion[neighbors[:, 1]] - opinion[neighbors[:, 0]])
 
-    o_axis, o_pmf = get_pmf(o_sample, range=(0, 2), hist_interval=self.hist_interval)
-    s_axis, s_pmf = get_pmf(s_sample, range=(0, 2), hist_interval=self.hist_interval)
+    o_axis, o_pmf = get_pmf(o_sample, range=(
+        0, 2), hist_interval=self.hist_interval)
+    s_axis, s_pmf = get_pmf(s_sample, range=(
+        0, 2), hist_interval=self.hist_interval)
 
     o_init = ideal_dist_init_array(o_axis)
     o_init /= np.sum(o_init)
@@ -161,9 +158,3 @@ class DistanceCollectorDiscrete:
         self.prefix + '-final-o': kl_divergence_discrete(o_pmf, o_final),
         self.prefix + '-final-s': kl_divergence_discrete(s_pmf, s_final),
     }
-
-    # histogram (deprecated)
-    # distance_dist = np.histogram(
-    #     o_sample, bins=np.arange(0, np.max(o_sample) + hist_interval, hist_interval))
-    # s_distance_dist = np.histogram(
-    #     o_sample_neighbors, bins=np.arange(0, np.max(o_sample_neighbors) + hist_interval, hist_interval))
