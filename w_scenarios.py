@@ -4,6 +4,7 @@ from recsys import Random, Opinion, Structure
 
 from dataclasses import asdict
 
+import stats
 from w_logger import logger
 
 # model parameters
@@ -28,6 +29,13 @@ model_p_structure.recsys_factory = lambda m: Structure(
 sim_p_standard = SimulationParams(
     total_step=1500,
     stat_interval=15,
+    stat_collectors={
+      'triads': stats.TriadsCountCollector(),
+      'cluster': stats.ClusteringCollector(),
+      's-index': stats.SegregationIndexCollector(),
+      'in-degree': stats.InDegreeCollector(),
+      'distance': stats.DistanceCollectorDiscrete(),
+    }
 )
 
 # network providers

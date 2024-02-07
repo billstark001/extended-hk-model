@@ -20,11 +20,17 @@ class EnvironmentProvider(Protocol):
   def generate(self, *args, **kwargs) -> Tuple[nx.DiGraph, NDArray]:
     pass
   
+class StatCollector(Protocol):
+  
+  def collect(self, digraph: nx.DiGraph, graph: nx.Graph, n: int, opinion: NDArray) -> Union[float, NDArray, Dict[str, Union[float, NDArray]]]:
+    pass
+  
 @dataclasses.dataclass
 class SimulationParams:
   total_step: int = 1000
   data_interval: int = 1
   stat_interval: int = 20
+  stat_collectors: Dict[str, StatCollector] = dataclasses.field(default_factory=dict)
 
 class Scenario:
 
@@ -41,6 +47,7 @@ class Scenario:
   ):
     self.env_provider = env_provider
     self.sim_params = sim_params
+    self.stat_collectors = self.sim_params.stat_collectors
     self.model_params = model_params
     self.stats = {}
     self.steps = 0
@@ -140,56 +147,27 @@ class Scenario:
   def add_stats(self):
     self.stats[self.steps] = self.collect_stats()
 
-  def collect_stats(self, hist_interval=0.05):
+  def collect_stats(self):
+    
     digraph = self.model.graph
     graph = nx.Graph(digraph)
     n = graph.number_of_nodes()
-    
     opinion = self.get_current_opinion()
     
-    # in-degree distribution
-    in_degree_dict = dict(digraph.in_degree())
-    in_degree_dist = Counter(in_degree_dict.values())
-    in_degree = np.array(sorted(in_degree_dist.items())).T
-
-    # distance distribution
-    o_slice_mat = np.tile(opinion.reshape((opinion.size, 1)), opinion.size)
-    o_sample = np.abs(o_slice_mat - o_slice_mat.T).flatten()
-    distance_dist = np.histogram(
-        o_sample, bins=np.arange(0, np.max(o_sample) + hist_interval, hist_interval))
-
-    # subjective distance distribution
-    neighbors = np.array(digraph.edges)
-    o_sample_neighbors = np.abs(opinion[neighbors[:, 1]] - opinion[neighbors[:, 0]])
-    s_distance_dist = np.histogram(
-        o_sample_neighbors, bins=np.arange(0, np.max(o_sample_neighbors) + hist_interval, hist_interval))
-
-    # closed triads' count
-    triads = nx.triangles(graph)
-    triads_count = sum(triads.values()) // 3
-
-    # clustering coefficient
-    clustering = nx.average_clustering(graph)
-
-    # segregation index
-    positive_amount = max(1, np.sum(opinion > 0))
-    negative_amount = max(1, n - positive_amount)
-    edge_interconnection = len(
-        [None for u, v in graph.edges if opinion[u] * opinion[v] <= 0])
-
-    density = graph.number_of_edges() / (n * (n - 1) / 2)
-    s_index: float = 1 - edge_interconnection / \
-        (2 * density * positive_amount * negative_amount)
-        
-    ret_dict = {
-      'in-degree': in_degree,
-      'distance distribution': distance_dist,
-      'subjective distance distribution': s_distance_dist,
-      'closed triads\' count': triads_count,
-      'clustering coefficient': clustering, 
-      'segregation index': s_index,
-    }
-
+    ret_dict = {}
+    for stat in self.stat_collectors:
+      collector = self.stat_collectors[stat]
+      ret = collector.collect(
+        digraph=digraph,
+        graph=graph,
+        n=n,
+        opinion=opinion
+      )
+      if isinstance(ret, dict):
+        ret_dict.update(ret)
+      else:
+        ret_dict[stat] = ret
+    
     return ret_dict
   
   def generate_stats(self):

@@ -4,3 +4,6 @@ mesa
 matplotlib
 seaborn
 tqdm
+powerlaw
+contextlib
+scipy

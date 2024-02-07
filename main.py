@@ -5,14 +5,24 @@ import seaborn as sns
 from base import HKModelParams, Scenario, SimulationParams
 from env import RandomNetworkProvider, ScaleFreeNetworkProvider
 from recsys import Random, Opinion, Structure
+import stats
 
-s_params = ScaleFreeNetworkProvider(
+stat_collectors = {
+  'triads': stats.TriadsCountCollector(),
+  'cluster': stats.ClusteringCollector(),
+  's-index': stats.SegregationIndexCollector(),
+  'in-degree': stats.InDegreeCollector(full_data=True),
+  'distance': stats.DistanceCollectorDiscrete(),
+}
+
+s_params = RandomNetworkProvider(
     agent_count=1000,
     agent_follow=15,
 )
 sim_p_standard = SimulationParams(
-  total_step=500,
-  stat_interval=15,
+    total_step=500,
+    stat_interval=15,
+    stat_collectors=stat_collectors
 )
 
 params = HKModelParams(
@@ -20,7 +30,7 @@ params = HKModelParams(
     decay=0.1,
     rewiring_rate=0.03,
     recsys_count=10,
-    recsys_factory=lambda m: Structure(m),
+    recsys_factory=lambda m: Opinion(m),
 )
 
 S = Scenario(s_params, params, sim_p_standard)
@@ -50,14 +60,35 @@ plt.show()
 stats = S.generate_stats()
 stats_index = stats['step']
 
-plt.plot(stats_index, stats['closed triads\' count'])
+plt.plot(stats_index, stats['triads'])
 plt.title('Count of Closed Triads')
 plt.show()
 
-plt.plot(stats_index, stats['clustering coefficient'])
+plt.plot(stats_index, stats['cluster'])
 plt.title('Average Clustering Coefficient')
 plt.show()
 
-plt.plot(stats_index, stats['segregation index'])
+plt.plot(stats_index, stats['s-index'])
 plt.title('Segregation Index')
+plt.show()
+
+plt.plot(stats_index, stats['distance-init-o'])
+plt.plot(stats_index, stats['distance-init-s'])
+plt.plot(stats_index, stats['distance-final-o'])
+plt.plot(stats_index, stats['distance-final-s'])
+plt.legend(['o-init', 's-init', 'o-final', 's-final'])
+plt.title('KL Divergence of Distance Distribution')
+plt.show()
+
+plt.plot(stats_index, stats['in-degree-alpha'])
+plt.title('in-degree-alpha')
+plt.show()
+
+plt.plot(stats_index, stats['in-degree-p-value'])
+plt.title('in-degree-p')
+plt.show()
+
+si = stats['in-degree'][-1]
+plt.plot(si[0], si[1])
+plt.title('in-degree-last')
 plt.show()
