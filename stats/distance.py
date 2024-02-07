@@ -118,9 +118,12 @@ class DistanceCollectorDiscrete:
       self,
       prefix: Optional[str] = None,
       hist_interval: Optional[float] = None,
+      t_err: float = 1e-10
   ):
     self.prefix = prefix or 'distance'
     self.hist_interval = hist_interval
+    self.t_err = t_err
+    
 
   def collect(
       self,
@@ -147,14 +150,16 @@ class DistanceCollectorDiscrete:
 
     o_final = o_axis * 0
     o_final[0] = 0.5
-    o_final[-1] = 0.5
+    o_final[np.argmin(np.abs(
+      o_axis - ((np.mean(opinion[opinion > 0])) - np.mean(opinion[opinion <= 0]))
+    ))] = 0.5
 
     s_final = s_axis * 0
     s_final[0] = 1
 
     return {
-        self.prefix + '-init-o': kl_divergence_discrete(o_pmf, o_init),
-        self.prefix + '-init-s': kl_divergence_discrete(s_pmf, s_init),
-        self.prefix + '-final-o': kl_divergence_discrete(o_pmf, o_final),
-        self.prefix + '-final-s': kl_divergence_discrete(s_pmf, s_final),
+        self.prefix + '-init-o': kl_divergence_discrete(o_pmf, o_init, t_err=self.t_err),
+        self.prefix + '-init-s': kl_divergence_discrete(s_pmf, s_init, t_err=self.t_err),
+        self.prefix + '-final-o': kl_divergence_discrete(o_pmf, o_final, t_err=self.t_err),
+        self.prefix + '-final-s': kl_divergence_discrete(s_pmf, s_final, t_err=self.t_err),
     }
