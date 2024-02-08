@@ -27,26 +27,26 @@ model_p_structure.recsys_factory = lambda m: Structure(
 # simulation parameters
 
 sim_p_standard = SimulationParams(
-    max_total_step=5000,
+    max_total_step=6000,
     stat_interval=15,
     stat_collectors={
       'triads': stats.TriadsCountCollector(),
       'cluster': stats.ClusteringCollector(),
       's-index': stats.SegregationIndexCollector(),
       'in-degree': stats.InDegreeCollector(),
-      'distance': stats.DistanceCollectorDiscrete(),
+      'distance': stats.DistanceCollectorDiscrete(use_js_divergence=True),
     }
 )
 
 # network providers
 
 provider_random = RandomNetworkProvider(
-    agent_count=2500,
+    agent_count=4000,
     agent_follow=15,
 )
 
 provider_scale_free = ScaleFreeNetworkProvider(
-    agent_count=2500,
+    agent_count=4000,
     agent_follow=15
 )
 

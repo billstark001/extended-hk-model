@@ -138,6 +138,9 @@ class Scenario:
       count = self.sim_params.max_total_step
     for _ in tqdm(range(count)):
       self.step_once()
+      halt, _, __ = self.check_halt_cond()
+      if halt:
+        break
       
   def check_halt_cond(self):
     val1 = max(x[0] for x in self.halt_monitor)

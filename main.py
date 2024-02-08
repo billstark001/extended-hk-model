@@ -12,7 +12,7 @@ stat_collectors = {
   'cluster': stats.ClusteringCollector(),
   's-index': stats.SegregationIndexCollector(),
   'in-degree': stats.InDegreeCollector(full_data=True),
-  'distance': stats.DistanceCollectorDiscrete(),
+  'distance': stats.DistanceCollectorDiscrete(use_js_divergence=True),
 }
 
 s_params = ScaleFreeNetworkProvider(
@@ -72,12 +72,12 @@ plt.plot(stats_index, stats['s-index'])
 plt.title('Segregation Index')
 plt.show()
 
-plt.plot(stats_index, stats['distance-init-o'])
-plt.plot(stats_index, stats['distance-init-s'])
-plt.plot(stats_index, stats['distance-final-o'])
-plt.plot(stats_index, stats['distance-final-s'])
-plt.legend(['o-init', 's-init', 'o-final', 's-final'])
-plt.title('KL Divergence of Distance Distribution')
+plt.plot(stats_index, stats['distance-best-o'])
+plt.plot(stats_index, stats['distance-best-s'])
+plt.plot(stats_index, stats['distance-worst-o'])
+plt.plot(stats_index, stats['distance-worst-s'])
+plt.legend(['o-best', 's-best', 'o-worst', 's-worst'])
+plt.title('JS Divergence of Distance Distribution')
 plt.show()
 
 plt.plot(stats_index, stats['in-degree-alpha'])
