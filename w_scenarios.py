@@ -29,6 +29,7 @@ model_p_structure.recsys_factory = lambda m: Structure(
 sim_p_standard = SimulationParams(
     max_total_step=6000,
     stat_interval=15,
+    opinion_change_error=1e-8,
     stat_collectors={
       'triads': stats.TriadsCountCollector(),
       'cluster': stats.ClusteringCollector(),
