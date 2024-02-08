@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Optional, Any
 import numpy as np
 from base import HKAgent, HKModel, HKModelRecommendationSystem
 
@@ -12,7 +12,7 @@ class Opinion(HKModelRecommendationSystem):
     super().__init__(model)
     self.sigma = sigma
 
-  def post_init(self):
+  def post_init(self, dump_data: Optional[Any] = None):
     self.num_nodes = self.model.graph.number_of_nodes()
     self.agents: List[HKAgent] = list(self.model.schedule.agents)
     self.agent_indices: Dict[int, int] = {}
@@ -51,9 +51,3 @@ class Opinion(HKModelRecommendationSystem):
         i_post += 1
 
     return ret
-
-  def post_step(self, changed: List[int]):
-    pass
-
-  def pre_commit(self):
-    pass

@@ -15,12 +15,12 @@ stat_collectors = {
   'distance': stats.DistanceCollectorDiscrete(),
 }
 
-s_params = RandomNetworkProvider(
-    agent_count=1000,
+s_params = ScaleFreeNetworkProvider(
+    agent_count=3000,
     agent_follow=15,
 )
 sim_p_standard = SimulationParams(
-    total_step=500,
+    max_total_step=1000,
     stat_interval=15,
     stat_collectors=stat_collectors
 )

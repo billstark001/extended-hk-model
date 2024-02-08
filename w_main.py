@@ -1,9 +1,8 @@
 import os
-import pickle
+import numpy as np
 import time
 from typing import Dict
 from base import Scenario
-import traceback
 
 from w_scenarios import all_scenarios
 import w_snapshots as ss
@@ -29,9 +28,12 @@ if __name__ == "__main__":
 
     # recover or init model
     snapshot, snapshot_name = ss.load_latest(scenario_name)
+    should_halt, max_edge, max_opinion = False, 0xffffff, 0xffffff
     if snapshot:
       model.load(*snapshot)
-      if model.should_halt():
+      
+      should_halt, max_edge, max_opinion = model.check_halt_cond()
+      if should_halt:
         logger.info(f'Simulation already finished for scenario `{scenario_name}`.')
         continue
       logger.info(
@@ -46,20 +48,23 @@ if __name__ == "__main__":
 
     # simulate model
     errored = False
-    while not model.should_halt():
+    while not should_halt:
       try:
         model.step_once()
+        should_halt, max_edge, max_opinion = model.check_halt_cond()
         
         if model.steps % 100 == 0:
-          logger.info(f'Model at step {model.steps}.')
+          logger.info(f'Model at step {model.steps}; max_edge={max_edge}, max_opinion={max_opinion}.')
         elif model.steps % 10 == 0:
-          logger.debug(f'Model at step {model.steps}.')
+          logger.debug(f'Model at step {model.steps}; max_edge={max_edge}, max_opinion={max_opinion}.')
         
         cur_timestamp = time.time()
         if cur_timestamp - last_timestamp > snapshot_interval:
           # save snapshot
           do_save()
           last_timestamp = cur_timestamp
+        
+        
       except KeyboardInterrupt:
         logger.info('KeyboardInterrupt detected. Model is halted.')
         do_save()

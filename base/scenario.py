@@ -27,7 +27,10 @@ class StatCollector(Protocol):
   
 @dataclasses.dataclass
 class SimulationParams:
-  total_step: int = 1000
+  max_total_step: int = 1000
+  opinion_change_error: float = 1e-10
+  halt_monitor_step: int = 60
+  
   data_interval: int = 1
   stat_interval: int = 20
   stat_collectors: Dict[str, StatCollector] = dataclasses.field(default_factory=dict)
@@ -51,6 +54,8 @@ class Scenario:
     self.model_params = model_params
     self.stats = {}
     self.steps = 0
+    self.halt_monitor = [(0xffffff, 0xffffff)] * self.sim_params.halt_monitor_step
+    
 
   def init_data(self, collect=True):
     self.datacollector = DataCollector(agent_reporters=dict(
@@ -65,6 +70,7 @@ class Scenario:
       self.add_data()
       self.add_stats()
     self.model.datacollector = self.datacollector
+    self.halt_monitor = [(0xffffff, 0xffffff)] * self.sim_params.halt_monitor_step
 
   def init(self, *args, **kwargs):
     graph, opinion = self.env_provider.generate(*args, **kwargs)
@@ -79,29 +85,34 @@ class Scenario:
     for n in graph:
       del graph.nodes[n]['agent']
       
+    # recsys
+    model_dump = self.model.dump()
+      
     # opinion
     opinion = self.get_current_opinion()
     
     # data
     c = self.datacollector
-    data = (c.model_vars, c._agent_records, c.tables)
-    return graph, opinion, data, self.stats, self.steps
+    data = (c.model_vars, c._agent_records, c.tables, self.halt_monitor)
+    return graph, opinion, model_dump, data, self.stats, self.steps
 
   def load(
       self,
       graph: nx.DiGraph,
       opinion: Dict[int, float],
-      data: Optional[Tuple[dict, dict, dict]] = None,
+      model_dump: Optional[Any] = None,
+      data: Optional[Tuple[dict, dict, dict, list]] = None,
       stats: Dict[int, StatsType] = None,
       step: int = 0,
   ):
-    self.model = HKModel(graph, opinion, self.model_params)
+    self.model = HKModel(graph, opinion, self.model_params, dump_data=model_dump)
     if data is not None:
       self.init_data(collect=False)
-      v, r, t = data
+      v, r, t, m = data
       self.datacollector.model_vars = v
       self.datacollector._agent_records = r
       self.datacollector.tables = t
+      self.halt_monitor = m
     else:
       self.init_data()
     if stats is not None:
@@ -109,9 +120,14 @@ class Scenario:
     self.steps = step or 0
 
   def step_once(self):
-    self.model.step()
+    c_edge, c_opinion = self.model.step()
     self.steps += 1
+    
+    # update monitor
+    self.halt_monitor.pop(0)
+    self.halt_monitor.append((c_edge, c_opinion))
 
+    # stats
     if self.steps % self.sim_params.data_interval == 0:
       self.add_data()
     if self.steps % self.sim_params.stat_interval == 0:
@@ -119,12 +135,18 @@ class Scenario:
 
   def step(self, count: int = 0):
     if count < 1:
-      count = self.sim_params.total_step
+      count = self.sim_params.max_total_step
     for _ in tqdm(range(count)):
       self.step_once()
       
-  def should_halt(self):
-    return self.steps >= self.sim_params.total_step
+  def check_halt_cond(self):
+    val1 = max(x[0] for x in self.halt_monitor)
+    val2 = max(x[1] for x in self.halt_monitor) 
+    cond1 = val1 == 0
+    cond2 = val2 < self.sim_params.opinion_change_error
+    cond0 = self.steps >= self.sim_params.max_total_step
+    ret = (cond1 and cond2) or cond0
+    return ret, val1, val2
 
   def get_current_opinion(self):
     agents: List[HKAgent] = self.model.schedule.agents

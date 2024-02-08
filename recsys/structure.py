@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Callable
+from typing import List, Dict, Optional, Callable, Any
 import time
 import numpy as np
 from tqdm import tqdm
@@ -32,9 +32,23 @@ class Structure(HKModelRecommendationSystem):
     self.eta = eta if eta > 0 else 0
     self.sigma = sigma if sigma > 0 else -sigma
     self.agent_map: Dict[int, HKAgent] = {}
+    
+  def dump(self) -> Any:
+    return self.conn_mat
 
-  def post_init(self):
+  def post_init(self, dump_data: Optional[Any] = None):
     self.num_nodes = n = self.model.graph.number_of_nodes()
+    
+    # build agent map
+    for a in self.model.schedule.agents:
+      self.agent_map[a.unique_id] = a
+    
+    # load connection matrix if dumped
+    if dump_data is not None:
+      self.conn_mat = dump_data
+      if self.log:
+        self.log('Connection matrix loaded from dump data.')
+      return
     
     # calculate full connection matrix 
     # recommend to use matrix calculation if n <= 1500
@@ -57,9 +71,6 @@ class Structure(HKModelRecommendationSystem):
     if self.log:
       self.log(f'Connection matrix generation costs {tend - tstart}s.')
     
-    # build agent map
-    for a in self.model.schedule.agents:
-      self.agent_map[a.unique_id] = a
 
   def pre_step(self):
     pass

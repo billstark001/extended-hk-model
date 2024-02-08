@@ -27,7 +27,7 @@ model_p_structure.recsys_factory = lambda m: Structure(
 # simulation parameters
 
 sim_p_standard = SimulationParams(
-    total_step=1500,
+    max_total_step=5000,
     stat_interval=15,
     stat_collectors={
       'triads': stats.TriadsCountCollector(),

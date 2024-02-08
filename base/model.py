@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple, Callable, Union, Iterable, Dict
+from typing import List, Optional, Tuple, Callable, Union, Iterable, Dict, Any
 from numpy.typing import NDArray
 
 import numpy as np
@@ -87,7 +87,8 @@ class HKModel(Model):
       graph: nx.DiGraph,
       opinion: Union[None, Iterable[float], NDArray, Dict[int, float]],
       params: 'HKModelParams' = None,
-      collect = False
+      collect = False,
+      dump_data: Optional[Any] = None,
   ):
     params = params if params is not None else HKModelParams()
     opinion = opinion if opinion is not None else \
@@ -105,11 +106,14 @@ class HKModel(Model):
       self.grid.place_agent(a, node)
       self.schedule.add(a)
     if self.recsys:
-      self.recsys.post_init()
+      self.recsys.post_init(dump_data)
       
     if self.collect:
       self.datacollector = DataCollector(agent_reporters=dict(Opinion='cur_opinion'))
       self.datacollector.collect(self)
+      
+  def dump(self):
+    return self.recsys.dump()
 
   def step(self):
     agents: List['HKAgent'] = self.schedule.agents
@@ -120,21 +124,31 @@ class HKModel(Model):
     # commit changes
     if self.recsys:
       self.recsys.pre_commit()
+      
     changed: List[int] = []
+    changed_count = 0
+    changed_opinion_max = 0.
+    
     for a in agents:
       # opinion
       a.cur_opinion = a.next_opinion
+      changed_opinion_max = max(changed_opinion_max, abs(a.diff_neighbor + a.diff_recommended))
       # rewiring
       if a.next_follow:
         unfollow, follow = a.next_follow
         self.graph.remove_edge(a.unique_id, unfollow.unique_id)
         self.graph.add_edge(a.unique_id, follow.unique_id)
         changed.extend([a.unique_id, unfollow.unique_id, follow.unique_id])
+        changed_count += 1
+        
     if self.recsys:
       self.recsys.post_step(changed)
     # collect data
     if self.collect:
       self.datacollector.collect(self)
+      
+    return changed_count, changed_opinion_max
+    
 
   def get_recommendation(self, agent: HKAgent, neighbors: Optional[List[HKAgent]] = None) -> List[HKAgent]:
     if not self.recsys:
@@ -149,11 +163,9 @@ class HKModelRecommendationSystem(abc.ABC):
   def __init__(self, model: HKModel):
     self.model = model
 
-  @abc.abstractmethod
-  def post_init(self):
+  def post_init(self, dump_data: Optional[Any] = None):
     pass
 
-  @abc.abstractmethod
   def pre_step(self):
     pass
 
@@ -161,13 +173,14 @@ class HKModelRecommendationSystem(abc.ABC):
   def recommend(self, agent: HKAgent, neighbors: List[HKAgent], count: int) -> List[HKAgent]:
     pass
 
-  @abc.abstractmethod
   def pre_commit(self):
     pass
 
-  @abc.abstractmethod
   def post_step(self, changed: List[int]):
     pass
+  
+  def dump(self) -> Any:
+    return None
 
 
 @dataclasses.dataclass
