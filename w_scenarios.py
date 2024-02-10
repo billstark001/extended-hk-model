@@ -11,8 +11,8 @@ from w_logger import logger
 
 model_p_random = HKModelParams(
     tolerance=0.4,
-    decay=0.1,
-    rewiring_rate=0.03,
+    decay=0.05,
+    rewiring_rate=0.02,
     recsys_count=10,
     recsys_factory=Random,
 )
@@ -27,7 +27,7 @@ model_p_structure.recsys_factory = lambda m: Structure(
 # simulation parameters
 
 sim_p_standard = SimulationParams(
-    max_total_step=6000,
+    max_total_step=10000,
     stat_interval=15,
     opinion_change_error=1e-8,
     stat_collectors={

@@ -11,7 +11,7 @@ def plt_figure():
   return plt.figure(figsize=(8, 6)) 
 
 def plt_save_and_close(path: str):
-  plt.savefig(path + '.eps', dpi=300)
+  # plt.savefig(path + '.eps', dpi=300)
   plt.savefig(path + '.png', dpi=300)
   return plt.close()
 

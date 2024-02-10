@@ -1,3 +1,4 @@
 from stats.in_degree import InDegreeCollector
 from stats.echo_chamber import TriadsCountCollector, ClusteringCollector, SegregationIndexCollector
 from stats.distance import DistanceCollectorDiscrete
+from stats.network import NetworkLayoutCollector

@@ -57,11 +57,13 @@ class DistanceCollectorDiscrete:
       hist_interval: Optional[float] = None,
       t_err: float = 1e-10,
       use_js_divergence: bool = False,
+      t_opinion: float = 0.4
   ):
     self.prefix = prefix or 'distance'
     self.hist_interval = hist_interval
     self.t_err = t_err
     self.use_js_divergence = use_js_divergence
+    self.t_opinion = t_opinion
     self.div = js_divergence_discrete if use_js_divergence else kl_divergence_discrete
 
   def collect(
@@ -93,12 +95,11 @@ class DistanceCollectorDiscrete:
     s_best = ideal_dist_init_array(s_axis)
     s_best /= np.sum(s_best)
 
+    o_worst_b = o_sample[o_sample >= self.t_opinion]
+    o_worst_v = self.t_opinion if o_worst_b.size == 0 else np.mean(o_worst_b)
     o_worst = o_axis * 0
     o_worst[0] = 0.5
-    o_worst[np.argmin(np.abs(
-        o_axis - ((np.mean(opinion[opinion > 0])) -
-                  np.mean(opinion[opinion <= 0]))
-    ))] = 0.5
+    o_worst[np.argmin(np.abs(o_axis - o_worst_v))] = 0.5
 
     s_worst = s_axis * 0
     s_worst[0] = 1
