@@ -107,7 +107,7 @@ axcr.plot(S_ro['step'], S_ro['cluster'])
 axcr.plot(S_rs['step'], S_rs['cluster'])
 
 axcr.set_title('(c) random', loc='left')
-axcr.set_ylabel('segregation index')
+axcr.set_ylabel('clustering coefficient')
 axcr.set_yscale('log')
 
 

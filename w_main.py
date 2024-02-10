@@ -7,8 +7,8 @@ from base import Scenario
 from w_scenarios import all_scenarios
 import w_snapshots as ss
 
-snapshot_interval = 2 * 60
-max_snapshots = 5
+snapshot_interval = 4 * 60
+max_snapshots = 3
 
 from w_logger import logger
 
@@ -22,7 +22,7 @@ if __name__ == "__main__":
       snapshot_name = ss.save(model.dump(), scenario_name)
       logger.info(
           f'Saved snapshot `{snapshot_name}` for scenario `{scenario_name}`. Model at step {model.steps}.')
-      deleted = ss.delete_outdated(scenario_name)
+      deleted = ss.delete_outdated(scenario_name, max_snapshots=max_snapshots)
       if deleted:
         logger.info(f'Deleted {deleted} outdated snapshots.')
 
