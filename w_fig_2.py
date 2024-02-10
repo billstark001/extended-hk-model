@@ -141,7 +141,7 @@ def print_power_law_data(ax_a: Axes, ax_p: Axes, all_stats: Dict[str, StatsType]
   stats_index = np.array([0, max_x])
 
   for stats in all_stats.values():
-    ax_a.plot(stats['step'], stats['in-degree-alpha'])
+    ax_a.plot(stats['step'], stats['in-degree-alpha'], lw=1.5)
   if len(legend) > 1:
     ax_a.legend(legend)
   ax_a.plot(stats_index, np.ones(len(stats_index))
@@ -153,6 +153,14 @@ def print_power_law_data(ax_a: Axes, ax_p: Axes, all_stats: Dict[str, StatsType]
     ax_p.plot(stats['step'], stats['in-degree-p-value'])
   if len(legend) > 1:
     ax_p.legend(legend)
+  
+  for stats in all_stats.values():
+    stats_R = np.array(stats['in-degree-R'])
+    stats_p = np.array(stats['in-degree-p-value'])
+    stats_step = np.array(stats['step'])
+    mask = stats_R <= 0
+    ax_p.scatter(stats_step[mask], stats_p[mask], marker='x', color='red')
+    
   ax_p.plot(stats_index, np.ones(len(stats_index))
             * 0.05, lw=1, linestyle='dashed')
   ax_p.plot(stats_index, np.ones(len(stats_index))
@@ -203,9 +211,11 @@ axrso.set_title('(c) random, structure', loc='left')
 axrro.set_ylabel('opinion')
 axrrc.set_ylabel('contributions')
 
+scales = [1, 4, 1]
 for _ in axes:
-  for __ in _:
-    __.set_xlim(left=-10, right=410)
+  for i, __ in enumerate(_):
+    scale = scales[i]
+    __.set_xlim(left=-10 * scale , right=(10 + 250) * scale)
 
 plt.subplots_adjust(wspace=0.06, hspace=0.15)
 show_fig('opinion-contrib')
