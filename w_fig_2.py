@@ -16,6 +16,7 @@ import w_snapshots as ss
 
 mpl.rcParams['font.size'] = 18
 sns.set()
+sns.set_theme(style='whitegrid')
 
 BASE_PATH = './fig_final'
 
@@ -85,13 +86,16 @@ print('Scenarios Loaded.')
 fig, axes = plt_figure(n_col=4)
 axtr, axts, axcr, axcs = axes
 
+for ax in axes:
+  ax.set_yscale('log')
+  ax.grid(True, linestyle='dashed', which='both')
+
 axtr.plot(S_rr['step'], S_rr['triads'])
 axtr.plot(S_ro['step'], S_ro['triads'])
 axtr.plot(S_rs['step'], S_rs['triads'])
 
 axtr.set_title('(a) random', loc='left')
 axtr.set_ylabel('#closed triads')
-axtr.set_yscale('log')
 
 
 axts.plot(S_sfr['step'], S_sfr['triads'])
@@ -99,7 +103,6 @@ axts.plot(S_sfo['step'], S_sfo['triads'])
 axts.plot(S_sfs['step'], S_sfs['triads'])
 
 axts.set_title('(b) scale-free', loc='left')
-axts.set_yscale('log')
 
 
 axcr.plot(S_rr['step'], S_rr['cluster'])
@@ -108,7 +111,6 @@ axcr.plot(S_rs['step'], S_rs['cluster'])
 
 axcr.set_title('(c) random', loc='left')
 axcr.set_ylabel('clustering coefficient')
-axcr.set_yscale('log')
 
 
 axcs.plot(S_sfr['step'], S_sfr['cluster'])
@@ -117,7 +119,6 @@ axcs.plot(S_sfs['step'], S_sfs['cluster'])
 
 axcs.legend(['random', 'opinion', 'structure'])
 axcs.set_title('(d) scale-free', loc='left')
-axcs.set_yscale('log')
 
 plt.subplots_adjust(wspace=0.3, hspace=0.2)
 show_fig('triads-c-coeff')
