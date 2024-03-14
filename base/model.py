@@ -90,6 +90,8 @@ class HKModel(Model):
       collect = False,
       dump_data: Optional[Any] = None,
   ):
+    super().__init__()
+    
     params = params if params is not None else HKModelParams()
     opinion = opinion if opinion is not None else \
       np.random.uniform(-1, 1, (graph.number_of_nodes(), ))

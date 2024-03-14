@@ -1,6 +1,6 @@
 from base import SimulationParams, HKModelParams
 from env import RandomNetworkProvider, ScaleFreeNetworkProvider
-from recsys import Random, Opinion, Structure
+from recsys import Random, Opinion, Structure, Mixed
 
 from dataclasses import asdict
 
@@ -9,20 +9,33 @@ from w_logger import logger
 
 # model parameters
 
-model_p_random = HKModelParams(
-    tolerance=0.4,
-    decay=0.05,
-    rewiring_rate=0.02,
-    recsys_count=10,
-    recsys_factory=Random,
-)
+def _p(f):
+    return HKModelParams(
+        tolerance=0.4,
+        decay=0.05,
+        rewiring_rate=0.02,
+        recsys_count=10,
+        recsys_factory=f,
+    )
 
-model_p_opinion = HKModelParams(**asdict(model_p_random))
-model_p_opinion.recsys_factory = Opinion
 
-model_p_structure = HKModelParams(**asdict(model_p_random))
-model_p_structure.recsys_factory = lambda m: Structure(
-    m, matrix_init=True, log=logger.debug)
+_o = lambda m: Opinion(m)
+
+_s = lambda m: Structure(m, matrix_init=True, log=logger.debug)
+
+_mix = lambda ratio: _p(lambda m: Mixed(
+    m,
+    _o(m),
+    _s(m),
+    ratio
+))
+
+
+model_p_random = _p(Random)
+model_p_opinion = _p(_o)
+model_p_structure = _p(_s)
+model_p_mix3 = _p(_mix(0.3))
+model_p_mix7 = _p(_mix(0.7))
 
 # simulation parameters
 
@@ -55,35 +68,56 @@ provider_scale_free = ScaleFreeNetworkProvider(
 
 all_scenarios = {
 
-    'small-scale random network, random rec.sys.': (
+    'random network, random rec.sys.': (
         provider_random,
         model_p_random,
         sim_p_standard,
     ),
-    'small-scale random network, opinion rec.sys.': (
+    'random network, opinion rec.sys.': (
         provider_random,
         model_p_opinion,
         sim_p_standard,
     ),
-    'small-scale random network, structure rec.sys.': (
+    'random network, structure rec.sys.': (
         provider_random,
         model_p_structure,
+        sim_p_standard,
+    ),
+    'random network, mix3': (
+        provider_random,
+        model_p_mix3,
+        sim_p_standard,
+    ),
+    'random network, mix7': (
+        provider_random,
+        model_p_mix7,
         sim_p_standard,
     ),
 
-    'small-scale scale-free network, random rec.sys.': (
+
+    'scale-free network, random rec.sys.': (
         provider_scale_free,
         model_p_random,
         sim_p_standard,
     ),
-    'small-scale scale-free network, opinion rec.sys.': (
+    'scale-free network, opinion rec.sys.': (
         provider_scale_free,
         model_p_opinion,
         sim_p_standard,
     ),
-    'small-scale scale-free network, structure rec.sys.': (
+    'scale-free network, structure rec.sys.': (
         provider_scale_free,
         model_p_structure,
+        sim_p_standard,
+    ),
+    'scale-free network, mix3': (
+        provider_scale_free,
+        model_p_mix3,
+        sim_p_standard,
+    ),
+    'scale-free network, mix7': (
+        provider_scale_free,
+        model_p_mix7,
         sim_p_standard,
     ),
 

@@ -15,8 +15,8 @@ stat_collectors = {
   'distance': stats.DistanceCollectorDiscrete(use_js_divergence=True),
 }
 
-s_params = ScaleFreeNetworkProvider(
-    agent_count=3000,
+s_params = RandomNetworkProvider(
+    agent_count=500,
     agent_follow=15,
 )
 sim_p_standard = SimulationParams(
@@ -55,6 +55,16 @@ plt.plot(steps, sr, lw=1)
 plt.plot(steps, sn + sr, lw=1)
 plt.legend(['Neighbor', 'Recommended', 'Total'])
 plt.title('Standard Deviation of Contribution')
+plt.show()
+
+an = np.mean(dn, axis=1)
+ar = np.mean(dr, axis=1)
+
+plt.plot(steps, an, lw=1)
+plt.plot(steps, ar, lw=1)
+plt.plot(steps, an + ar, lw=1)
+plt.legend(['Neighbor', 'Recommended', 'Total'])
+plt.title('Mean of Contribution')
 plt.show()
 
 stats = S.generate_stats()
