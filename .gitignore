@@ -159,3 +159,4 @@ cython_debug/
 run
 fig
 fig_final
+nohup.out
