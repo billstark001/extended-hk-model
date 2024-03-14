@@ -6,6 +6,7 @@ from base.scenario import Scenario
 
 from w_scenarios import all_scenarios
 import w_snapshots as ss
+import w_proc_utils as p
 
 def plt_figure():
   return plt.figure(figsize=(8, 6)) 
@@ -15,7 +16,10 @@ def plt_save_and_close(path: str):
   plt.savefig(path + '.png', dpi=300)
   return plt.close()
 
-def plot_data(S: Scenario, base_dir: str):
+violin = []
+violin_name = []
+
+def plot_data(name: str, S: Scenario, base_dir: str):
 
   steps, opinion, dn, dr = S.get_opinion_data()  # (t, n)
   _p = lambda x: base_dir + x#os.path.join(base_dir, x)
@@ -24,8 +28,11 @@ def plot_data(S: Scenario, base_dir: str):
   plt.title('Opinion')
   plt_save_and_close(_p('opinion'))
 
-  sn = np.std(dn, axis=1)
-  sr = np.std(dr, axis=1)
+  sn, sr, an, ar, ratio_s = p.proc_opinion_diff(
+    dn, dr
+  )
+  violin.append(ratio_s)
+  violin_name.append(name)
 
   plt.plot(steps, sn, lw=1)
   plt.plot(steps, sr, lw=1)
@@ -33,6 +40,15 @@ def plot_data(S: Scenario, base_dir: str):
   plt.legend(['Neighbor', 'Recommended', 'Total'])
   plt.title('Standard Deviation of Contribution')
   plt_save_and_close(_p('std_contrib'))
+  
+  plt.plot(steps, an, lw=1)
+  plt.plot(steps, ar, lw=1)
+  plt.plot(steps, an + ar, lw=1)
+  plt.legend(['Neighbor', 'Recommended', 'Total'])
+  plt.title('Mean Value of Contribution')
+  plt_save_and_close(_p('mean_contrib'))
+  
+  
 
   stats = S.generate_stats()
   stats_index = stats['step']
@@ -92,5 +108,11 @@ if __name__ == '__main__':
       continue
     model.load(*snapshot)
     
-    plot_data(model, os.path.join(BASE_PATH, scenario_name) + '_')
+    plot_data(scenario_name, model, os.path.join(BASE_PATH, scenario_name) + '_')
+    
+  plt.violinplot(violin, showmeans=True, showmedians=True)
+  x_positions = np.arange(1, len(violin) + 1)
+  plt.xticks(x_positions, violin_name, rotation=90)
+  plt.title('Violin Plot of Contribution Ratio of CRS')
+  plt_save_and_close(os.path.join(BASE_PATH, 'violin.png'))
 

@@ -23,7 +23,7 @@ _o = lambda m: Opinion(m)
 
 _s = lambda m: Structure(m, matrix_init=True, log=logger.debug)
 
-_mix = lambda ratio: _p(lambda m: Mixed(
+_mix = lambda ratio: (lambda m: Mixed(
     m,
     _o(m),
     _s(m),

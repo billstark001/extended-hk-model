@@ -16,12 +16,12 @@ if __name__ == "__main__":
 
   for scenario_name, scenario_params in all_scenarios.items():
 
-    model = Scenario(*scenario_params)
+    scenario = Scenario(*scenario_params)
 
     def do_save():
-      snapshot_name = ss.save(model.dump(), scenario_name)
+      snapshot_name = ss.save(scenario.dump(), scenario_name)
       logger.info(
-          f'Saved snapshot `{snapshot_name}` for scenario `{scenario_name}`. Model at step {model.steps}.')
+          f'Saved snapshot `{snapshot_name}` for scenario `{scenario_name}`. Model at step {scenario.steps}.')
       deleted = ss.delete_outdated(scenario_name, max_snapshots=max_snapshots)
       if deleted:
         logger.info(f'Deleted {deleted} outdated snapshots.')
@@ -30,17 +30,17 @@ if __name__ == "__main__":
     snapshot, snapshot_name = ss.load_latest(scenario_name)
     should_halt, max_edge, max_opinion = False, 0xffffff, 0xffffff
     if snapshot:
-      model.load(*snapshot)
+      scenario.load(*snapshot)
       
-      should_halt, max_edge, max_opinion = model.check_halt_cond()
+      should_halt, max_edge, max_opinion = scenario.check_halt_cond()
       if should_halt:
         logger.info(f'Simulation already finished for scenario `{scenario_name}`.')
         continue
       logger.info(
-          f'Loaded snapshot `{snapshot_name}` for scenario `{scenario_name}`. Model at step {model.steps}.')
+          f'Loaded snapshot `{snapshot_name}` for scenario `{scenario_name}`. Model at step {scenario.steps}.')
     else:
-      model.init()
-      snapshot_name = ss.save(model.dump(), scenario_name)
+      scenario.init()
+      snapshot_name = ss.save(scenario.dump(), scenario_name)
       logger.info(
           f'Initialized snapshot `{snapshot_name}` for scenario `{scenario_name}`.')
 
@@ -50,13 +50,13 @@ if __name__ == "__main__":
     errored = False
     while not should_halt:
       try:
-        model.step_once()
-        should_halt, max_edge, max_opinion = model.check_halt_cond()
+        scenario.step_once()
+        should_halt, max_edge, max_opinion = scenario.check_halt_cond()
         
-        if model.steps % 100 == 0:
-          logger.info(f'Model at step {model.steps}; max_edge={max_edge}, max_opinion={max_opinion}.')
-        elif model.steps % 10 == 0:
-          logger.debug(f'Model at step {model.steps}; max_edge={max_edge}, max_opinion={max_opinion}.')
+        if scenario.steps % 100 == 0:
+          logger.info(f'Model at step {scenario.steps}; max_edge={max_edge}, max_opinion={max_opinion}.')
+        elif scenario.steps % 10 == 0:
+          logger.debug(f'Model at step {scenario.steps}; max_edge={max_edge}, max_opinion={max_opinion}.')
         
         cur_timestamp = time.time()
         if cur_timestamp - last_timestamp > snapshot_interval:
@@ -73,14 +73,14 @@ if __name__ == "__main__":
 
       except Exception as e:
         logger.error(
-            f"Simulation for `{scenario_name}` terminated unexpectedly at step {model.steps}.")
+            f"Simulation for `{scenario_name}` terminated unexpectedly at step {scenario.steps}.")
         logger.exception(e)
         errored = True
         break
 
     if not errored:
       logger.info(
-          f'Simulation completed for scenario `{scenario_name}`. {model.steps} steps simulated in total.')
+          f'Simulation completed for scenario `{scenario_name}`. {scenario.steps} steps simulated in total.')
       do_save()
     else:
       break

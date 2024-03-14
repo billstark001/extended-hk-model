@@ -13,6 +13,7 @@ from base.scenario import Scenario
 
 from w_scenarios import all_scenarios
 import w_snapshots as ss
+import w_proc_utils as p
 
 mpl.rcParams['font.size'] = 18
 sns.set()
@@ -40,6 +41,15 @@ def show_fig(name: str):
   plt_save_and_close(os.path.join(BASE_PATH, name))
   # plt.show()
 
+def moving_average(data: NDArray, window_size: int):
+  if window_size < 2:
+    return data
+  pad_width = window_size // 2
+  pad_data = np.pad(data, pad_width, mode='edge')
+  window = np.ones(window_size) / window_size
+  moving_avg = np.convolve(pad_data, window, 'valid')
+  return moving_avg
+
 # load data
 
 
@@ -50,6 +60,8 @@ try:
 except:
   all_data = []
 
+
+average = 3
 if len(all_data) == 0:
   for scenario_name, scenario_params in all_scenarios.items():
 
@@ -62,14 +74,19 @@ if len(all_data) == 0:
 
     stats = model.generate_stats()
     steps, opinion, dn, dr = model.get_opinion_data()
-    sn = np.std(dn, axis=1)
-    sr = np.std(dr, axis=1)
+    dn[0] = dn[1]
+    dr[0] = dr[1]
+    
+    sn, sr, an, ar, ratio_r = p.proc_opinion_diff(dn, dr, average)
 
     stats['o-step'] = steps
     stats['opinion'] = opinion
     stats['o-sn'] = sn
     stats['o-sr'] = sr
     stats['o-sn+sr'] = sn + sr
+    stats['o-an'] = an
+    stats['o-ar'] = ar
+    stats['o-an+ar'] = an + ar
 
     all_data.append(stats)
 

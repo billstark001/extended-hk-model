@@ -22,7 +22,7 @@ class Mixed(HKModelRecommendationSystem):
   
   def post_init(self, dump_data: Optional[Any] = None):
     if dump_data is None:
-      return
+      dump_data = (None, None)
     d1, d2 = dump_data
     self.model1.post_init(dump_data=d1)
     self.model2.post_init(dump_data=d2)
