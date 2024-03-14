@@ -61,7 +61,11 @@ class Scenario:
     self.datacollector = DataCollector(agent_reporters=dict(
         Opinion='cur_opinion',
         DiffNeighbor='diff_neighbor',
-        DiffRecommended='diff_recommended'
+        DiffRecommended='diff_recommended',
+        SumNeighbor='sum_neighbor',
+        SumRecommended='sum_recommended',
+        NumNeighbor='n_neighbor',
+        NumRecommended='n_recommended',
     ), model_reporters=dict(
         Step=lambda _: self.steps
     ))
@@ -164,7 +168,11 @@ class Scenario:
     opinion = data['Opinion'].to_numpy()
     dn = data['DiffNeighbor'].to_numpy()
     dr = data['DiffRecommended'].to_numpy()
-    return steps, opinion, dn, dr
+    sum_n = data['SumNeighbor'].to_numpy()
+    sum_r = data['SumRecommended'].to_numpy()
+    n_n = data['NumNeighbor'].to_numpy()
+    n_r = data['NumRecommended'].to_numpy()
+    return steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r
 
   def add_data(self):
     self.datacollector.collect(self.model)

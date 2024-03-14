@@ -21,7 +21,7 @@ violin_name = []
 
 def plot_data(name: str, S: Scenario, base_dir: str):
 
-  steps, opinion, dn, dr = S.get_opinion_data()  # (t, n)
+  steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = S.get_opinion_data()  # (t, n)
   _p = lambda x: base_dir + x#os.path.join(base_dir, x)
 
   plt.plot(opinion, lw=0.5)

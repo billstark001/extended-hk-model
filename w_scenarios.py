@@ -43,6 +43,7 @@ sim_p_standard = SimulationParams(
     max_total_step=10000,
     stat_interval=15,
     opinion_change_error=1e-5,
+    halt_monitor_step=40,
     stat_collectors={
       'triads': stats.TriadsCountCollector(),
       'cluster': stats.ClusteringCollector(),
@@ -68,54 +69,54 @@ provider_scale_free = ScaleFreeNetworkProvider(
 
 all_scenarios = {
 
-    'random network, random rec.sys.': (
+    'random_random': (
         provider_random,
         model_p_random,
         sim_p_standard,
     ),
-    'random network, opinion rec.sys.': (
+    'random_opinion': (
         provider_random,
         model_p_opinion,
         sim_p_standard,
     ),
-    'random network, structure rec.sys.': (
+    'random_structure': (
         provider_random,
         model_p_structure,
         sim_p_standard,
     ),
-    'random network, mix3': (
+    'random_mix3': (
         provider_random,
         model_p_mix3,
         sim_p_standard,
     ),
-    'random network, mix7': (
+    'random_mix7': (
         provider_random,
         model_p_mix7,
         sim_p_standard,
     ),
 
 
-    'scale-free network, random rec.sys.': (
+    'scale-free_random': (
         provider_scale_free,
         model_p_random,
         sim_p_standard,
     ),
-    'scale-free network, opinion rec.sys.': (
+    'scale-free_opinion': (
         provider_scale_free,
         model_p_opinion,
         sim_p_standard,
     ),
-    'scale-free network, structure rec.sys.': (
+    'scale-free_structure': (
         provider_scale_free,
         model_p_structure,
         sim_p_standard,
     ),
-    'scale-free network, mix3': (
+    'scale-free_mix3': (
         provider_scale_free,
         model_p_mix3,
         sim_p_standard,
     ),
-    'scale-free network, mix7': (
+    'scale-free_mix7': (
         provider_scale_free,
         model_p_mix7,
         sim_p_standard,

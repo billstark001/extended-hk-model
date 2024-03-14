@@ -39,9 +39,9 @@ S.step()
 
 # plot
 
-sns.set()
+sns.set_theme()
 
-steps, opinion, dn, dr = S.get_opinion_data()  # (t, n)
+steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = S.get_opinion_data()  # (t, n)
 
 plt.plot(opinion, lw=0.5)
 plt.title('Opinion')

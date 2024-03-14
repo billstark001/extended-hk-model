@@ -28,14 +28,22 @@ class HKAgent(Agent):
     # future state
     self.diff_neighbor = 0
     self.diff_recommended = 0
+    self.sum_neighbor = 0
+    self.sum_recommended = 0
+    self.n_neighbor = 0
+    self.n_recommended = 0
     self.next_opinion = self.cur_opinion
     self.next_follow: Optional[Tuple['HKAgent', 'HKAgent']] = None
 
   def step(self):
     # clear data
     self.next_opinion = self.cur_opinion
+    self.n_neighbor = 0
+    self.n_recommended = 0
     self.diff_neighbor = 0
     self.diff_recommended = 0
+    self.sum_neighbor = 0
+    self.sum_recommended = 0
     self.next_follow = None
 
     # get the neighbors
@@ -65,10 +73,14 @@ class HKAgent(Agent):
         discordant_recommended.append(a)
 
     # update value
-    n_concordant = len(concordant_neighbor) + len(concordant_recommended)
+    self.n_neighbor = len(concordant_neighbor)
+    self.n_recommended = len(concordant_recommended)
+    n_concordant = self.n_neighbor + self.n_recommended
     if n_concordant > 0:
       sum_n = sum(a.cur_opinion - self.cur_opinion for a in concordant_neighbor)
       sum_r = sum(a.cur_opinion - self.cur_opinion for a in concordant_recommended)
+      self.sum_neighbor = sum_n
+      self.sum_recommended = sum_r
       self.diff_neighbor = sum_n / n_concordant
       self.diff_recommended = sum_r / n_concordant
       self.next_opinion += ((sum_r + sum_n) / n_concordant) * self.model.p.decay

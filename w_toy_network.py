@@ -83,7 +83,7 @@ plt.subplots_adjust(wspace=0.1, hspace=0.1)
 plt_save_and_close(os.path.join(BASE_PATH, 'toy_network'))
 
 
-sns.set()
+sns.set_theme()
 steps, opinion, dn, dr = S.get_opinion_data()  # (t, n)
 plt.figure(figsize=(4, 3))
 plt.plot(opinion, lw=0.5)
