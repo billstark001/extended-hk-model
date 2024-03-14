@@ -24,10 +24,12 @@ def proc_opinion_diff(dn: NDArray, dr: NDArray, average=3, error=1e-4):
 
   dn[0] = dn[1]
   dr[0] = dr[1]
-  sn = moving_average(np.std(dn, axis=1), average)
-  sr = moving_average(np.std(dr, axis=1), average)
-  an = moving_average(np.mean(np.abs(dn), axis=1), average)
-  ar = moving_average(np.mean(np.abs(dr), axis=1), average)
+  dan = np.abs(dn)
+  dar = np.abs(dr)
+  sn = moving_average(np.std(dan, axis=1), average)
+  sr = moving_average(np.std(dar, axis=1), average)
+  an = moving_average(np.mean(dan, axis=1), average)
+  ar = moving_average(np.mean(dar, axis=1), average)
   
   pad_index = min(
     first_less_than(sn, error),
