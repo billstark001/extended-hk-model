@@ -77,7 +77,7 @@ if len(all_data) == 0:
     dn[0] = dn[1]
     dr[0] = dr[1]
     
-    sn, sr, an, ar, ratio_r = p.proc_opinion_diff(dn, dr, average)
+    sn, sr, an, ar, ratio_s, ratio_a = p.proc_opinion_diff(dn, dr, average)
 
     stats['o-step'] = steps
     stats['opinion'] = opinion
@@ -87,6 +87,8 @@ if len(all_data) == 0:
     stats['o-an'] = an
     stats['o-ar'] = ar
     stats['o-an+ar'] = an + ar
+    stats['ratio-s'] = ratio_s
+    stats['ratio-a'] = ratio_a
 
     all_data.append(stats)
 

@@ -28,10 +28,10 @@ def plot_data(name: str, S: Scenario, base_dir: str):
   plt.title('Opinion')
   plt_save_and_close(_p('opinion'))
 
-  sn, sr, an, ar, ratio_s = p.proc_opinion_diff(
+  sn, sr, an, ar, ratio_s, ratio_a = p.proc_opinion_diff(
     dn, dr
   )
-  violin.append(ratio_s)
+  violin.append([ratio_s, ratio_a])
   violin_name.append(name)
 
   plt.plot(steps, sn, lw=1)
@@ -110,9 +110,15 @@ if __name__ == '__main__':
     
     plot_data(scenario_name, model, os.path.join(BASE_PATH, scenario_name) + '_')
     
-  plt.violinplot(violin, showmeans=True, showmedians=True)
+  plt.violinplot([x[0] for x in violin], showmeans=True, showmedians=True)
   x_positions = np.arange(1, len(violin) + 1)
   plt.xticks(x_positions, violin_name, rotation=90)
-  plt.title('Violin Plot of Contribution Ratio of CRS')
-  plt_save_and_close(os.path.join(BASE_PATH, 'violin.png'))
+  plt.title('Violin Plot of Standard Value Ratio of CRS')
+  plt_save_and_close(os.path.join(BASE_PATH, 'violin_s'))
+  
+  plt.violinplot([x[1] for x in violin], showmeans=True, showmedians=True)
+  x_positions = np.arange(1, len(violin) + 1)
+  plt.xticks(x_positions, violin_name, rotation=90)
+  plt.title('Violin Plot of Mean Value Ratio of CRS')
+  plt_save_and_close(os.path.join(BASE_PATH, 'violin_a'))
 
