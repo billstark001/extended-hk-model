@@ -1,12 +1,15 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import importlib
 
 from base.scenario import Scenario
 
 from w_scenarios import all_scenarios
 import w_snapshots as ss
 import w_proc_utils as p
+
+importlib.reload(p)
 
 def plt_figure():
   return plt.figure(figsize=(8, 6)) 
@@ -28,18 +31,22 @@ def plot_data(name: str, S: Scenario, base_dir: str):
   plt.title('Opinion')
   plt_save_and_close(_p('opinion'))
 
-  sn, sr, an, ar, ratio_s, ratio_a = p.proc_opinion_diff(
-    dn, dr
+  sn, sr, an, ar, sum_n1, sum_r1, ratio_s, ratio_a = p.proc_opinion_diff(
+    dn, dr, n_n, n_r
   )
-  violin.append([ratio_s, ratio_a])
+  ratio_n, ratio_sum = p.proc_opinion_ratio(
+    sum_n, sum_r, n_n, n_r
+  )
+  violin.append([ratio_n, ratio_sum])
+  
   violin_name.append(name)
 
-  plt.plot(steps, sn, lw=1)
-  plt.plot(steps, sr, lw=1)
-  plt.plot(steps, sn + sr, lw=1)
+  plt.plot(steps, sum_n1, lw=1)
+  plt.plot(steps, sum_r1, lw=1)
+  plt.plot(steps, sum_n1 + sum_r1, lw=1)
   plt.legend(['Neighbor', 'Recommended', 'Total'])
-  plt.title('Standard Deviation of Contribution')
-  plt_save_and_close(_p('std_contrib'))
+  plt.title('Mean Value of Concordant Numbers')
+  plt_save_and_close(_p('mean_concordant'))
   
   plt.plot(steps, an, lw=1)
   plt.plot(steps, ar, lw=1)
@@ -114,11 +121,11 @@ if __name__ == '__main__':
   x_positions = np.arange(1, len(violin) + 1)
   plt.xticks(x_positions, violin_name, rotation=90)
   plt.title('Violin Plot of Standard Value Ratio of CRS')
-  plt_save_and_close(os.path.join(BASE_PATH, 'violin_s'))
+  plt_save_and_close(os.path.join(BASE_PATH, 'violin_n'))
   
   plt.violinplot([x[1] for x in violin], showmeans=True, showmedians=True)
   x_positions = np.arange(1, len(violin) + 1)
   plt.xticks(x_positions, violin_name, rotation=90)
   plt.title('Violin Plot of Mean Value Ratio of CRS')
-  plt_save_and_close(os.path.join(BASE_PATH, 'violin_a'))
+  plt_save_and_close(os.path.join(BASE_PATH, 'violin_sum'))
 
