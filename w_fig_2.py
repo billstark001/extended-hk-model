@@ -129,13 +129,15 @@ for S in all_data:
 fig, axes = plt_figure(n_col=4)
 axtr, axts, axcr, axcs = axes
 
-for ax in axes:
+for ax in [axtr, axts]:
   ax.set_yscale('log')
   ax.grid(True, linestyle='dashed', which='both')
 
 axtr.plot(S_rr['step'], S_rr['triads'])
 axtr.plot(S_rs['step'], S_rs['triads'])
 axtr.plot(S_ro['step'], S_ro['triads'])
+axtr.plot(S_rm3['step'], S_rm3['triads'])
+axtr.plot(S_rm7['step'], S_rm7['triads'])
 
 axtr.set_title('(a) random', loc='left')
 axtr.set_ylabel('#closed triads')
@@ -144,6 +146,8 @@ axtr.set_ylabel('#closed triads')
 axts.plot(S_sfr['step'], S_sfr['triads'])
 axts.plot(S_sfs['step'], S_sfs['triads'])
 axts.plot(S_sfo['step'], S_sfo['triads'])
+axts.plot(S_sfm3['step'], S_sfm3['triads'])
+axts.plot(S_sfm7['step'], S_sfm7['triads'])
 
 axts.set_title('(b) scale-free', loc='left')
 
@@ -151,6 +155,8 @@ axts.set_title('(b) scale-free', loc='left')
 axcr.plot(S_rr['step'], S_rr['cluster'])
 axcr.plot(S_rs['step'], S_rs['cluster'])
 axcr.plot(S_ro['step'], S_ro['cluster'])
+axcr.plot(S_rm3['step'], S_rm3['cluster'])
+axcr.plot(S_rm7['step'], S_rm7['cluster'])
 
 axcr.set_title('(c) random', loc='left')
 axcr.set_ylabel('clustering coefficient')
@@ -159,8 +165,10 @@ axcr.set_ylabel('clustering coefficient')
 axcs.plot(S_sfr['step'], S_sfr['cluster'])
 axcs.plot(S_sfs['step'], S_sfs['cluster'])
 axcs.plot(S_sfo['step'], S_sfo['cluster'])
+axcs.plot(S_sfm3['step'], S_sfm3['cluster'])
+axcs.plot(S_sfm7['step'], S_sfm7['cluster'])
 
-axcs.legend(['random', 'structure', 'opinion'])
+axcs.legend(['random', 'structure', 'opinion', 'mixed-3', 'mixed-7'])
 axcs.set_title('(d) scale-free', loc='left')
 
 plt.subplots_adjust(wspace=0.3, hspace=0.2)
