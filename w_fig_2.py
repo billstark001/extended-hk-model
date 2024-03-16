@@ -2,6 +2,8 @@ from typing import List, Dict, Union, Tuple
 from numpy.typing import NDArray
 
 import os
+import importlib
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -14,6 +16,8 @@ from base.scenario import Scenario
 from w_scenarios import all_scenarios
 import w_snapshots as ss
 import w_proc_utils as p
+
+importlib.reload(p)
 
 mpl.rcParams['font.size'] = 18
 sns.set_theme(style='whitegrid')
@@ -42,19 +46,17 @@ def show_fig(name: str):
 
 
 def lim(
-  start=0,
-  end=1,
-  pad=0.04
-  ):
+    start=0,
+    end=1,
+    pad=0.04
+):
   duration = end - start
   left_pad = start - pad * duration
   right_pad = end + pad * duration
   return left_pad, right_pad
 
 
-
 # load data
-
 
 StatsType = Dict[str, Union[List[float], NDArray]]
 all_data: List[StatsType]
@@ -79,14 +81,14 @@ if len(all_data) == 0:
     steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = model.get_opinion_data()
     dn[0] = dn[1]
     dr[0] = dr[1]
-    
+
     sn, sr, an, ar, sum_n1, sum_r1, ratio_s, ratio_a = p.proc_opinion_diff(
-      dn, dr, n_n, n_r,
-      average
+        dn, dr, n_n, n_r,
+        average
     )
-    
+
     ratio_n, ratio_sum_log = p.proc_opinion_ratio(
-      sum_n, sum_r, n_n, n_r
+        sum_n, sum_r, n_n, n_r
     )
 
     stats['o-step'] = steps
@@ -109,53 +111,17 @@ if len(all_data) == 0:
 S_rr, S_ro, S_rs, S_rm3, S_rm7, S_sfr, S_sfo, S_sfs, S_sfm3, S_sfm7 = all_data
 print('Scenarios Loaded.')
 
+
+# data
+
+for S in all_data:
+  S['o-cluster-reached'] = S['step'][p.first_index_above_min(
+    np.array(S['distance-worst-o']),
+    1e-3
+  )]
+  
+
 # plots
-
-# violin
-violin_x_1 = [
-  ('random', S_rr),
-  ('structure', S_rs),
-  ('mixed-3', S_rm3),
-  ('mixed-7', S_rm7),
-  ('opinion', S_ro),
-]
-violin_x_2 = [
-  ('random', S_sfr),
-  ('structure', S_sfs),
-  ('mixed-3', S_sfm3),
-  ('mixed-7', S_sfm7),
-  ('opinion', S_sfo),
-]
-
-violin_x_axis = np.arange(1, len(violin_x_1) + 1)
-violin_x_name = [x[0] for x in violin_x_1]
-
-axes: List[Axes]
-fig, axes = plt_figure(n_col=2, n_row=2, sharex='col', sharey='row', total_width=7, hw_ratio=1)
-(axup_r, axup_sf), (axdn_r, axdn_sf) = axes
-
-axup_r.violinplot([x[1]['ratio-n'] for x in violin_x_1], showmeans=True)
-axdn_r.violinplot([x[1]['ratio-sum-log'] for x in violin_x_1], showmeans=True)
-
-axup_sf.violinplot([x[1]['ratio-n'] for x in violin_x_2], showmeans=True)
-axdn_sf.violinplot([x[1]['ratio-sum-log'] for x in violin_x_2], showmeans=True)
-
-
-axup_r.set_title('(d) random', loc='left')
-axup_sf.set_title('(e) scale-free', loc='left')
-axup_r.set_ylabel('ratio of concordant recommendation')
-axdn_r.set_ylabel('contribution of recommendation')
-
-axdn_r.set_xticks(violin_x_axis, violin_x_name, rotation=90)
-axdn_sf.set_xticks(violin_x_axis, violin_x_name, rotation=90)
-
-ylim_s, ylim_e = lim(0.1, 0.6)
-axup_r.set_ylim(bottom=ylim_s, top=ylim_e)
-ylim_s, ylim_e = lim(-0.6, 0.4)
-axdn_r.set_ylim(bottom=ylim_s, top=ylim_e)
-
-plt.subplots_adjust(wspace=0.06, hspace=0.05)
-show_fig('violin')
 
 
 # triads & c-coeff.
@@ -223,33 +189,40 @@ def print_power_law_data(ax_a: Axes, ax_p: Axes, all_stats: Dict[str, StatsType]
   if len(legend) > 1:
     ax_a.legend(legend)
   ax_a.plot(stats_index, np.ones(len(stats_index))
-            * 2, lw=1, linestyle='dashed')
+            * 2, lw=1, linestyle='dashed', color='black')
   ax_a.plot(stats_index, np.ones(len(stats_index))
-            * 3, lw=1, linestyle='dashed')
+            * 3, lw=1, linestyle='dashed', color='gray')
 
   for stats in all_stats.values():
     ax_p.plot(stats['step'], stats['in-degree-p-value'])
   if len(legend) > 1:
     ax_p.legend(legend)
-  
+
   for stats in all_stats.values():
     stats_R = np.array(stats['in-degree-R'])
     stats_p = np.array(stats['in-degree-p-value'])
     stats_step = np.array(stats['step'])
     mask = stats_R <= 0
     ax_p.scatter(stats_step[mask], stats_p[mask], marker='x', color='red')
-    
+
   ax_p.plot(stats_index, np.ones(len(stats_index))
-            * 0.05, lw=1, linestyle='dashed', color='black')
+            * 0.05, lw=1, linestyle='dashed', color='gray')
   ax_p.plot(stats_index, np.ones(len(stats_index))
-            * 0.01, lw=1, linestyle='dashed', color='gray')
+            * 0.01, lw=1, linestyle='dashed', color='black')
 
 
 print_power_law_data(axrra, axrrp, dict(_=S_rr))
 print_power_law_data(axroa, axrop, dict(_=S_ro))
-print_power_law_data(axrsa, axrsp, dict(_=S_rs))
+print_power_law_data(axrsa, axrsp, {
+    'structure': S_rs,
+    'mixed-3': S_rm3,
+    'mixed-7': S_rm7
+})
 print_power_law_data(axsfa, axsfp, dict(
-    random=S_sfr, opinion=S_sfo, structure=S_sfs))
+    random=S_sfr, structure=S_sfs, opinion=S_sfo, **({
+        'mixed-3': S_sfm3,
+        'mixed-7': S_sfm7,
+    })))
 
 axrra.set_ylabel('\\alpha')
 axrrp.set_ylabel('p-value')
@@ -264,12 +237,13 @@ show_fig('power-law')
 
 # opinion contributions
 
-fig, _axes = plt_figure(n_row=3, n_col=3, sharey='row', total_width=9)
+fig, _axes = plt_figure(n_row=3, n_col=3, sharey='row',
+                        sharex='col', total_width=10)
 axes: List[List[Axes]] = _axes
 (axrro, axrso, axroo), (axrrc, axrsc, axroc), (axrrs, axrss, axros) = axes
 
 
-def print_contrib_data(ax_o: Axes, ax_c: Axes, ax_s: Axes, stats: StatsType):
+def print_contrib_data(ax_o: Axes, ax_c: Axes, ax_s: Axes, stats: StatsType, legend=False):
 
   ax_o.plot(stats['o-step'], stats['opinion'], lw=0.2)
   ax_c.plot(stats['o-step'], stats['o-sn'])
@@ -278,28 +252,29 @@ def print_contrib_data(ax_o: Axes, ax_c: Axes, ax_s: Axes, stats: StatsType):
   ax_s.plot(stats['o-step'], stats['o-an'])
   ax_s.plot(stats['o-step'], stats['o-ar'])
   ax_s.plot(stats['o-step'], stats['o-an+ar'])
-  ax_s.legend(['followed', 'recommended', 'total'])
+  if legend:
+    ax_s.legend(['followed', 'recommended', 'total'])
 
 
 print_contrib_data(axrro, axrrc, axrrs, S_rr)
 print_contrib_data(axrso, axrsc, axrss, S_rs)
-print_contrib_data(axroo, axroc, axros, S_ro)
+print_contrib_data(axroo, axroc, axros, S_ro, legend=True)
 
 axrro.set_title('(a) random, random', loc='left')
 axrso.set_title('(b) random, structure', loc='left')
 axroo.set_title('(c) random, opinion', loc='left')
 
 axrro.set_ylabel('opinion')
-axrrc.set_ylabel('#average concordant users')
-axrrs.set_ylabel('average absolute contributions')
+axrrc.set_ylabel('#concordant users')
+axrrs.set_ylabel('absolute contributions')
 
 scales = [1, 1, 4]
 for _ in axes:
   for i, __ in enumerate(_):
     scale = scales[i]
-    __.set_xlim(left=-10 * scale , right=(10 + 250) * scale)
+    __.set_xlim(left=-10 * scale, right=(10 + 250) * scale)
 
-plt.subplots_adjust(wspace=0.06, hspace=0.15)
+plt.subplots_adjust(wspace=0.06, hspace=0.1)
 show_fig('opinion-contrib')
 
 
@@ -313,20 +288,28 @@ axro, axsfo, axrs, axsfs = axes
 axro.plot(S_rr['step'], S_rr['distance-worst-o'])
 axro.plot(S_rs['step'], S_rs['distance-worst-o'])
 axro.plot(S_ro['step'], S_ro['distance-worst-o'])
+axro.plot(S_rm3['step'], S_rm3['distance-worst-o'])
+axro.plot(S_rm7['step'], S_rm7['distance-worst-o'])
 
 axsfo.plot(S_sfr['step'], S_sfr['distance-worst-o'])
 axsfo.plot(S_sfs['step'], S_sfs['distance-worst-o'])
 axsfo.plot(S_sfo['step'], S_sfo['distance-worst-o'])
+axsfo.plot(S_sfm3['step'], S_sfm3['distance-worst-o'])
+axsfo.plot(S_sfm7['step'], S_sfm7['distance-worst-o'])
 
 axrs.plot(S_rr['step'], S_rr['distance-worst-s'])
 axrs.plot(S_rs['step'], S_rs['distance-worst-s'])
 axrs.plot(S_ro['step'], S_ro['distance-worst-s'])
+axrs.plot(S_rm3['step'], S_rm3['distance-worst-s'])
+axrs.plot(S_rm7['step'], S_rm7['distance-worst-s'])
 
 axsfs.plot(S_sfr['step'], S_sfr['distance-worst-s'])
 axsfs.plot(S_sfs['step'], S_sfs['distance-worst-s'])
 axsfs.plot(S_sfo['step'], S_sfo['distance-worst-s'])
+axsfs.plot(S_sfm3['step'], S_sfm3['distance-worst-s'])
+axsfs.plot(S_sfm7['step'], S_sfm7['distance-worst-s'])
 
-axsfs.legend(['random', 'structure', 'opinion'])
+axsfs.legend(['random', 'structure', 'opinion', 'mixed-3', 'mixed-7'])
 
 axro.set_title('(a) random, objective', loc='left')
 axsfo.set_title('(b) scale-free, objective', loc='left')
@@ -337,3 +320,52 @@ axro.set_ylabel('rel. distance to worst distribution')
 
 plt.subplots_adjust(wspace=0.06, hspace=0.15)
 show_fig('dist-of-dis')
+
+
+# violin
+violin_x_1 = [
+    ('random', S_rr),
+    ('structure', S_rs),
+    ('mixed-3', S_rm3),
+    ('mixed-7', S_rm7),
+    ('opinion', S_ro),
+]
+violin_x_2 = [
+    ('random', S_sfr),
+    ('structure', S_sfs),
+    ('mixed-3', S_sfm3),
+    ('mixed-7', S_sfm7),
+    ('opinion', S_sfo),
+]
+
+violin_x_axis = np.arange(1, len(violin_x_1) + 1)
+violin_x_name = [x[0] for x in violin_x_1]
+
+axes: List[Axes]
+fig, axes = plt_figure(
+    n_col=2, n_row=2, sharex='col',
+    sharey='row', total_width=7, hw_ratio=1)
+(axup_r, axup_sf), (axdn_r, axdn_sf) = axes
+
+axup_r.violinplot([x[1]['ratio-n'] for x in violin_x_1], showmeans=True)
+axdn_r.violinplot([x[1]['ratio-sum-log'] for x in violin_x_1], showmeans=True)
+
+axup_sf.violinplot([x[1]['ratio-n'] for x in violin_x_2], showmeans=True)
+axdn_sf.violinplot([x[1]['ratio-sum-log'] for x in violin_x_2], showmeans=True)
+
+
+axup_r.set_title('(d) random', loc='left')
+axup_sf.set_title('(e) scale-free', loc='left')
+axup_r.set_ylabel('ratio of concordant recommendation')
+axdn_r.set_ylabel('contribution of recommendation')
+
+axdn_r.set_xticks(violin_x_axis, violin_x_name, rotation=90)
+axdn_sf.set_xticks(violin_x_axis, violin_x_name, rotation=90)
+
+ylim_s, ylim_e = lim(0.1, 0.6)
+axup_r.set_ylim(bottom=ylim_s, top=ylim_e)
+ylim_s, ylim_e = lim(-0.6, 0.4)
+axdn_r.set_ylim(bottom=ylim_s, top=ylim_e)
+
+plt.subplots_adjust(wspace=0.06, hspace=0.05)
+show_fig('violin')

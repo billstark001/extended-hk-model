@@ -1,4 +1,4 @@
-from typing import List
+from typing import Union
 from numpy.typing import NDArray
 
 import numpy as np
@@ -80,4 +80,12 @@ def proc_opinion_ratio(
 
   return ratio_n, ratio_sum_log
   
-  
+
+
+def first_index_above_min(arr: np.ndarray, error: float = 1e-5) -> int:
+  min_val = np.min(arr)
+  threshold = min_val + error
+  for i in range(arr.size - 1, -1, -1):
+    if arr[i] > threshold:
+      return i
+  return 0
