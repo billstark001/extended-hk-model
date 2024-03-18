@@ -67,25 +67,38 @@ class Structure(HKModelRecommendationSystem):
           conn_mat[u, v] = common_neighbors_count(G, u, v)
       self.conn_mat = conn_mat
       
+    # set irrelevant elements to 0
+    self.conn_mat = np.triu(self.conn_mat)
+    np.fill_diagonal(self.conn_mat, 0)
+    
+    
     tend = time.time()
     if self.log:
       self.log(f'Connection matrix generation costs {tend - tstart}s.')
+      
+    # placeholders
+    self.epsilon_mat = np.zeros((0, 0))
+    self.val_mat = np.zeros((0, 0))
+    self.val_mat_raw = np.zeros((0, 0))
     
 
   def pre_step(self):
+    self.val_mat_raw = self.conn_mat + self.conn_mat.T
+    if self.sigma > 0:
+      self.epsilon_mat = np.random.normal(0, self.sigma, (self.num_nodes, self.num_nodes))
+      self.val_mat = self.val_mat_raw * (1 - 2 * self.epsilon_mat) + self.epsilon_mat
+    else:
+      self.val_mat = self.val_mat_raw
+    self.val_mat[self.val_mat < 0] = 0
+    if self.eta != 1:
+      self.val_mat = self.val_mat ** self.eta
     pass
 
   def recommend(self, agent: HKAgent, neighbors: List[HKAgent], count: int) -> List[HKAgent]:
     a = agent.unique_id
-    vals = self.conn_mat[:, a].flatten() + \
-        self.conn_mat[a, :].flatten()
-    epsilon = np.random.normal(0, self.sigma, vals.shape)
-    ret1 = vals * (1 - 2 * epsilon) + epsilon
-    ret1[ret1 < 0] = 0
-    if self.eta != 1:
-      ret1 = ret1 ** self.eta
+    ret1 = self.val_mat[a]
 
-    exclude_ids = np.array([x.unique_id for x in neighbors])
+    exclude_ids = np.array([x.unique_id for x in neighbors + [agent]])
     ret = np.setdiff1d(np.argpartition(
         ret1, len(neighbors) + count), exclude_ids)
 
