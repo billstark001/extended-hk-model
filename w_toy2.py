@@ -40,7 +40,7 @@ def plot_and_save_network(
 
   ax = ax_in
   if ax is None:
-    fig, ax = plt.subplots(figsize=(5, 5))
+    fig, ax = plt.subplots(figsize=(6, 5))
     ax = cast(Axes, ax)
   ax.spines['top'].set_visible(False)
   ax.spines['bottom'].set_visible(False)
