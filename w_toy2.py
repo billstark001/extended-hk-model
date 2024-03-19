@@ -40,7 +40,7 @@ def plot_and_save_network(
 
   ax = ax_in
   if ax is None:
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=(5, 5))
     ax = cast(Axes, ax)
   ax.spines['top'].set_visible(False)
   ax.spines['bottom'].set_visible(False)
@@ -70,9 +70,9 @@ def plot_and_save_network(
 # build scenario
 
 
-stat_collectors = {
+stat_collectors_f = lambda: {
     # 'distance': stats.DistanceCollectorDiscrete(use_js_divergence=True),
-    'layout': stats.NetworkLayoutCollector()
+    'layout': stats.NetworkLayoutCollector(use_last=True)
 }
 
 network_provider = RandomNetworkProvider(
@@ -83,7 +83,7 @@ sim_p_standard = SimulationParams(
     max_total_step=1000,
     stat_interval=114514,
     opinion_change_error=1e-4,
-    stat_collectors=stat_collectors
+    stat_collectors=stat_collectors_f()
 )
 
 save_interval = 50
@@ -109,7 +109,7 @@ for i, r in enumerate(rewiring_rate_array):
       )
       params_arr.append(x)
     
-for name, r, d, g in params_arr:
+for name, r, d, g in params_arr[2:]:
   params = HKModelParams(
     tolerance=0.45,
     decay=d,
@@ -118,6 +118,7 @@ for name, r, d, g in params_arr:
     recsys_factory=g
   )
   
+  sim_p_standard.stat_collectors = stat_collectors_f()
   S = Scenario(network_provider, params, sim_p_standard)
   S.init()
   
