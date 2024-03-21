@@ -158,6 +158,7 @@ cython_debug/
 **/.DS_Store
 run
 run2
+run3
 fig
 fig2
 fig_final

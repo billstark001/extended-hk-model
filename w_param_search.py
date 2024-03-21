@@ -55,8 +55,12 @@ sim_p_standard = SimulationParams(
 
 save_interval = 50
 
-rewiring_rate_array = 10 ** np.arange(-2, 0 + 1/5, 1/4)
-decay_rate_array = 10 ** np.arange(-3, 0, 1/3)
+# rewiring_rate_array = 10 ** np.arange(-2, 0 + 1/5, 1/4)
+# decay_rate_array = 10 ** np.arange(-3, 0, 1/3)
+
+rewiring_rate_array = np.array([0.01, 0.03, 0.05, 0.1, 0.3, 0.5])
+decay_rate_array = np.array([0.005, 0.01, 0.05, 0.1, 0.5, 1])
+n_sims = 5
 
 n_gens = [
     # lambda m: Random(m),
@@ -72,20 +76,23 @@ n_gens = [
         0.1),
 ]
 
+n_gen_names = ['op', 'st']
+
 params_arr: List[Tuple[str, float, float,
                        Callable[[HKModel], HKModelRecommendationSystem]]] = []
 for i, r in enumerate(rewiring_rate_array):
   for j, d in enumerate(decay_rate_array):
     for k, g in enumerate(n_gens):
-      x = (
-          f'scenario_i{len(params_arr)}_r{i}_d{j}_g{k}',
-          r,
-          d,
-          g,
-      )
-      params_arr.append(x)
+      for l in range(n_sims):
+        x = (
+            f'scenario_i{len(params_arr)}_r{i}_d{j}_{n_gen_names[k]}_sim{l}',
+            r,
+            d,
+            g,
+        )
+        params_arr.append(x)
 
-for scenario_name, r, d, g in params_arr[::-1]:
+for scenario_name, r, d, g in params_arr:
   params = HKModelParams(
       tolerance=0.45,
       decay=d,
