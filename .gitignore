@@ -157,6 +157,7 @@ cython_debug/
 # project related
 **/.DS_Store
 run
+run2
 fig
 fig2
 fig_final
