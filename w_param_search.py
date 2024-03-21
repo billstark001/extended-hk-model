@@ -85,7 +85,7 @@ for i, r in enumerate(rewiring_rate_array):
       )
       params_arr.append(x)
 
-for scenario_name, r, d, g in params_arr:
+for scenario_name, r, d, g in params_arr[::-1]:
   params = HKModelParams(
       tolerance=0.45,
       decay=d,

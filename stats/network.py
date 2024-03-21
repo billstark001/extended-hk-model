@@ -14,4 +14,7 @@ class NetworkLayoutCollector:
     pos = nx.spring_layout(digraph, pos=self.last)
     if self.use_last:
       self.last = pos
-    return pos, opinion, nx.DiGraph(digraph)
+    graph = nx.DiGraph(digraph)
+    for n in graph:
+      del graph.nodes[n]['agent']
+    return pos, opinion, graph

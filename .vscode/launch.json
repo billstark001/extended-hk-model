@@ -9,6 +9,14 @@
       "program": "./main.py",
       "console": "integratedTerminal",
       "justMyCode": true
+    },
+    {
+      "name": "param search",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "./w_param_search.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
     }
   ]
 }
