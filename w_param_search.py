@@ -38,7 +38,7 @@ def stat_collectors_f(): return {
 
 def save_sim_result(S: Scenario, name: str):
   dump_data = S.dump()
-  with open(os.path.join(BASE_PATH, name + '.pkl'), 'rb') as f:
+  with open(os.path.join(BASE_PATH, name + '.pkl'), 'wb') as f:
     pickle.dump(dump_data, f)
 
 
