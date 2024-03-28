@@ -1,4 +1,4 @@
-from typing import Callable, Mapping, cast, Optional, List, Tuple
+from typing import Mapping, cast, Optional, List, Tuple
 from numpy.typing import NDArray
 
 import os
@@ -7,20 +7,16 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 import networkx as nx
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 
-import seaborn as sns
 
-from base import HKModelParams, Scenario, SimulationParams
-from base.model import HKModel, HKModelRecommendationSystem
-from env import RandomNetworkProvider, ScaleFreeNetworkProvider
-from recsys import Random, Opinion, Structure
-import stats
+from base import Scenario
+from scipy.interpolate import interp1d
 
 import w_param_search as p
 
-from w_logger import logger
 
 from tqdm import tqdm
 
@@ -30,6 +26,7 @@ plot_path = './fig2'
 os.makedirs(scenario_base_path, exist_ok=True)
 os.makedirs(plot_path, exist_ok=True)
 
+mpl.rcParams['font.size'] = 18
 
 def plot_network_snapshot(
     pos: Mapping,
@@ -42,8 +39,6 @@ def plot_network_snapshot(
   norm = mpl.colors.Normalize(vmin=-1, vmax=1)
   sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
   sm.set_array([])
-
-  mpl.rcParams['font.size'] = 18
 
   ax.spines['top'].set_visible(False)
   ax.spines['bottom'].set_visible(False)
@@ -69,6 +64,7 @@ def plt_figure(n_row=1, n_col=1, hw_ratio=3/4, total_width=16, **kwargs) -> Tupl
 
 # build scenario
 
+pat_stats_set = []
 
 for scenario_name, r, d, g in tqdm(p.params_arr):
 
@@ -98,10 +94,29 @@ for scenario_name, r, d, g in tqdm(p.params_arr):
   # collect indices
   
   h_index = np.mean(n_n, axis=1) / p.network_provider.agent_follow
+  if h_index.shape[0] > 1:
+    h_index[0] = h_index[1]
   s_index = S_stats['s-index']
   p_index = 1 - np.array(S_stats['distance-worst-o'])
   g_index = 1 - np.array(S_stats['distance-worst-s'])
   
+  # calculate stats
+  
+  p_index_resmpl = interp1d(S_stat_steps, p_index, kind='linear')(S_data_steps)
+  g_index_resmpl = interp1d(S_stat_steps, g_index, kind='linear')(S_data_steps)
+  
+  g_mask = g_index_resmpl <= np.max(g_index) * 0.95
+  pat_diff = (h_index - p_index_resmpl)[g_mask]
+  p_last = p_index[-1]
+  pat_mean = np.mean(pat_diff)
+  pat_std = np.std(pat_diff)
+  
+  pat_stats = [scenario_name, pat_mean, pat_std, p_last]
+  pat_stats_set.append(pat_stats)
+  
+  pat_stats_df = pd.DataFrame(pat_stats_set, columns=['name', 'pat_mean', 'pat_std', 'h_last'])
+  pat_stats_df.to_csv(os.path.join(plot_path, 'pattern_stats.csv'), index=False)
+
   # plot indices
   
   plt.plot(S_data_steps, h_index, linewidth=1)
