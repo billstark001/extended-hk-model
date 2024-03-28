@@ -22,7 +22,6 @@ from w_logger import logger
 BASE_PATH = './run2'
 os.makedirs(BASE_PATH, exist_ok=True)
 
-
 # build scenarios
 
 def stat_collectors_f(): return {
@@ -53,7 +52,6 @@ sim_p_standard = SimulationParams(
     stat_collectors=stat_collectors_f()
 )
 
-save_interval = 50
 
 # rewiring_rate_array = 10 ** np.arange(-2, 0 + 1/5, 1/4)
 # decay_rate_array = 10 ** np.arange(-3, 0, 1/3)
@@ -78,6 +76,8 @@ n_gens = [
 
 n_gen_names = ['op', 'st']
 
+# all parameters
+
 params_arr: List[Tuple[str, float, float,
                        Callable[[HKModel], HKModelRecommendationSystem]]] = []
 for i, r in enumerate(rewiring_rate_array):
@@ -91,9 +91,9 @@ for i, r in enumerate(rewiring_rate_array):
             g,
         )
         params_arr.append(x)
-
-for scenario_name, r, d, g in params_arr:
-  params = HKModelParams(
+        
+def gen_params(r: float, d: float, g: float):
+  return HKModelParams(
       tolerance=0.45,
       decay=d,
       rewiring_rate=r,
@@ -101,20 +101,24 @@ for scenario_name, r, d, g in params_arr:
       recsys_factory=g
   )
 
-  sim_p_standard.stat_collectors = stat_collectors_f()
-  scenario = Scenario(network_provider, params, sim_p_standard)
-  scenario.init()
+if __name__ == '__main__':
+  for scenario_name, r, d, g in params_arr[::-1]:
+    params = gen_params(r, d, g)
 
-  logger.info('Scenario %s simulation started.', scenario_name)
+    sim_p_standard.stat_collectors = stat_collectors_f()
+    scenario = Scenario(network_provider, params, sim_p_standard)
+    scenario.init()
 
-  try:
+    logger.info('Scenario %s simulation started.', scenario_name)
 
-    scenario.step()
-    save_sim_result(scenario, scenario_name)
+    try:
 
-    logger.info('Saved scenario %s. Model at step %d.',
-                scenario_name, scenario.steps)
+      scenario.step()
+      save_sim_result(scenario, scenario_name)
 
-  except Exception as e:
-    logger.error('Error occurred when simulating scenario %s.', scenario_name)
-    logger.exception(e)
+      logger.info('Saved scenario %s. Model at step %d.',
+                  scenario_name, scenario.steps)
+
+    except Exception as e:
+      logger.error('Error occurred when simulating scenario %s.', scenario_name)
+      logger.exception(e)
