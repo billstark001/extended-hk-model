@@ -11,8 +11,6 @@ import w_proc_utils as p
 
 importlib.reload(p)
 
-def plt_figure():
-  return plt.figure(figsize=(8, 6)) 
 
 def plt_save_and_close(path: str):
   # plt.savefig(path + '.eps', dpi=300)

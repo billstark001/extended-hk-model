@@ -13,11 +13,14 @@ import seaborn as sns
 
 from base.scenario import Scenario
 
+from w_plot_utils import plt_figure
 from w_scenarios import all_scenarios
 import w_snapshots as ss
-import w_proc_utils as p
 
+import w_proc_utils as p
+import w_plot_utils as _p
 importlib.reload(p)
+importlib.reload(_p)
 
 mpl.rcParams['font.size'] = 18
 sns.set_theme(style='whitegrid')
@@ -25,13 +28,6 @@ sns.set_theme(style='whitegrid')
 BASE_PATH = './fig_final'
 
 os.makedirs(BASE_PATH, exist_ok=True)
-
-
-def plt_figure(n_row=1, n_col=1, hw_ratio=3/4, total_width=16, **kwargs) -> Tuple[Figure, List[Axes]]:
-  width = total_width / n_col
-  height = width * hw_ratio
-  total_height = height * n_row
-  return plt.subplots(n_row, n_col, figsize=(total_width, total_height), **kwargs)
 
 
 def plt_save_and_close(path: str):
