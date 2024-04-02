@@ -36,23 +36,32 @@ mpl.rcParams['font.size'] = 18
 # prepare data
 
 pat_csv = pd.read_csv(pat_csv_path, encoding='utf-8-sig')
-pat_csv_values = pat_csv.values.T.reshape((
-  -1,
+pat_csv_values_raw = pat_csv.values
+
+total_len, n_stat_data = pat_csv_values_raw.shape
+full_sim_len = p.rewiring_rate_array.shape[0] * p.decay_rate_array.shape[0] * len(p.n_gens)
+
+used_len = total_len - total_len % full_sim_len
+
+pat_csv_values = pat_csv_values_raw[:used_len].T.reshape((
+  n_stat_data,
+  p.n_sims,
   p.rewiring_rate_array.shape[0],
   p.decay_rate_array.shape[0],
   len(p.n_gens),
-  p.n_sims,
 ))
-# axes: (rewiring, decay, recsys, #sim)
+# axes: (#sim, rewiring, decay, recsys)
 names, steps, active_steps, means, stds, hs_last = pat_csv_values
 
-m_active_step = np.mean(active_steps, axis=3).astype(float)
-m_pattern_1 = np.mean(means, axis=3).astype(float)
-m_pattern_1_std = np.mean(stds, axis=3).astype(float)
+# in the following operations, average data is calculated in all simulations
+
+m_active_step = np.mean(active_steps, axis=0).astype(float)
+m_pattern_1 = np.mean(means, axis=0).astype(float)
+m_pattern_1_std = np.mean(stds, axis=0).astype(float)
 
 consensus_threshold = 0.6
-m_hs_last = np.mean(hs_last, axis=-1).astype(float)
-m_is_consensus = np.mean(hs_last < consensus_threshold, axis=-1).astype(float)
+m_hs_last = np.mean(hs_last, axis=0).astype(float)
+m_is_consensus = np.mean(hs_last < consensus_threshold, axis=0).astype(float)
 
 # m_pattern_1_op = means[..., 0, :].astype(float)
 # m_pattern_1_st = means[..., 1, :].astype(float)

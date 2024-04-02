@@ -10,6 +10,7 @@ from numpy.typing import NDArray
 import powerlaw
 from contextlib import contextmanager
 
+
 @contextmanager
 def suppress_output():
   with open(os.devnull, 'w') as devnull:
@@ -25,37 +26,41 @@ def suppress_output():
 
 
 class InDegreeCollector:
-  
+
   def __init__(
-      self, 
+      self,
       dist2: Optional[str] = None,
-      prefix: Optional[str] = None,
       full_data: bool = False,
-    ) -> None:
+  ) -> None:
     self.dist2 = dist2 or 'exponential'
-    self.prefix = prefix or 'in-degree'
     self.full_data = full_data
-  
-  def collect(self, digraph: nx.DiGraph, **kwargs) -> Dict[str, Union[float, NDArray]]:
-    
+
+  def collect(
+          self,
+          prefix: str,
+          digraph: nx.DiGraph, 
+          *args, **kwargs) -> Dict[str, Union[float, NDArray]]:
+
     in_degree_dict = dict(digraph.in_degree())
-    
+
     with suppress_output():
-      p_res = powerlaw.Fit(np.array([v for v in in_degree_dict.values() if v > 0]).flatten())
-      R, p = p_res.distribution_compare('power_law', self.dist2, normalized_ratio=True)
-    
+      p_res = powerlaw.Fit(
+          np.array([v for v in in_degree_dict.values() if v > 0]).flatten())
+      R, p = p_res.distribution_compare(
+          'power_law', self.dist2, normalized_ratio=True)
+
     ret_dict = {
-      self.prefix + '-alpha': p_res.alpha,
-      self.prefix + '-sigma': p_res.sigma,
-      self.prefix + '-xmin': p_res.xmin,
-      self.prefix + '-xmax': p_res.xmax,
-      self.prefix + '-R': R,
-      self.prefix + '-p-value': p
+        prefix + '-alpha': p_res.alpha,
+        prefix + '-sigma': p_res.sigma,
+        prefix + '-xmin': p_res.xmin,
+        prefix + '-xmax': p_res.xmax,
+        prefix + '-R': R,
+        prefix + '-p-value': p
     }
-    
+
     if self.full_data:
       in_degree_dist = Counter(in_degree_dict.values())
       in_degree_val = np.array(sorted(in_degree_dist.items())).T
       ret_dict[self.prefix] = in_degree_val
-    
+
     return ret_dict

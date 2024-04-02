@@ -24,14 +24,17 @@ os.makedirs(BASE_PATH, exist_ok=True)
 
 # build scenarios
 
+
 def stat_collectors_f(): return {
-    # 'distance': stats.DistanceCollectorDiscrete(use_js_divergence=True),
     'layout': stats.NetworkLayoutCollector(use_last=True),
     'triads': stats.TriadsCountCollector(),
     'cluster': stats.ClusteringCollector(),
     's-index': stats.SegregationIndexCollector(),
     'in-degree': stats.InDegreeCollector(),
-    'distance': stats.DistanceCollectorDiscrete(use_js_divergence=True),
+    'distance': stats.DistanceCollectorDiscrete(
+        use_js_divergence=True,
+        hist_interval=0.08,
+    ),
 }
 
 
@@ -56,8 +59,11 @@ sim_p_standard = SimulationParams(
 # rewiring_rate_array = 10 ** np.arange(-2, 0 + 1/5, 1/4)
 # decay_rate_array = 10 ** np.arange(-3, 0, 1/3)
 
-rewiring_rate_array = np.array([0.01, 0.03, 0.05, 0.1, 0.3, 0.5])
-decay_rate_array = np.array([0.005, 0.01, 0.05, 0.1, 0.5, 1])
+# rewiring_rate_array = np.array([0.01, 0.03, 0.05, 0.1, 0.3, 0.5])
+# decay_rate_array = np.array([0.005, 0.01, 0.05, 0.1, 0.5, 1])
+
+decay_rate_array = rewiring_rate_array = \
+    np.array([0.005, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1])
 n_sims = 5
 
 n_gens = [
@@ -80,18 +86,20 @@ n_gen_names = ['op', 'st']
 
 params_arr: List[Tuple[str, float, float,
                        Callable[[HKModel], HKModelRecommendationSystem]]] = []
-for i, r in enumerate(rewiring_rate_array):
-  for j, d in enumerate(decay_rate_array):
-    for k, g in enumerate(n_gens):
-      for l in range(n_sims):
+
+for i_sim in range(n_sims):
+  for i, r in enumerate(rewiring_rate_array):
+    for j, d in enumerate(decay_rate_array):
+      for k, g in enumerate(n_gens):
         x = (
-            f'scenario_i{len(params_arr)}_r{i}_d{j}_{n_gen_names[k]}_sim{l}',
+            f'scenario_i{len(params_arr)}_r{i}_d{j}_{n_gen_names[k]}_sim{i_sim}',
             r,
             d,
             g,
         )
         params_arr.append(x)
-        
+
+
 def gen_params(r: float, d: float, g: float):
   return HKModelParams(
       tolerance=0.45,
@@ -100,6 +108,7 @@ def gen_params(r: float, d: float, g: float):
       recsys_count=10,
       recsys_factory=g
   )
+
 
 if __name__ == '__main__':
   for scenario_name, r, d, g in params_arr[::-1]:
@@ -120,5 +129,6 @@ if __name__ == '__main__':
                   scenario_name, scenario.steps)
 
     except Exception as e:
-      logger.error('Error occurred when simulating scenario %s.', scenario_name)
+      logger.error(
+          'Error occurred when simulating scenario %s.', scenario_name)
       logger.exception(e)

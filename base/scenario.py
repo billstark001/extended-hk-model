@@ -15,25 +15,38 @@ from collections import Counter
 
 StatsType = Dict[str, Union[NDArray, int, float]]
 
+
 class EnvironmentProvider(Protocol):
-  
+
   def generate(self, *args, **kwargs) -> Tuple[nx.DiGraph, NDArray]:
     pass
-  
+
+
 class StatCollector(Protocol):
-  
-  def collect(self, digraph: nx.DiGraph, graph: nx.Graph, n: int, opinion: NDArray) -> Union[float, NDArray, Dict[str, Union[float, NDArray]]]:
+
+  def collect(
+      self,
+      prefix: str, 
+      n: int,
+      step: int,
+      digraph: nx.DiGraph,
+      graph: nx.Graph,
+      opinion: NDArray,
+  ) -> Union[float, NDArray, Dict[str, Union[float, NDArray]]]:
     pass
-  
+
+
 @dataclasses.dataclass
 class SimulationParams:
   max_total_step: int = 1000
   opinion_change_error: float = 1e-10
   halt_monitor_step: int = 60
-  
+
   data_interval: int = 1
   stat_interval: int = 20
-  stat_collectors: Dict[str, StatCollector] = dataclasses.field(default_factory=dict)
+  stat_collectors: Dict[str, StatCollector] = dataclasses.field(
+      default_factory=dict)
+
 
 class Scenario:
 
@@ -54,8 +67,8 @@ class Scenario:
     self.model_params = model_params
     self.stats = {}
     self.steps = 0
-    self.halt_monitor = [(0xffffff, 0xffffff)] * self.sim_params.halt_monitor_step
-    
+    self.halt_monitor = [(0xffffff, 0xffffff)] * \
+        self.sim_params.halt_monitor_step
 
   def init_data(self, collect=True):
     self.datacollector = DataCollector(agent_reporters=dict(
@@ -74,7 +87,8 @@ class Scenario:
       self.add_data()
       self.add_stats()
     self.model.datacollector = self.datacollector
-    self.halt_monitor = [(0xffffff, 0xffffff)] * self.sim_params.halt_monitor_step
+    self.halt_monitor = [(0xffffff, 0xffffff)] * \
+        self.sim_params.halt_monitor_step
 
   def init(self, *args, **kwargs):
     graph, opinion = self.env_provider.generate(*args, **kwargs)
@@ -88,13 +102,13 @@ class Scenario:
     graph = nx.DiGraph(self.model.graph)
     for n in graph:
       del graph.nodes[n]['agent']
-      
+
     # recsys
     model_dump = self.model.dump()
-      
+
     # opinion
     opinion = self.get_current_opinion()
-    
+
     # data
     c = self.datacollector
     data = (c.model_vars, c._agent_records, c.tables, self.halt_monitor)
@@ -109,7 +123,8 @@ class Scenario:
       stats: Dict[int, StatsType] = None,
       step: int = 0,
   ):
-    self.model = HKModel(graph, opinion, self.model_params, dump_data=model_dump)
+    self.model = HKModel(
+        graph, opinion, self.model_params, dump_data=model_dump)
     if data is not None:
       self.init_data(collect=False)
       v, r, t, m = data
@@ -126,7 +141,7 @@ class Scenario:
   def step_once(self):
     c_edge, c_opinion = self.model.step()
     self.steps += 1
-    
+
     # update monitor
     self.halt_monitor.pop(0)
     self.halt_monitor.append((c_edge, c_opinion))
@@ -145,10 +160,10 @@ class Scenario:
       halt, _, __ = self.check_halt_cond()
       if halt:
         break
-      
+
   def check_halt_cond(self):
     val1 = max(x[0] for x in self.halt_monitor)
-    val2 = max(x[1] for x in self.halt_monitor) 
+    val2 = max(x[1] for x in self.halt_monitor)
     cond1 = val1 == 0
     cond2 = val2 < self.sim_params.opinion_change_error
     cond0 = self.steps >= self.sim_params.max_total_step
@@ -181,28 +196,30 @@ class Scenario:
     self.stats[self.steps] = self.collect_stats()
 
   def collect_stats(self):
-    
+
     digraph = self.model.graph
     graph = nx.Graph(digraph)
     n = graph.number_of_nodes()
     opinion = self.get_current_opinion()
-    
+
     ret_dict = {}
-    for stat in self.stat_collectors:
-      collector = self.stat_collectors[stat]
+    for stat_name in self.stat_collectors:
+      collector = self.stat_collectors[stat_name]
       ret = collector.collect(
-        digraph=digraph,
-        graph=graph,
-        n=n,
-        opinion=opinion
+          prefix=stat_name,
+          n=n,
+          step=self.steps,
+          digraph=digraph,
+          graph=graph,
+          opinion=opinion
       )
       if isinstance(ret, dict):
         ret_dict.update(ret)
       else:
-        ret_dict[stat] = ret
-    
+        ret_dict[stat_name] = ret
+
     return ret_dict
-  
+
   def generate_stats(self):
     step_indices = list(self.stats.keys())
     item_set = set()
@@ -210,19 +227,18 @@ class Scenario:
       if isinstance(v, dict):
         for k in v.keys():
           item_set.add(k)
-          
+
     ret_dict = {
-      'step': step_indices
+        'step': step_indices
     }
     for item in item_set:
       ret_dict[item] = []
-    
+
     for step in step_indices:
       step_dict = self.stats[step]
       if not isinstance(step_dict, dict):
         step_dict = {}
       for item in item_set:
         ret_dict[item].append(step_dict[item] if item in step_dict else None)
-      
+
     return ret_dict
-    

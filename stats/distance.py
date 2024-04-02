@@ -53,22 +53,24 @@ class DistanceCollectorDiscrete:
 
   def __init__(
       self,
-      prefix: Optional[str] = None,
       hist_interval: Optional[float] = None,
       t_err: float = 1e-10,
       use_js_divergence: bool = False,
+      use_debug_data: bool = False,
       t_opinion: float = 0.4
   ):
-    self.prefix = prefix or 'distance'
     self.hist_interval = hist_interval
     self.t_err = t_err
     self.use_js_divergence = use_js_divergence
+    self.use_debug_data = use_debug_data
     self.t_opinion = t_opinion
     self.div = js_divergence_discrete if use_js_divergence else kl_divergence_discrete
 
   def collect(
       self,
-      digraph: nx.DiGraph, graph: nx.Graph, n: int, opinion: NDArray
+      prefix: str,
+      digraph: nx.DiGraph, opinion: NDArray,
+      *args, **kwargs,
   ) -> Union[float, NDArray, Dict[str, Union[float, NDArray]]]:
 
     # sampling
@@ -87,13 +89,13 @@ class DistanceCollectorDiscrete:
     s_axis, s_pmf = get_pmf(s_sample, range=(
         0, 2), hist_interval=self.hist_interval)
 
-    # best and worst cases
+    # random and worst cases
 
-    o_best = ideal_dist_init_array(o_axis)
-    o_best /= np.sum(o_best)
+    o_rand = ideal_dist_init_array(o_axis)
+    o_rand /= np.sum(o_rand)
 
-    s_best = ideal_dist_init_array(s_axis)
-    s_best /= np.sum(s_best)
+    s_rand = ideal_dist_init_array(s_axis)
+    s_rand /= np.sum(s_rand)
 
     o_worst_b = o_sample[o_sample >= self.t_opinion]
     o_worst_v = self.t_opinion if o_worst_b.size == 0 else np.mean(o_worst_b)
@@ -106,15 +108,29 @@ class DistanceCollectorDiscrete:
     
     # scales
     
-    o_scale_worst = o_scale_best = self.div(o_worst, o_best, t_err=self.t_err)
-    s_scale_worst = s_scale_best = self.div(s_worst, s_best, t_err=self.t_err)
+    o_scale_worst = o_scale_rand = self.div(o_worst, o_rand, t_err=self.t_err)
+    s_scale_worst = s_scale_rand = self.div(s_worst, s_rand, t_err=self.t_err)
     if not self.use_js_divergence:
-      o_scale_worst = self.div(o_best, o_worst, t_err=self.t_err)
-      s_scale_worst = self.div(s_best, s_worst, t_err=self.t_err)
+      o_scale_worst = self.div(o_rand, o_worst, t_err=self.t_err)
+      s_scale_worst = self.div(s_rand, s_worst, t_err=self.t_err)
+      
+    debug_data = {}
+    if self.use_debug_data:
+      debug_data = {
+        prefix + '-pmf-o': o_pmf,
+        prefix + '-pmf-s': s_pmf,
+        prefix + '-axis-o': o_axis,
+        prefix + '-axis-s': s_axis,
+        prefix + '-rand-o-pmf': o_rand,
+        prefix + '-rand-s-pmf': s_rand,
+        prefix + '-worst-o-pmf': o_worst,
+        prefix + '-worst-s-pmf': s_worst,
+      }
 
     return {
-        self.prefix + '-best-o': self.div(o_pmf, o_best, t_err=self.t_err) / o_scale_best,
-        self.prefix + '-best-s': self.div(s_pmf, s_best, t_err=self.t_err) / s_scale_best,
-        self.prefix + '-worst-o': self.div(o_pmf, o_worst, t_err=self.t_err) / o_scale_worst,
-        self.prefix + '-worst-s': self.div(s_pmf, s_worst, t_err=self.t_err) / s_scale_worst,
+        prefix + '-rand-o': self.div(o_pmf, o_rand, t_err=self.t_err) / o_scale_rand,
+        prefix + '-rand-s': self.div(s_pmf, s_rand, t_err=self.t_err) / s_scale_rand,
+        prefix + '-worst-o': self.div(o_pmf, o_worst, t_err=self.t_err) / o_scale_worst,
+        prefix + '-worst-s': self.div(s_pmf, s_worst, t_err=self.t_err) / s_scale_worst,
+        **debug_data,
     }

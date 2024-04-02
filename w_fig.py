@@ -70,8 +70,8 @@ def plot_data(name: str, S: Scenario, base_dir: str):
   plt.title('Segregation Index')
   plt_save_and_close(_p('s_index'))
 
-  plt.plot(stats_index, stats['distance-best-o'])
-  plt.plot(stats_index, stats['distance-best-s'])
+  plt.plot(stats_index, stats['distance-rand-o'])
+  plt.plot(stats_index, stats['distance-rand-s'])
   plt.plot(stats_index, stats['distance-worst-o'])
   plt.plot(stats_index, stats['distance-worst-s'])
   plt.legend(['O/Best', 'S/Best', 'O/Worst', 'S/Worst'])
