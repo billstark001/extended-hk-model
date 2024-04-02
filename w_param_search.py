@@ -49,7 +49,7 @@ network_provider = RandomNetworkProvider(
     agent_follow=15,
 )
 sim_p_standard = SimulationParams(
-    max_total_step=10000,
+    max_total_step=15000,
     stat_interval=20,
     opinion_change_error=1e-4,
     stat_collectors=stat_collectors_f()
@@ -64,7 +64,7 @@ sim_p_standard = SimulationParams(
 
 decay_rate_array = rewiring_rate_array = \
     np.array([0.005, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1])
-n_sims = 5
+n_sims = 20
 
 n_gens = [
     # lambda m: Random(m),
@@ -111,7 +111,7 @@ def gen_params(r: float, d: float, g: float):
 
 
 if __name__ == '__main__':
-  for scenario_name, r, d, g in params_arr[::-1]:
+  for scenario_name, r, d, g in params_arr:
     params = gen_params(r, d, g)
 
     sim_p_standard.stat_collectors = stat_collectors_f()
