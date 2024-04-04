@@ -1,11 +1,13 @@
-from typing import cast, List
+from typing import cast, List, Tuple, Any, Optional
+from numpy.typing import NDArray
 
 import os
+import json
 import pickle
 import importlib
+import dataclasses
 
 import numpy as np
-import pandas as pd
 from tqdm import tqdm
 
 import matplotlib.pyplot as plt
@@ -30,10 +32,53 @@ plot_path = './fig2'
 os.makedirs(scenario_base_path, exist_ok=True)
 os.makedirs(plot_path, exist_ok=True)
 
-pat_csv_path = os.path.join(plot_path, 'pattern_stats.csv')
+pat_csv_path = os.path.join(plot_path, 'pattern_stats.json')
 
 do_plot = False
+do_plot_layout = False
+
+@dataclasses.dataclass
+class ScenarioPatternRecorder:
+  name: str
+  step: int
+  active_step: int
+  
+  p_last: float
+  s_last: float
+  h_last: float
+  
+  pat_abs_mean: float
+  pat_abs_std: float
+  
+  pat_area_hp: float
+  pat_area_ps: float
+  
+  
+import numpy as np
+
+def area_under_curve(points: NDArray, arg_sort = False, complement: Optional[float]=1):
+  # points: (n, 2)
+  # 确保 x 坐标是升序排列的
+  
+  x = points[0]
+  y = points[1]
+  if arg_sort:
+    indices = np.argsort(x)
+    x = x[indices]
+    y = y[indices]
+  
+  # 计算每个梯形的面积并求和
+  dx = np.diff(x)
+  area = 0.5 * np.sum(dx * (y[1:] + y[:-1]))
+  if complement:
+    area += (complement - x[-1]) * y[-1]
+  
+  return area
+  
+
 pat_columns = ['name', 'step', 'active_step', 'pat_mean', 'pat_std', 'h_last']
+
+active_threshold = 0.98
 
 # utilities
 
@@ -44,7 +89,7 @@ mpl.rcParams['font.size'] = 18
 
 if __name__ == '__main__':
 
-  pat_stats_set = []
+  pat_stats_set: List[ScenarioPatternRecorder] = []
 
   for scenario_name, r, d, g in tqdm(p.params_arr):
 
@@ -73,7 +118,8 @@ if __name__ == '__main__':
     
     # collect indices
     
-    h_index = np.mean(n_n, axis=1) / p.network_provider.agent_follow
+    n_edges = np.array(sorted(list(S.model.graph.out_degree), key=lambda x: x[0]))[:, 1]
+    h_index = np.mean(n_n / n_edges[np.newaxis, :], axis=1)
     if h_index.shape[0] > 1:
       h_index[0] = h_index[1]
     s_index = S_stats['s-index']
@@ -85,43 +131,64 @@ if __name__ == '__main__':
     p_index_resmpl = interp1d(S_stat_steps, p_index, kind='linear')(S_data_steps)
     g_index_resmpl = interp1d(S_stat_steps, g_index, kind='linear')(S_data_steps)
     
-    g_mask = g_index_resmpl <= np.max(g_index) * 0.95
+    g_mask = g_index_resmpl <= np.max(g_index) * active_threshold
     pat_diff = (h_index - p_index_resmpl)[g_mask]
-    p_last = p_index[-1]
-    pat_mean = np.mean(pat_diff)
-    pat_std = np.std(pat_diff)
     
-    pat_stats = [
-      scenario_name, 
-      S.steps, np.sum(g_mask, dtype=int), 
-      pat_mean, pat_std, p_last
-    ]
-    pat_stats_set.append(pat_stats)
+    pat_stats = ScenarioPatternRecorder(
+      name = scenario_name,
+      step = S.steps,
+      active_step = int(np.sum(g_mask, dtype=int)),
+      p_last = p_index[-1],
+      h_last = h_index[-1],
+      s_last = s_index[-1],
+      pat_abs_mean = np.mean(pat_diff),
+      pat_abs_std = np.std(pat_diff),
+      pat_area_hp=area_under_curve([p_index_resmpl, h_index]),
+      pat_area_ps=area_under_curve([s_index, p_index])
+    )
     
-    pat_stats_df = pd.DataFrame(pat_stats_set, columns=pat_columns)
-    pat_stats_df.to_csv(pat_csv_path, index=False, encoding='utf-8-sig')
+    pat_stats_set.append(dataclasses.asdict(pat_stats))
+    with open(pat_csv_path, 'w', encoding='utf8') as f:
+      json.dump(pat_stats_set, f, indent=2, ensure_ascii=False)
 
     if not do_plot:
       continue
     # plot indices
+    fig, (ax, axhp, axps) = cast(Tuple[Any, List[Axes]], plt_figure(n_col=3))
     
-    plt.plot(S_data_steps, h_index, linewidth=1)
-    plt.plot(S_stat_steps, s_index, linewidth=1)
-    plt.plot(S_stat_steps, p_index, linewidth=1)
-    plt.plot(S_stat_steps, g_index, linewidth=1)
-    plt.legend(['homophily', 'segregation', 'polarization', 'general'])
+    ax.plot(S_data_steps, h_index, linewidth=1)
+    ax.plot(S_stat_steps, s_index, linewidth=1)
+    ax.plot(S_stat_steps, p_index, linewidth=1)
+    ax.plot(S_stat_steps, g_index, linewidth=1)
+    ax.legend(['homophily', 'segregation', 'polarization', 'general'])
     
-    plt.title(scenario_name)
-    plt.xlabel(f'step (total: {S.steps})')
+    ax.set_title(scenario_name)
+    ax.set_xlabel(f'step (total: {S.steps})')
+    
+    # plot curves
+    
+    axhp.plot(p_index_resmpl, h_index)
+    axhp.set_ylabel('homophily')
+    axhp.set_xlabel('polarization')
+    axhp.set_title(pat_stats.pat_area_hp)
+    
+    axps.plot(s_index, p_index)
+    axps.set_ylabel('polarization')
+    axps.set_xlabel('segregation')
+    axps.set_title(pat_stats.pat_area_ps)
     
     plt.savefig(os.path.join(plot_path, scenario_name + '_stats.png'), bbox_inches='tight')
     plt.close()
+    
       
     # plot networks
     
+    if not do_plot_layout:
+      continue
+    
     layouts = S_stats['layout']
       
-    _, (r1, r2) = cast(List[List[Axes]], plt_figure(n_col=4, n_row=2))
+    _, (r1, r2) = cast(Tuple[Any, List[List[Axes]]], plt_figure(n_col=4, n_row=2))
     all_axes = list(r1) + list(r2)
     all_indices = np.array(np.linspace(0, len(layouts) - 1, len(all_axes)), dtype=int)
     
