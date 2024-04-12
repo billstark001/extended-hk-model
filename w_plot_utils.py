@@ -1,4 +1,4 @@
-from typing import Mapping, Optional, Tuple, List
+from typing import Mapping, Optional, Tuple, List, overload, Union, Iterable, Any
 from numpy.typing import NDArray
 
 import networkx as nx
@@ -35,13 +35,44 @@ def plot_network_snapshot(
   plt.colorbar(sm, ticks=np.linspace(-1, 1, 5), ax=ax)
   plt.tight_layout()
   
+@overload
+def plt_figure(n_row: int, 
+  hw_ratio=3/4, total_width=16) -> Tuple[Figure, List[Axes]]: ...
+
+@overload
+def plt_figure(n_col: int, 
+  hw_ratio=3/4, total_width=16) -> Tuple[Figure, List[Axes]]: ...
+
+@overload
+def plt_figure(
+  n_row: int, n_col: int, 
+  hw_ratio=3/4, total_width=16, 
+  **kwargs
+) -> Tuple[Figure, List[List[Axes]]]: ...
+
 
 def plt_figure(
   n_row=1, n_col=1, 
   hw_ratio=3/4, total_width=16, 
   **kwargs
-) -> Tuple[Figure, List[Axes]]:
+) -> Tuple[Figure, List[List[Axes]]]:
   width = total_width / n_col
   height = width * hw_ratio
   total_height = height * n_row
   return plt.subplots(n_row, n_col, figsize=(total_width, total_height), **kwargs)
+
+
+def get_colormap(
+  axes: Union[Axes, Iterable[Axes]],
+  cmap='YlGnBu',
+  vmin: float = -1, vmax: float = 1, seg: int = 5,
+  fig: Any = plt
+):
+  norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+  sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+  sm.set_array([])
+  
+  cmap_arr = dict(cmap=cmap, vmin=vmin, vmax=vmax)
+  set_cmap_func = lambda: fig.colorbar(sm, ticks=np.linspace(vmin, vmax, seg), ax=axes)
+  
+  return cmap_arr, set_cmap_func
