@@ -19,10 +19,10 @@ from scipy.interpolate import interp1d
 from base import Scenario
 
 import w_param_search as p
-from w_plot_utils import plot_network_snapshot, plt_figure
-
 import w_plot_utils as _p
 importlib.reload(_p)
+
+from w_plot_utils import plot_network_snapshot, plt_figure
 
 # parameters
 
@@ -53,12 +53,16 @@ class ScenarioPatternRecorder:
   pat_area_hp: float
   pat_area_ps: float
   
+  cluster: float
+  triads: float
+  in_degree: Tuple[float, float, float]
+  opinion_diff: float
+  
   
 import numpy as np
 
 def area_under_curve(points: NDArray, arg_sort = False, complement: Optional[float]=1):
   # points: (n, 2)
-  # 确保 x 坐标是升序排列的
   
   x = points[0]
   y = points[1]
@@ -67,7 +71,6 @@ def area_under_curve(points: NDArray, arg_sort = False, complement: Optional[flo
     x = x[indices]
     y = y[indices]
   
-  # 计算每个梯形的面积并求和
   dx = np.diff(x)
   area = 0.5 * np.sum(dx * (y[1:] + y[:-1]))
   if complement:
@@ -134,6 +137,12 @@ if __name__ == '__main__':
     g_mask = g_index_resmpl <= np.max(g_index) * active_threshold
     pat_diff = (h_index - p_index_resmpl)[g_mask]
     
+    opinion_last = opinion[-1]
+    opinion_last_mean = np.mean(opinion_last)
+    opinion_last_diff = \
+      np.mean(opinion_last[opinion_last > opinion_last_mean]) - \
+        np.mean(opinion_last[opinion_last <= opinion_last_mean])
+    
     pat_stats = ScenarioPatternRecorder(
       name = scenario_name,
       step = S.steps,
@@ -143,8 +152,12 @@ if __name__ == '__main__':
       s_last = s_index[-1],
       pat_abs_mean = np.mean(pat_diff),
       pat_abs_std = np.std(pat_diff),
-      pat_area_hp=area_under_curve([p_index_resmpl, h_index]),
-      pat_area_ps=area_under_curve([s_index, p_index])
+      pat_area_hp = area_under_curve([p_index_resmpl, h_index]),
+      pat_area_ps = area_under_curve([s_index, p_index]),
+      cluster = S_stats['cluster'][-1],
+      triads = S_stats['triads'][-1],
+      in_degree = [S_stats[x][-1] for x in ['in-degree-alpha', 'in-degree-p-value', 'in-degree-R']],
+      opinion_diff = opinion_last_diff,
     )
     
     pat_stats_set.append(dataclasses.asdict(pat_stats))
