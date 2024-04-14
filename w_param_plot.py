@@ -157,7 +157,7 @@ if __name__ == '__main__':
       cluster = S_stats['cluster'][-1],
       triads = S_stats['triads'][-1],
       in_degree = [S_stats[x][-1] for x in ['in-degree-alpha', 'in-degree-p-value', 'in-degree-R']],
-      opinion_diff = opinion_last_diff,
+      opinion_diff = opinion_last_diff if np.isfinite(opinion_last_diff) else -1,
     )
     
     pat_stats_set.append(dataclasses.asdict(pat_stats))
