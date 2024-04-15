@@ -49,9 +49,9 @@ def plt_save_and_close(path: str):
   return plt.close()
 
 
-def show_fig(name: str):
-  plt_save_and_close(os.path.join(BASE_PATH, name))
-  # plt.show()
+def show_fig(name: str = 'test'):
+  # plt_save_and_close(os.path.join(BASE_PATH, name))
+  plt.show()
   
 # prepare data
 
@@ -104,41 +104,12 @@ m_pattern_1_a_op = m_pattern_1_areas[..., 0]
 m_pattern_1_a_st = m_pattern_1_areas[..., 1]
 m_hs_last_op = m_hs_last[..., 0]
 m_hs_last_st = m_hs_last[..., 1]
+m_is_consensus_op = m_is_consensus[..., 0]
+m_is_consensus_st = m_is_consensus[..., 1]
 
 
 
 # figure 1
-
-fig, ((ax1, ax2), (ax3, ax4)) = plt_figure(n_col=2, n_row=2, hw_ratio=4/5)
-
-
-cmap='YlGnBu'
-cmap_arr, cmap_setter = get_colormap([ax2, ax4], cmap=cmap, fig=fig)
-  
-ax1.imshow(m_pattern_1_st, **cmap_arr)
-ax2.imshow(m_pattern_1_op, **cmap_arr)
-ax3.imshow(m_pattern_1_op - m_pattern_1_st, **cmap_arr)
-ax4.imshow(m_pattern_1_op - m_pattern_1_st > 0, **cmap_arr)
-
-for _ in (ax1, ax2, ax3, ax4):
-  _.invert_yaxis()
-  _.set_xticks(np.arange(p.decay_rate_array.size))
-  _.set_yticks(np.arange(p.rewiring_rate_array.size))
-  _.set_xticklabels(p.decay_rate_array)
-  _.set_yticklabels(p.rewiring_rate_array)
-
-ax1.set_title('structure')
-ax2.set_title('opinion')
-ax3.set_title('o - s')
-ax4.set_title('o - s > 0')
-
-ax3.set_xlabel('decay')
-ax3.set_ylabel('rewiring')
-
-cmap_setter()
-show_fig('pat1_abs')
-
-# figure 1, another version
 
 fig, ((ax1, ax2), (ax3, ax4)) = plt_figure(n_col=2, n_row=2, hw_ratio=4/5)
 
@@ -172,41 +143,98 @@ show_fig('pat1_area')
 
 # figure 2
 
-x1, y1 = m_pattern_1_op.flatten(), 1 - m_hs_last_op.flatten()
-x2, y2 = m_pattern_1_st.flatten(), 1 - m_hs_last_st.flatten()
-
 def linear_func(x, a, b):
   return a * x + b
 
-(a1, b1), _ = curve_fit(linear_func, x1, y1)
-(a2, b2), _ = curve_fit(linear_func, x2, y2)
+def plot_line(x_data, y_data):
+  (a, b), _ = curve_fit(linear_func, x_data, y_data)
+  min_x = np.min(x_data)
+  max_x = np.max(x_data)
+  x_line = np.array([min_x, max_x])
+  plt.plot(x_line, a * x_line + b)
+  return a, b
+
+x1, y1 = m_pattern_1_a_op.flatten(), m_is_consensus_op.flatten()
+x2, y2 = m_pattern_1_a_st.flatten(), m_is_consensus_st.flatten()
 
 plt.scatter(x1, y1, s=4)
 plt.scatter(x2, y2, s=4)
-plt.plot(x1, a1 * x1 + b1)
-plt.plot(x2, a2 * x2 + b2)
-plt.xlabel('pattern 1')
-plt.ylabel('consensus')
-plt.legend(['opinion', 'structure'])
-show_fig('corr_abs')
-
-
-# figure 2, another version
-
-x1, y1 = m_pattern_1_a_op.flatten(), 1 - m_hs_last_op.flatten()
-x2, y2 = m_pattern_1_a_st.flatten(), 1 - m_hs_last_st.flatten()
-
-def linear_func(x, a, b):
-  return a * x + b
-
-(a1, b1), _ = curve_fit(linear_func, x1, y1)
-(a2, b2), _ = curve_fit(linear_func, x2, y2)
-
-plt.scatter(x1, y1, s=4)
-plt.scatter(x2, y2, s=4)
-plt.plot(x1, a1 * x1 + b1)
-plt.plot(x2, a2 * x2 + b2)
+plot_line(x1, y1)
+plot_line(x2, y2)
 plt.xlabel('pattern 1')
 plt.ylabel('consensus')
 plt.legend(['opinion', 'structure'])
 show_fig('corr_area')
+
+
+# figure 3
+
+pat_files_raw_op = pat_files_raw[::2]
+pat_files_raw_st = pat_files_raw[1::2]
+
+for r in pat_files_raw_op, pat_files_raw_st:
+
+  gradation, cluster, triads, in_degree, d_opinion, p_last = [
+    np.array([x[k] for x in r]) \
+      for k in ('pat_area_hp', 'cluster', 'triads', 'in_degree', 'opinion_diff', 'p_last')
+  ]
+  
+  in_degree_alpha, in_degree_p, in_degree_r = in_degree.T.copy()
+  
+  in_degree_bound = 10
+  in_degree_alpha[in_degree_alpha > in_degree_bound] = in_degree_bound
+  in_degree_alpha[in_degree_r <= 0] = in_degree_bound
+
+  is_consensus = p_last < consensus_threshold
+  is_not_consensus = np.logical_not(is_consensus)
+
+  plt.hist(gradation[np.logical_not(is_consensus)])
+  plt.hist(gradation[is_consensus])
+  show_fig('test1')
+  
+  print(
+    'gradation',
+    np.mean(gradation[is_consensus]), 
+    np.mean(gradation[is_not_consensus])
+  )
+  
+  
+  d_opinion[d_opinion < 0] = 0
+  plt.scatter(gradation, d_opinion, s=1)
+  print(plot_line(gradation[is_consensus], d_opinion[is_consensus]))
+  print(plot_line(gradation[is_not_consensus], d_opinion[is_not_consensus]))
+  show_fig()
+  
+  print(
+    'd_opinion', 
+    np.mean(d_opinion[is_consensus]), 
+    np.mean(d_opinion[is_not_consensus])
+  )
+
+  plt.hist(d_opinion[is_not_consensus])
+  plt.title('opinion peak distance')
+  show_fig()
+  
+  # plt.hist(in_degree_alpha)
+  # plt.title('in-degree')
+  # plt.xlabel(np.mean(in_degree_alpha))
+  # show_fig()
+  
+  # plt.scatter(gradation[is_consensus], in_degree_alpha[is_consensus], s=1)
+  # plt.scatter(gradation[is_not_consensus], in_degree_alpha[is_not_consensus], s=1)
+  # show_fig()
+  
+  plt.scatter(gradation[is_consensus], cluster[is_consensus], s=.5, label='consensus')
+  plt.scatter(gradation[is_not_consensus], cluster[is_not_consensus], s=.5, label='!consensus')
+  plt.title('clustering coeff.')
+  plt.legend()
+  show_fig()
+  
+  
+  # plt.scatter(gradation[is_consensus], triads[is_consensus], s=.5, label='consensus')
+  # plt.scatter(gradation[is_not_consensus], triads[is_not_consensus], s=.5, label='!consensus')
+  # plt.title('#triads')
+  # plt.legend()
+  # show_fig()
+  
+  
