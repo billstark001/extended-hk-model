@@ -89,12 +89,13 @@ mpl.rcParams['font.size'] = 18
 
 
 # build scenario
+short_progress_bar="{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
 if __name__ == '__main__':
 
   pat_stats_set: List[ScenarioPatternRecorder] = []
 
-  for scenario_name, r, d, g in tqdm(p.params_arr):
+  for scenario_name, r, d, g in tqdm(p.params_arr, bar_format=short_progress_bar):
 
     # load scenario
 

@@ -12,6 +12,7 @@ def common_neighbors_count(G: nx.DiGraph, u: int, v: int):
   i2 = len([w for w in G._succ[u] if w in G._pred[v] or w in G._succ[v]])
   return i1 + i2
 
+short_progress_bar="{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
 class Structure(HKModelRecommendationSystem):
 
@@ -62,7 +63,7 @@ class Structure(HKModelRecommendationSystem):
     else:
       conn_mat = np.zeros((n, n), dtype=int)
       G = self.model.graph
-      for u in tqdm(range(0, self.num_nodes)):
+      for u in tqdm(range(0, self.num_nodes), bar_format=short_progress_bar):
         for v in range(u + 1, self.num_nodes):  # v > u
           conn_mat[u, v] = common_neighbors_count(G, u, v)
       self.conn_mat = conn_mat

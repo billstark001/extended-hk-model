@@ -35,6 +35,7 @@ class StatCollector(Protocol):
   ) -> Union[float, NDArray, Dict[str, Union[float, NDArray]]]:
     pass
 
+short_progress_bar="{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
 @dataclasses.dataclass
 class SimulationParams:
@@ -155,7 +156,7 @@ class Scenario:
   def step(self, count: int = 0):
     if count < 1:
       count = self.sim_params.max_total_step
-    for _ in tqdm(range(count)):
+    for _ in tqdm(range(count), bar_format=short_progress_bar):
       self.step_once()
       halt, _, __ = self.check_halt_cond()
       if halt:
