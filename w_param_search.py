@@ -17,10 +17,13 @@ from env import RandomNetworkProvider, ScaleFreeNetworkProvider
 from recsys import Random, Opinion, Structure, Mixed
 import stats
 
-from w_logger import logger
+from w_proc_utils import get_logger
+
 
 BASE_PATH = './run2'
 os.makedirs(BASE_PATH, exist_ok=True)
+
+logger = get_logger(__name__, os.path.join(BASE_PATH, 'logfile.log'))
 
 # build scenarios
 
@@ -43,6 +46,8 @@ def save_sim_result(S: Scenario, name: str):
   with open(os.path.join(BASE_PATH, name + '.pkl'), 'wb') as f:
     pickle.dump(dump_data, f)
 
+def check_sim_result(name: str):
+  return os.path.exists(os.path.join(BASE_PATH, name + '.pkl'))
 
 network_provider = RandomNetworkProvider(
     agent_count=400,
@@ -112,6 +117,9 @@ def gen_params(r: float, d: float, g: float):
 
 if __name__ == '__main__':
   for scenario_name, r, d, g in params_arr:
+    if check_sim_result(scenario_name):
+      continue
+    
     params = gen_params(r, d, g)
 
     sim_p_standard.stat_collectors = stat_collectors_f()

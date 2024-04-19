@@ -1,3 +1,5 @@
+from typing import Callable, Union
+
 from base import SimulationParams, HKModelParams
 from env import RandomNetworkProvider, ScaleFreeNetworkProvider
 from recsys import Random, Opinion, Structure, Mixed
@@ -5,9 +7,18 @@ from recsys import Random, Opinion, Structure, Mixed
 from dataclasses import asdict
 
 import stats
-from w_logger import logger
 
 # model parameters
+
+logger: Union[Callable[[str], None], None] = None
+
+def set_logger(l: Union[Callable[[str], None], None]):
+    global logger
+    logger = l
+    
+def get_logger():
+    global logger
+    return logger
 
 dec_rew_pairs = [
     (0.1, 0.01),
@@ -29,7 +40,7 @@ def _p(f, dec=0.05, rew=0.02):
 
 _o = lambda m: Opinion(m)
 
-_s = lambda m: Structure(m, matrix_init=True, log=logger.debug)
+_s = lambda m: Structure(m, matrix_init=True, log=get_logger())
 
 _mix = lambda ratio: (lambda m: Mixed(
     m,
@@ -53,7 +64,7 @@ recsys_o9 = lambda m: Mixed(
 recsys_s9 = lambda m: Mixed(
         m,
         Random(m, 10),
-        Structure(m, sigma=0.2, matrix_init=False),
+        Structure(m, sigma=0.2, matrix_init=False, log=get_logger()),
         0.1)
 
 # simulation parameters

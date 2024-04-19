@@ -18,8 +18,6 @@ from env import RandomNetworkProvider, ScaleFreeNetworkProvider
 from recsys import Random, Opinion, Structure, Mixed
 import stats
 
-from w_logger import logger
-
 BASE_PATH = './run2'
 os.makedirs(BASE_PATH, exist_ok=True)
 
