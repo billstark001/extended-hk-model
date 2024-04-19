@@ -9,11 +9,19 @@ from w_logger import logger
 
 # model parameters
 
-def _p(f):
+dec_rew_pairs = [
+    (0.1, 0.01),
+    (0.05, 0.02),
+    (0.03, 0.03),
+    (0.02, 0.05),
+    (0.01, 0.1),
+]
+
+def _p(f, dec=0.05, rew=0.02):
     return HKModelParams(
         tolerance=0.4,
-        decay=0.05,
-        rewiring_rate=0.02,
+        decay=dec,
+        rewiring_rate=rew,
         recsys_count=10,
         recsys_factory=f,
     )
@@ -36,6 +44,17 @@ model_p_opinion = _p(_o)
 model_p_structure = _p(_s)
 model_p_mix3 = _p(_mix(0.3))
 model_p_mix7 = _p(_mix(0.7))
+
+recsys_o9 = lambda m: Mixed(
+        m,
+        Random(m, 10),
+        Opinion(m),
+        0.1)
+recsys_s9 = lambda m: Mixed(
+        m,
+        Random(m, 10),
+        Structure(m, sigma=0.2, matrix_init=False),
+        0.1)
 
 # simulation parameters
 
@@ -67,7 +86,33 @@ provider_scale_free = ScaleFreeNetworkProvider(
 
 # scenario settings
 
-all_scenarios = {
+all_scenarios = {}
+for i, p in enumerate(dec_rew_pairs):
+    all_scenarios[f'sr{i + 1}'] = (
+        provider_random, 
+        _p(recsys_s9, *p),
+        sim_p_standard
+    )
+    all_scenarios[f'or{i + 1}'] = (
+        provider_random, 
+        _p(recsys_o9, *p),
+        sim_p_standard
+    )
+    
+for i, p in enumerate(dec_rew_pairs):
+    all_scenarios[f'ss{i + 1}'] = (
+        provider_scale_free, 
+        _p(recsys_s9, *p),
+        sim_p_standard
+    )
+    all_scenarios[f'os{i + 1}'] = (
+        provider_scale_free, 
+        _p(recsys_o9, *p),
+        sim_p_standard
+    )
+    
+
+all_scenarios_ = {
 
     'random_random': (
         provider_random,
