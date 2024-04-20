@@ -57,7 +57,12 @@ network_provider = RandomNetworkProvider(
 )
 sim_p_standard = SimulationParams(
     max_total_step=15000,
-    stat_interval=20,
+    stat_interval={
+        50: 5,
+        150: 10,
+        300: 15,
+        114514: 20,
+    },
     opinion_change_error=1e-4,
     stat_collectors=stat_collectors_f()
 )

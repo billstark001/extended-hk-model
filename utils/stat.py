@@ -34,6 +34,11 @@ def first_less_than(arr: NDArray, k: float):
   idx = np.argmax(mask)
   return idx if mask[idx] else arr.size
 
+def first_more_or_equal_than(arr: NDArray, k: float):
+  mask = arr > k
+  idx = np.argmax(mask)
+  return idx if mask[idx] else arr.size
+
 
 def moving_average(data: NDArray, window_size: int):
   if window_size < 2:

@@ -13,6 +13,8 @@ from tqdm import tqdm
 
 from collections import Counter
 
+from utils.stat import first_more_or_equal_than
+
 StatsType = Dict[str, Union[NDArray, int, float]]
 
 
@@ -26,7 +28,7 @@ class StatCollector(Protocol):
 
   def collect(
       self,
-      prefix: str, 
+      prefix: str,
       n: int,
       step: int,
       digraph: nx.DiGraph,
@@ -35,7 +37,9 @@ class StatCollector(Protocol):
   ) -> Union[float, NDArray, Dict[str, Union[float, NDArray]]]:
     pass
 
-short_progress_bar="{l_bar}{bar:10}{r_bar}{bar:-10b}"
+
+short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
+
 
 @dataclasses.dataclass
 class SimulationParams:
@@ -44,9 +48,34 @@ class SimulationParams:
   halt_monitor_step: int = 60
 
   data_interval: int = 1
-  stat_interval: int = 20
+  stat_interval: Union[int, Dict[int, int]] = 20
   stat_collectors: Dict[str, StatCollector] = dataclasses.field(
       default_factory=dict)
+
+  def __post_init__(self):
+    self.stat_interval_index = np.array([] if not isinstance(
+        self.stat_interval, dict) else sorted(self.stat_interval.keys()), dtype=int)
+    self.last_steps = -1
+    self.last_range = -1
+
+  def needs_stat(self, steps: int):
+    if isinstance(self.stat_interval, dict):
+      _i = self.stat_interval
+      if steps in _i:
+        self.last_steps = -1
+        self.last_range = -1
+        return True
+
+      if self.last_steps > 0 and self.last_range > 0 and steps == self.last_steps + 1:
+        return steps % _i[self.last_range] == 0
+
+      i_range = first_more_or_equal_than(self.stat_interval_index, steps)
+      range = self.stat_interval_index[i_range] if i_range < self.stat_interval_index.size else self.stat_interval_index[-1]
+      self.last_range = range
+      self.last_steps = steps
+      return steps % _i[range] == 0
+
+    return steps % self.stat_interval == 0
 
 
 class Scenario:
@@ -150,7 +179,7 @@ class Scenario:
     # stats
     if self.steps % self.sim_params.data_interval == 0:
       self.add_data()
-    if self.steps % self.sim_params.stat_interval == 0:
+    if self.sim_params.needs_stat(self.steps):
       self.add_stats()
 
   def step(self, count: int = 0):
