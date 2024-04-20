@@ -21,15 +21,15 @@ from scipy.interpolate import interp1d
 from base import Scenario
 
 from utils.stat import area_under_curve
-import works.gradation.simulate as p
+import works.steepness.simulate as p
 import utils.plot as _p
 importlib.reload(_p)
 
 
 # parameters
 
-scenario_base_path = './run2'
-plot_path = './fig2'
+scenario_base_path = './run3'
+plot_path = './fig3'
 
 os.makedirs(scenario_base_path, exist_ok=True)
 os.makedirs(plot_path, exist_ok=True)
@@ -43,6 +43,11 @@ do_plot_layout = False
 @dataclasses.dataclass
 class ScenarioPatternRecorder:
   name: str
+  
+  steepness: float
+  rewiring: float
+  decay: float
+  
   step: int
   active_step: int
 
@@ -58,7 +63,6 @@ class ScenarioPatternRecorder:
 
   cluster: float
   triads: float
-  in_degree: Tuple[float, float, float]
   opinion_diff: float
 
 
@@ -91,7 +95,7 @@ if __name__ == '__main__':
       json.dump(pat_stats_set, f, indent=2, ensure_ascii=False)
     unsaved = False
 
-  for scenario_name, r, d, g in tqdm(p.params_arr, bar_format=short_progress_bar):
+  for scenario_name, s, d, r, g in tqdm(p.params_arr, bar_format=short_progress_bar):
 
     if scenario_name in processed_data:
       pat_stats_set.append(processed_data[scenario_name])
@@ -152,6 +156,9 @@ if __name__ == '__main__':
 
     pat_stats = ScenarioPatternRecorder(
         name=scenario_name,
+        steepness=s,
+        rewiring=r,
+        decay=d,
         step=S.steps,
         active_step=int(np.sum(g_mask, dtype=int)),
         p_last=p_index[-1],
@@ -163,8 +170,6 @@ if __name__ == '__main__':
         pat_area_ps=area_under_curve([s_index, p_index]),
         cluster=S_stats['cluster'][-1],
         triads=S_stats['triads'][-1],
-        in_degree=[S_stats[x][-1]
-                   for x in ['in-degree-alpha', 'in-degree-p-value', 'in-degree-R']],
         opinion_diff=opinion_last_diff if np.isfinite(
             opinion_last_diff) else -1,
     )

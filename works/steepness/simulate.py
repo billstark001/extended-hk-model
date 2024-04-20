@@ -85,7 +85,7 @@ n_sims = 20
 
 # all parameters
 
-params_arr: List[Tuple[str, float, float,
+params_arr: List[Tuple[str, float, float, float,
                        Callable[[HKModel], HKModelRecommendationSystem]]] = []
 
 for i_sim in range(n_sims):
