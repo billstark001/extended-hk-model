@@ -19,8 +19,8 @@ importlib.reload(p)
 importlib.reload(_p)
 
 from utils.plot import plt_figure
-from w_scenarios import all_scenarios
-import w_snapshots as ss
+from works.large.scenarios import all_scenarios
+import works.large.snapshots as ss
 
 mpl.rcParams['font.size'] = 18
 sns.set_theme(style='whitegrid')

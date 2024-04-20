@@ -4,10 +4,10 @@ import time
 from typing import Dict
 from base import Scenario
 
-from w_scenarios import all_scenarios, set_logger
-import w_snapshots as ss
+from works.large.scenarios import all_scenarios, set_logger
+import works.large.snapshots as ss
 
-snapshot_interval = 4 * 60
+snapshot_interval = 10 * 60
 max_snapshots = 3
 
 from utils.stat import get_logger

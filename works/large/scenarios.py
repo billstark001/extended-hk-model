@@ -67,6 +67,9 @@ recsys_s9 = lambda m: Mixed(
         Structure(m, noise_std=0.2, matrix_init=False, log=get_logger()),
         0.1)
 
+recsys_o10 = lambda m: Opinion(m)
+recsys_s10 = lambda m: Structure(m)
+
 # simulation parameters
 
 sim_p_standard = SimulationParams(
@@ -101,24 +104,24 @@ all_scenarios = {}
 for i, p in enumerate(dec_rew_pairs):
     all_scenarios[f'sr{i + 1}'] = (
         provider_random, 
-        _p(recsys_s9, *p),
+        _p(recsys_s10, *p),
         sim_p_standard
     )
     all_scenarios[f'or{i + 1}'] = (
         provider_random, 
-        _p(recsys_o9, *p),
+        _p(recsys_o10, *p),
         sim_p_standard
     )
     
 for i, p in enumerate(dec_rew_pairs):
     all_scenarios[f'ss{i + 1}'] = (
         provider_scale_free, 
-        _p(recsys_s9, *p),
+        _p(recsys_s10, *p),
         sim_p_standard
     )
     all_scenarios[f'os{i + 1}'] = (
         provider_scale_free, 
-        _p(recsys_o9, *p),
+        _p(recsys_o10, *p),
         sim_p_standard
     )
     
