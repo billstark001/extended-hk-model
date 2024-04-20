@@ -10,7 +10,7 @@ import w_snapshots as ss
 snapshot_interval = 4 * 60
 max_snapshots = 3
 
-from w_proc_utils import get_logger
+from utils.stat import get_logger
 
 ss.init()
 logger = get_logger(__name__, os.path.join(ss.DEFAULT_ROOT_PATH, 'logfile.log'))

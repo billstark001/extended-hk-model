@@ -15,8 +15,8 @@ from base import HKModelParams, Scenario, SimulationParams
 from env import RandomNetworkProvider, ScaleFreeNetworkProvider
 from recsys import Random, Opinion, Structure
 import stats
-from w_param_plot import area_under_curve
-from w_plot_utils import plt_figure
+from utils.stat import area_under_curve
+from utils.plot import plt_figure
 
 BASE_PATH = './fig_final'
 

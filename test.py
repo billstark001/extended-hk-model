@@ -30,7 +30,7 @@ params = HKModelParams(
     decay=0.1,
     rewiring_rate=0.03,
     recsys_count=10,
-    recsys_factory=lambda m: Structure(m, steepness=5),
+    recsys_factory=lambda m: Structure(m, steepness=None),
 )
 
 S = Scenario(s_params, params, sim_p_standard)

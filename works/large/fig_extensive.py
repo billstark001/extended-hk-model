@@ -7,8 +7,8 @@ from base.scenario import Scenario
 
 from w_scenarios import all_scenarios
 import w_snapshots as ss
-import w_proc_utils as p
 
+import utils.stat as p
 importlib.reload(p)
 
 

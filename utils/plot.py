@@ -30,7 +30,7 @@ def plot_network_snapshot(
                          cmap=cmap, vmin=-1, vmax=1, node_size=40)
   nx.draw_networkx_edges(G, ax=ax, pos=pos, node_size=40, alpha=0.36)
 
-  ax.set_xlabel(f't = {step}')
+  ax.set_xlabel(f'step = {step}')
 
   plt.colorbar(sm, ticks=np.linspace(-1, 1, 5), ax=ax)
   plt.tight_layout()
@@ -66,13 +66,14 @@ def get_colormap(
   axes: Union[Axes, Iterable[Axes]],
   cmap='YlGnBu',
   vmin: float = -1, vmax: float = 1, seg: int = 5,
-  fig: Any = plt
+  fig: Any = plt,
+  **kwargs
 ):
   norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
   sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
   sm.set_array([])
   
   cmap_arr = dict(cmap=cmap, vmin=vmin, vmax=vmax)
-  set_cmap_func = lambda: fig.colorbar(sm, ticks=np.linspace(vmin, vmax, seg), ax=axes)
+  set_cmap_func = lambda: fig.colorbar(sm, ticks=np.linspace(vmin, vmax, seg), ax=axes, **kwargs)
   
   return cmap_arr, set_cmap_func

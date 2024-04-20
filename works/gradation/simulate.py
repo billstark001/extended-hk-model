@@ -2,6 +2,10 @@ from typing import Callable, Mapping, cast, Optional, List, Tuple
 from numpy.typing import NDArray
 
 import os
+# import sys
+# parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# sys.path.append(parent_dir)
+
 import pickle
 from matplotlib.axes import Axes
 import networkx as nx
@@ -17,7 +21,8 @@ from env import RandomNetworkProvider, ScaleFreeNetworkProvider
 from recsys import Random, Opinion, Structure, Mixed
 import stats
 
-from w_proc_utils import get_logger
+
+from utils.stat import get_logger
 
 
 BASE_PATH = './run2'

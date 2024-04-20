@@ -2,6 +2,7 @@ from typing import cast, List, Tuple, Any, Optional
 from numpy.typing import NDArray
 
 import os
+
 import json
 import pickle
 import importlib
@@ -18,11 +19,12 @@ from scipy.interpolate import interp1d
 
 from base import Scenario
 
-import w_param_search as p
-import w_plot_utils as _p
+from utils.stat import area_under_curve
+import works.gradation.simulate as p
+import utils.plot as _p
 importlib.reload(_p)
 
-from w_plot_utils import plot_network_snapshot, plt_figure
+from utils.plot import plot_network_snapshot, plt_figure
 
 # parameters
 
@@ -59,23 +61,6 @@ class ScenarioPatternRecorder:
   opinion_diff: float
 
 
-
-def area_under_curve(points: NDArray, arg_sort = False, complement: Optional[float]=1):
-  # points: (n, 2)
-  
-  x = points[0]
-  y = points[1]
-  if arg_sort:
-    indices = np.argsort(x)
-    x = x[indices]
-    y = y[indices]
-  
-  dx = np.diff(x)
-  area = 0.5 * np.sum(dx * (y[1:] + y[:-1]))
-  if complement:
-    area += (complement - x[-1]) * y[-1]
-  
-  return area
   
 
 pat_columns = ['name', 'step', 'active_step', 'pat_mean', 'pat_std', 'h_last']

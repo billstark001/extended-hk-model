@@ -13,14 +13,14 @@ import seaborn as sns
 
 from base.scenario import Scenario
 
-from w_plot_utils import plt_figure
-from w_scenarios import all_scenarios
-import w_snapshots as ss
-
-import w_proc_utils as p
-import w_plot_utils as _p
+import utils.stat as p
+import utils.plot as _p
 importlib.reload(p)
 importlib.reload(_p)
+
+from utils.plot import plt_figure
+from w_scenarios import all_scenarios
+import w_snapshots as ss
 
 mpl.rcParams['font.size'] = 18
 sns.set_theme(style='whitegrid')

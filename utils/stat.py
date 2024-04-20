@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Optional, Union
 from numpy.typing import NDArray
 
 import logging
@@ -114,3 +114,21 @@ def first_index_above_min(arr: np.ndarray, error: float = 1e-5) -> int:
     if arr[i] > threshold:
       return i
   return 0
+
+
+def area_under_curve(points: NDArray, arg_sort = False, complement: Optional[float]=1):
+  # points: (n, 2)
+  
+  x = points[0]
+  y = points[1]
+  if arg_sort:
+    indices = np.argsort(x)
+    x = x[indices]
+    y = y[indices]
+  
+  dx = np.diff(x)
+  area = 0.5 * np.sum(dx * (y[1:] + y[:-1]))
+  if complement:
+    area += (complement - x[-1]) * y[-1]
+  
+  return area
