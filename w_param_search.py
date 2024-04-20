@@ -81,7 +81,7 @@ n_gens = [
     lambda m: Mixed(
         m,
         Random(m, 10),
-        Structure(m, sigma=0.2, matrix_init=True),
+        Structure(m, noise_std=0.2, matrix_init=True),
         0.1),
 ]
 

@@ -21,24 +21,34 @@ class Structure(HKModelRecommendationSystem):
   def __init__(
       self,
       model: HKModel,
-      eta: float = 1,
-      sigma: float = 0.5,
+      
+      steepness: Optional[float] = None, # None == \infty
+      noise_std: float = 0.5,
+      random_ratio: float = 0,
+      
       matrix_init: bool = False,
       log: Optional[Callable[[str], None]] = None,
   ):
     super().__init__(model)
+    
+    self.steepness = steepness
+    self.noise_std = noise_std
+    self.random_ratio = random_ratio
+    
     self.matrix_init = matrix_init
     self.log = log
     
-    self.eta = eta if eta > 0 else 0
-    self.sigma = sigma if sigma > 0 else -sigma
+    # placeholders
+    self.rate_mat = self.conn_mat = self.all_indices = np.zeros((0, 0))
     self.agent_map: Dict[int, HKAgent] = {}
+    self.num_nodes = 0
     
   def dump(self) -> Any:
     return self.conn_mat
 
   def post_init(self, dump_data: Optional[Any] = None):
     self.num_nodes = n = self.model.graph.number_of_nodes()
+    self.all_indices = np.arange(self.num_nodes, dtype=int)
     
     # build agent map
     for a in self.model.schedule.agents:
@@ -77,31 +87,49 @@ class Structure(HKModelRecommendationSystem):
     if self.log:
       self.log(f'Connection matrix generation costs {tend - tstart}s.')
       
-    # placeholders
-    self.epsilon_mat = np.zeros((0, 0))
-    self.val_mat = np.zeros((0, 0))
-    self.val_mat_raw = np.zeros((0, 0))
     
 
   def pre_step(self):
-    self.val_mat_raw = self.conn_mat + self.conn_mat.T
-    if self.sigma > 0:
-      self.epsilon_mat = np.random.normal(0, self.sigma, (self.num_nodes, self.num_nodes))
-      self.val_mat = self.val_mat_raw * (1 - 2 * self.epsilon_mat) + self.epsilon_mat
+    
+    raw_rate_mat = self.conn_mat + self.conn_mat.T
+    
+    if self.noise_std > 0:
+      noise_mat = np.random.normal(0, self.noise_std, raw_rate_mat.shape)
+      raw_rate_mat = raw_rate_mat * (1 - 2 * noise_mat) + noise_mat
+      raw_rate_mat[raw_rate_mat < 0] = 0
+      
+    np.fill_diagonal(raw_rate_mat, 0)
+    
+    if self.steepness is not None and self.steepness != 1:
+      raw_rate_mat = raw_rate_mat ** self.steepness
+      
+    # if steepness is not infinity, normalize the rate matrix
+    if self.steepness is not None:
+      rate_sum_rev = np.reshape(np.sum(raw_rate_mat, axis=1), (-1, 1)) ** -1
+      rate_mat = raw_rate_mat * rate_sum_rev
+      if self.random_ratio > 0:
+        rate_mat = (1 - self.random_ratio) * rate_mat + self.random_ratio / (self.num_nodes - 1)
+      np.fill_diagonal(rate_mat, 0)
     else:
-      self.val_mat = self.val_mat_raw
-    self.val_mat[self.val_mat < 0] = 0
-    if self.eta != 1:
-      self.val_mat = self.val_mat ** self.eta
-    pass
+      rate_mat = raw_rate_mat
+      
+    # expose rate matrix
+    self.rate_mat = rate_mat
+    
 
   def recommend(self, agent: HKAgent, neighbors: List[HKAgent], count: int) -> List[HKAgent]:
-    a = agent.unique_id
-    ret1 = self.val_mat[a]
+    neighbor_ids = np.array([x.unique_id for x in neighbors + [agent]], dtype=int)
+    raw_rate_vec = self.rate_mat[agent.unique_id]
 
-    exclude_ids = np.array([x.unique_id for x in neighbors + [agent]])
-    ret = np.setdiff1d(np.argpartition(
-        ret1, len(neighbors) + count), exclude_ids)
+    ret: np.ndarray
+    if self.steepness is None:
+      ret = np.setdiff1d(np.argpartition(
+          raw_rate_vec, len(neighbors) + count), neighbor_ids)
+    else:
+      rate_vec = np.copy(raw_rate_vec)
+      rate_vec[neighbor_ids] = 0
+      rate_vec /= np.sum(rate_vec)
+      ret = np.random.choice(self.all_indices, (count,), replace=False, p=rate_vec)
 
     return [self.agent_map[i] for i in ret[:count]]
 
@@ -117,5 +145,3 @@ class Structure(HKModelRecommendationSystem):
         self.conn_mat[u, v] = common_neighbors_count(G, u, v)
     pass
 
-  def pre_commit(self):
-    pass

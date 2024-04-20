@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from base import HKModelParams, Scenario, SimulationParams
 from env import RandomNetworkProvider, ScaleFreeNetworkProvider
-from recsys import Random, Opinion, Structure
+from recsys import Random, Opinion, Structure, OpinionRandom
 import stats
 
 stat_collectors = {
@@ -30,7 +30,7 @@ params = HKModelParams(
     decay=0.1,
     rewiring_rate=0.03,
     recsys_count=10,
-    recsys_factory=lambda m: Random(m),
+    recsys_factory=lambda m: Structure(m, steepness=5),
 )
 
 S = Scenario(s_params, params, sim_p_standard)

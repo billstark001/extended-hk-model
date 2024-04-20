@@ -64,7 +64,7 @@ recsys_o9 = lambda m: Mixed(
 recsys_s9 = lambda m: Mixed(
         m,
         Random(m, 10),
-        Structure(m, sigma=0.2, matrix_init=False, log=get_logger()),
+        Structure(m, noise_std=0.2, matrix_init=False, log=get_logger()),
         0.1)
 
 # simulation parameters

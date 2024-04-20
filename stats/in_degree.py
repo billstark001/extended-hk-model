@@ -61,6 +61,6 @@ class InDegreeCollector:
     if self.full_data:
       in_degree_dist = Counter(in_degree_dict.values())
       in_degree_val = np.array(sorted(in_degree_dist.items())).T
-      ret_dict[self.prefix] = in_degree_val
+      ret_dict[prefix] = in_degree_val
 
     return ret_dict
