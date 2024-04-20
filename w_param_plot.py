@@ -57,9 +57,8 @@ class ScenarioPatternRecorder:
   triads: float
   in_degree: Tuple[float, float, float]
   opinion_diff: float
-  
-  
-import numpy as np
+
+
 
 def area_under_curve(points: NDArray, arg_sort = False, complement: Optional[float]=1):
   # points: (n, 2)
@@ -94,11 +93,33 @@ short_progress_bar="{l_bar}{bar:10}{r_bar}{bar:-10b}"
 if __name__ == '__main__':
 
   pat_stats_set: List[ScenarioPatternRecorder] = []
+  processed_data = {}
 
+  if os.path.exists(pat_csv_path):
+    with open(pat_csv_path, 'r', encoding='utf8') as fp:
+      lst = json.load(fp)
+      for d in lst:
+        processed_data[d['name']] = d
+
+  unsaved = False
+  
+  def save_stats():
+    global unsaved
+    with open(pat_csv_path, 'w', encoding='utf8') as f:
+      json.dump(pat_stats_set, f, indent=2, ensure_ascii=False)
+    unsaved = False
+      
   for scenario_name, r, d, g in tqdm(p.params_arr, bar_format=short_progress_bar):
 
-    # load scenario
+    if scenario_name in processed_data:
+      pat_stats_set.append(processed_data[scenario_name])
+      continue
+    
+    if unsaved:
+      save_stats()
 
+    # load scenario
+    
     params = p.gen_params(r, d, g)
     p.sim_p_standard.stat_collectors = p.stat_collectors_f()
     S = Scenario(p.network_provider, params, p.sim_p_standard)
@@ -162,8 +183,7 @@ if __name__ == '__main__':
     )
     
     pat_stats_set.append(dataclasses.asdict(pat_stats))
-    with open(pat_csv_path, 'w', encoding='utf8') as f:
-      json.dump(pat_stats_set, f, indent=2, ensure_ascii=False)
+    save_stats()
 
     if not do_plot:
       continue
@@ -220,3 +240,6 @@ if __name__ == '__main__':
     plt.close()
 
     print(scenario_name)
+    
+  if unsaved:
+    save_stats()
