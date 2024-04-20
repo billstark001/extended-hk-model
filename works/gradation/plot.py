@@ -316,9 +316,20 @@ show_fig('grad_consensus_rel')
 # cluster
 
 (g_op, cl_op, c_op, nc_op), (g_st, cl_st, c_st, nc_st) = cluster_cache
-fig, (axst2, axop2) = plt_figure(n_col = 2, total_width=10)
+fig, (axfreq, axst2, axop2) = plt_figure(n_col = 3)
 
 s = .5
+
+kde_cl_op_ = gaussian_kde(cl_op)
+kde_cl_st_ = gaussian_kde(cl_st)
+
+metrics = np.arange(0, 0.6, 0.001)
+kde_cl_op = kde_cl_op_(metrics)
+kde_cl_st = kde_cl_st_(metrics)
+
+axfreq.plot(metrics, kde_cl_st, label='structure')
+axfreq.plot(metrics, kde_cl_op, label='opinion')
+axfreq.legend()
 
 axop2.scatter(g_op[nc_op], cl_op[nc_op], label='polarized', s=s)
 axop2.scatter(g_op[c_op], cl_op[c_op], label='consented', s=s)
@@ -328,11 +339,16 @@ axst2.scatter(g_st[nc_st], cl_st[nc_st], label='polarized', s=s)
 axst2.scatter(g_st[c_st], cl_st[c_st], label='consented', s=s)
 axst2.legend()
 
-axst2.set_title('(a) structure', loc='left')
-axop2.set_title('(b) opinion', loc='left')
+axfreq.set_title('(a) PDF of C. C.', loc='left')
+axst2.set_title('(b) structure', loc='left')
+axop2.set_title('(c) opinion', loc='left')
+
+axfreq.set_xlabel('clustering coefficient')
+axfreq.set_ylabel('probability')
 
 axst2.set_ylabel('clustering coefficient')
 for _ in (axst2, axop2):
   _.set_xlabel('gradation index')
+  
   
 show_fig('grad_cluster_rel')

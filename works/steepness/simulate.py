@@ -63,7 +63,7 @@ sim_p_standard = SimulationParams(
         300: 15,
         114514: 20,
     },
-    opinion_change_error=1e-4,
+    opinion_change_error=1e-5,
     stat_collectors=stat_collectors_f()
 )
 
@@ -71,13 +71,13 @@ steepness_array = np.array([0, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64])
 rewiring_rate_array = decay_rate_array = np.array([0.05, 0.1, 0.3])
 
 
-def get_recsys_factory(steepess: float):
-  if steepess <= 0:
+def get_recsys_factory(steepness: float):
+  if steepness <= 0:
     return lambda m: Random(m)
   return lambda m: OpinionRandom(
       m,
       tolerance=0.45,
-      steepness=steepess,
+      steepness=steepness,
   )
 
 
