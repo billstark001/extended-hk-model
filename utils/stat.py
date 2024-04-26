@@ -35,7 +35,7 @@ def first_less_than(arr: NDArray, k: float):
   return idx if mask[idx] else arr.size
 
 def first_more_or_equal_than(arr: NDArray, k: float):
-  mask = arr > k
+  mask = arr >= k
   idx = np.argmax(mask)
   return idx if mask[idx] else arr.size
 

@@ -20,7 +20,7 @@ from scipy.interpolate import interp1d
 
 from base import Scenario
 
-from utils.stat import area_under_curve
+from utils.stat import area_under_curve, first_more_or_equal_than
 import works.gradation.simulate as p
 import utils.plot as _p
 importlib.reload(_p)
@@ -44,7 +44,10 @@ do_plot_layout = False
 class ScenarioPatternRecorder:
   name: str
   step: int
+  
   active_step: int
+  active_step_threshold: float
+  g_index_mean_active: float
 
   p_last: float
   s_last: float
@@ -63,6 +66,7 @@ class ScenarioPatternRecorder:
 
 
 active_threshold = 0.98
+min_inactive_value = 0.75
 
 # utilities
 
@@ -141,8 +145,15 @@ if __name__ == '__main__':
     g_index_resmpl = interp1d(S_stat_steps, g_index,
                               kind='linear')(S_data_steps)
 
-    g_mask = g_index_resmpl <= np.max(g_index) * active_threshold
-    pat_diff = (h_index - p_index_resmpl)[g_mask]
+    active_step=int(first_more_or_equal_than(
+      g_index_resmpl, 
+      np.max([np.max(g_index) * active_threshold, min_inactive_value])
+    ))
+    active_step_threshold = g_index_resmpl[active_step - 1]
+    g_index_active = g_index_resmpl[:active_step]
+    g_index_mean_active = np.mean(g_index_active)
+    
+    pat_diff = (h_index - p_index_resmpl)[:active_step]
 
     opinion_last = opinion[-1]
     opinion_last_mean = np.mean(opinion_last)
@@ -153,16 +164,23 @@ if __name__ == '__main__':
     pat_stats = ScenarioPatternRecorder(
         name=scenario_name,
         step=S.steps,
-        active_step=int(np.sum(g_mask, dtype=int)),
+        
+        active_step=active_step,
+        active_step_threshold=active_step_threshold,
+        g_index_mean_active=g_index_mean_active,
+        
         p_last=p_index[-1],
         h_last=h_index[-1],
         s_last=s_index[-1],
+        
         pat_abs_mean=np.mean(pat_diff),
         pat_abs_std=np.std(pat_diff),
         pat_area_hp=area_under_curve([p_index_resmpl, h_index]),
         pat_area_ps=area_under_curve([s_index, p_index]),
+        
         cluster=S_stats['cluster'][-1],
         triads=S_stats['triads'][-1],
+        
         in_degree=[S_stats[x][-1]
                    for x in ['in-degree-alpha', 'in-degree-p-value', 'in-degree-R']],
         opinion_diff=opinion_last_diff if np.isfinite(

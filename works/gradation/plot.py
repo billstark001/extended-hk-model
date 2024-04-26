@@ -149,15 +149,18 @@ for _ in (ax1, ax2, ax3):
   
   
 ax1.set_yticklabels(p.rewiring_rate_array)
+ax3.set_yticklabels(p.rewiring_rate_array)
 
 ax1.set_title('(a) structure', loc='left')
 ax2.set_title('(b) opinion', loc='left')
 ax3.set_title('(c) difference', loc='left')
 
 ax1.set_ylabel('rewiring')
+# ax3.set_ylabel('rewiring')
 
 cmap_setter4()
 cmap_setter5()
+
 show_fig('pat1_area')
 
 
@@ -207,7 +210,7 @@ pat_files_raw_st = pat_files_raw[1::2]
 
 kde_gradation_cache = []
 
-cluster_cache = []
+triads_cache = []
 
 for r in pat_files_raw_op, pat_files_raw_st:
 
@@ -246,9 +249,9 @@ for r in pat_files_raw_op, pat_files_raw_st:
     np.mean(gradation[is_not_consensus])
   )
   
-  # gradation - clustering
+  # gradation - triads
   
-  cluster_cache.append([gradation, cluster, is_consensus, is_not_consensus])
+  triads_cache.append([gradation, triads, is_consensus, is_not_consensus])
   
   
   d_opinion[d_opinion < 0] = 0
@@ -289,6 +292,8 @@ for r in pat_files_raw_op, pat_files_raw_st:
 (grad_met_st, grad_all_st, grad_nc_st, grad_c_st, grad_ratio_c_st) = kde_gradation_cache
 fig, (axst, axop, axrt) = plt_figure(n_col = 3)
 
+y_ticks = np.array([0, 1, 2, 4, 7, 12])
+
 axop.plot(grad_met_op, grad_nc_op, label='polarized')
 axop.plot(grad_met_op, grad_c_op, label='consented')
 axop.plot(grad_met_op, grad_all_op, label='all')
@@ -305,25 +310,29 @@ axrt.legend()
 
 axst.set_title('(a) structure', loc='left')
 axop.set_title('(b) opinion', loc='left')
-axrt.set_title('(c) ratio of consented cases', loc='left')
+axrt.set_title('(c) %consented cases', loc='left')
 
 axst.set_ylabel('probability')
 for _ in (axst, axop, axrt):
   _.set_xlabel('gradation index')
+axrt.set_ylabel('ratio')
+  
+for _ in (axst, axop):
+  _.set_yticks(y_ticks)
 
 show_fig('grad_consensus_rel')
 
-# cluster
+# triads
 
-(g_op, cl_op, c_op, nc_op), (g_st, cl_st, c_st, nc_st) = cluster_cache
-fig, (axfreq, axst2, axop2) = plt_figure(n_col = 3)
+(g_op, tr_op, c_op, nc_op), (g_st, tr_st, c_st, nc_st) = triads_cache
+fig, (axfreq, axst2, axop2) = plt_figure(n_col = 3, hw_ratio=4/5)
 
 s = .5
 
-kde_cl_op_ = gaussian_kde(cl_op)
-kde_cl_st_ = gaussian_kde(cl_st)
+kde_cl_op_ = gaussian_kde(tr_op)
+kde_cl_st_ = gaussian_kde(tr_st)
 
-metrics = np.arange(0, 0.6, 0.001)
+metrics = np.arange(0, 40000, 100)
 kde_cl_op = kde_cl_op_(metrics)
 kde_cl_st = kde_cl_st_(metrics)
 
@@ -331,24 +340,24 @@ axfreq.plot(metrics, kde_cl_st, label='structure')
 axfreq.plot(metrics, kde_cl_op, label='opinion')
 axfreq.legend()
 
-axop2.scatter(g_op[nc_op], cl_op[nc_op], label='polarized', s=s)
-axop2.scatter(g_op[c_op], cl_op[c_op], label='consented', s=s)
+axop2.scatter(g_op[nc_op], tr_op[nc_op], label='polarized', s=s)
+axop2.scatter(g_op[c_op], tr_op[c_op], label='consented', s=s)
 axop2.legend()
 
-axst2.scatter(g_st[nc_st], cl_st[nc_st], label='polarized', s=s)
-axst2.scatter(g_st[c_st], cl_st[c_st], label='consented', s=s)
+axst2.scatter(g_st[nc_st], tr_st[nc_st], label='polarized', s=s)
+axst2.scatter(g_st[c_st], tr_st[c_st], label='consented', s=s)
 axst2.legend()
 
-axfreq.set_title('(a) PDF of C. C.', loc='left')
+axfreq.set_title('(a) PDF of #C. T.', loc='left')
 axst2.set_title('(b) structure', loc='left')
 axop2.set_title('(c) opinion', loc='left')
 
-axfreq.set_xlabel('clustering coefficient')
+axfreq.set_xlabel('#closed triads')
 axfreq.set_ylabel('probability')
 
-axst2.set_ylabel('clustering coefficient')
 for _ in (axst2, axop2):
+  _.set_ylabel('#closed triads')
   _.set_xlabel('gradation index')
   
-  
-show_fig('grad_cluster_rel')
+plt.tight_layout()
+show_fig('grad_triads_rel')

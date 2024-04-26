@@ -104,7 +104,8 @@ if len(all_data) == 0:
 
     print(scenario_name)
 
-S_rr, S_ro, S_rs, S_rm3, S_rm7, S_sfr, S_sfo, S_sfs, S_sfm3, S_sfm7 = all_data
+S_sr1, S_or1, S_sr2, S_or2, S_sr3, S_or3, S_sr4, S_or4, S_sr5, S_or5,\
+  S_ss1, S_os1, S_ss2, S_os2, S_ss3, S_os3, S_ss4, S_os4, S_ss5, S_os5, = all_data
 print('Scenarios Loaded.')
 
 
@@ -129,40 +130,40 @@ for ax in [axtr, axts]:
   ax.set_yscale('log')
   ax.grid(True, linestyle='dashed', which='both')
 
-axtr.plot(S_rr['step'], S_rr['triads'])
-axtr.plot(S_rs['step'], S_rs['triads'])
-axtr.plot(S_ro['step'], S_ro['triads'])
-axtr.plot(S_rm3['step'], S_rm3['triads'])
-axtr.plot(S_rm7['step'], S_rm7['triads'])
+axtr.plot(S_sr1['step'], S_sr1['triads'])
+axtr.plot(S_sr2['step'], S_sr2['triads'])
+axtr.plot(S_or1['step'], S_or1['triads'])
+axtr.plot(S_or2['step'], S_or2['triads'])
+axtr.plot(S_sr3['step'], S_sr3['triads'])
 
 axtr.set_title('(a) random', loc='left')
 axtr.set_ylabel('#closed triads')
 
 
-axts.plot(S_sfr['step'], S_sfr['triads'])
-axts.plot(S_sfs['step'], S_sfs['triads'])
-axts.plot(S_sfo['step'], S_sfo['triads'])
-axts.plot(S_sfm3['step'], S_sfm3['triads'])
-axts.plot(S_sfm7['step'], S_sfm7['triads'])
+axts.plot(S_or3['step'], S_or3['triads'])
+axts.plot(S_or4['step'], S_or4['triads'])
+axts.plot(S_sr4['step'], S_sr4['triads'])
+axts.plot(S_sr5['step'], S_sr5['triads'])
+axts.plot(S_or5['step'], S_or5['triads'])
 
 axts.set_title('(b) scale-free', loc='left')
 
 
-axcr.plot(S_rr['step'], S_rr['cluster'])
-axcr.plot(S_rs['step'], S_rs['cluster'])
-axcr.plot(S_ro['step'], S_ro['cluster'])
-axcr.plot(S_rm3['step'], S_rm3['cluster'])
-axcr.plot(S_rm7['step'], S_rm7['cluster'])
+axcr.plot(S_sr1['step'], S_sr1['cluster'])
+axcr.plot(S_sr2['step'], S_sr2['cluster'])
+axcr.plot(S_or1['step'], S_or1['cluster'])
+axcr.plot(S_or2['step'], S_or2['cluster'])
+axcr.plot(S_sr3['step'], S_sr3['cluster'])
 
 axcr.set_title('(c) random', loc='left')
 axcr.set_ylabel('clustering coefficient')
 
 
-axcs.plot(S_sfr['step'], S_sfr['cluster'])
-axcs.plot(S_sfs['step'], S_sfs['cluster'])
-axcs.plot(S_sfo['step'], S_sfo['cluster'])
-axcs.plot(S_sfm3['step'], S_sfm3['cluster'])
-axcs.plot(S_sfm7['step'], S_sfm7['cluster'])
+axcs.plot(S_or3['step'], S_or3['cluster'])
+axcs.plot(S_or4['step'], S_or4['cluster'])
+axcs.plot(S_sr4['step'], S_sr4['cluster'])
+axcs.plot(S_sr5['step'], S_sr5['cluster'])
+axcs.plot(S_or5['step'], S_or5['cluster'])
 
 axcs.legend(['random', 'structure', 'opinion', 'mixed-3', 'mixed-7'])
 axcs.set_title('(d) scale-free', loc='left')
@@ -215,17 +216,17 @@ def print_power_law_data(ax_a: Axes, ax_p: Axes, all_stats: Dict[str, StatsType]
             * 0.01, lw=1, linestyle='dashed', color='black')
 
 
-print_power_law_data(axrra, axrrp, dict(_=S_rr))
-print_power_law_data(axroa, axrop, dict(_=S_ro))
+print_power_law_data(axrra, axrrp, dict(_=S_sr1))
+print_power_law_data(axroa, axrop, dict(_=S_or1))
 print_power_law_data(axrsa, axrsp, {
-    'structure': S_rs,
-    'mixed-3': S_rm3,
-    'mixed-7': S_rm7
+    'structure': S_sr2,
+    'mixed-3': S_or2,
+    'mixed-7': S_sr3
 })
 print_power_law_data(axsfa, axsfp, dict(
-    random=S_sfr, structure=S_sfs, opinion=S_sfo, **({
-        'mixed-3': S_sfm3,
-        'mixed-7': S_sfm7,
+    random=S_or3, structure=S_or4, opinion=S_sr4, **({
+        'mixed-3': S_sr5,
+        'mixed-7': S_or5,
     })))
 
 axrra.set_ylabel('\\alpha')
@@ -260,9 +261,9 @@ def print_contrib_data(ax_o: Axes, ax_c: Axes, ax_s: Axes, stats: StatsType, leg
     ax_s.legend(['followed', 'recommended', 'total'])
 
 
-print_contrib_data(axrro, axrrc, axrrs, S_rr)
-print_contrib_data(axrso, axrsc, axrss, S_rs)
-print_contrib_data(axroo, axroc, axros, S_ro, legend=True)
+print_contrib_data(axrro, axrrc, axrrs, S_sr1)
+print_contrib_data(axrso, axrsc, axrss, S_sr2)
+print_contrib_data(axroo, axroc, axros, S_or1, legend=True)
 
 axrro.set_title('(a) random, random', loc='left')
 axrso.set_title('(b) random, structure', loc='left')
@@ -289,29 +290,29 @@ axes: List[Axes]
 fig, axes = plt_figure(n_col=4, sharey='row')
 axro, axsfo, axrs, axsfs = axes
 
-axro.plot(S_rr['step'], S_rr['distance-worst-o'])
-axro.plot(S_rs['step'], S_rs['distance-worst-o'])
-axro.plot(S_ro['step'], S_ro['distance-worst-o'])
-axro.plot(S_rm3['step'], S_rm3['distance-worst-o'])
-axro.plot(S_rm7['step'], S_rm7['distance-worst-o'])
+axro.plot(S_sr1['step'], S_sr1['distance-worst-o'])
+axro.plot(S_sr2['step'], S_sr2['distance-worst-o'])
+axro.plot(S_or1['step'], S_or1['distance-worst-o'])
+axro.plot(S_or2['step'], S_or2['distance-worst-o'])
+axro.plot(S_sr3['step'], S_sr3['distance-worst-o'])
 
-axsfo.plot(S_sfr['step'], S_sfr['distance-worst-o'])
-axsfo.plot(S_sfs['step'], S_sfs['distance-worst-o'])
-axsfo.plot(S_sfo['step'], S_sfo['distance-worst-o'])
-axsfo.plot(S_sfm3['step'], S_sfm3['distance-worst-o'])
-axsfo.plot(S_sfm7['step'], S_sfm7['distance-worst-o'])
+axsfo.plot(S_or3['step'], S_or3['distance-worst-o'])
+axsfo.plot(S_or4['step'], S_or4['distance-worst-o'])
+axsfo.plot(S_sr4['step'], S_sr4['distance-worst-o'])
+axsfo.plot(S_sr5['step'], S_sr5['distance-worst-o'])
+axsfo.plot(S_or5['step'], S_or5['distance-worst-o'])
 
-axrs.plot(S_rr['step'], S_rr['distance-worst-s'])
-axrs.plot(S_rs['step'], S_rs['distance-worst-s'])
-axrs.plot(S_ro['step'], S_ro['distance-worst-s'])
-axrs.plot(S_rm3['step'], S_rm3['distance-worst-s'])
-axrs.plot(S_rm7['step'], S_rm7['distance-worst-s'])
+axrs.plot(S_sr1['step'], S_sr1['distance-worst-s'])
+axrs.plot(S_sr2['step'], S_sr2['distance-worst-s'])
+axrs.plot(S_or1['step'], S_or1['distance-worst-s'])
+axrs.plot(S_or2['step'], S_or2['distance-worst-s'])
+axrs.plot(S_sr3['step'], S_sr3['distance-worst-s'])
 
-axsfs.plot(S_sfr['step'], S_sfr['distance-worst-s'])
-axsfs.plot(S_sfs['step'], S_sfs['distance-worst-s'])
-axsfs.plot(S_sfo['step'], S_sfo['distance-worst-s'])
-axsfs.plot(S_sfm3['step'], S_sfm3['distance-worst-s'])
-axsfs.plot(S_sfm7['step'], S_sfm7['distance-worst-s'])
+axsfs.plot(S_or3['step'], S_or3['distance-worst-s'])
+axsfs.plot(S_or4['step'], S_or4['distance-worst-s'])
+axsfs.plot(S_sr4['step'], S_sr4['distance-worst-s'])
+axsfs.plot(S_sr5['step'], S_sr5['distance-worst-s'])
+axsfs.plot(S_or5['step'], S_or5['distance-worst-s'])
 
 axsfs.legend(['random', 'structure', 'opinion', 'mixed-3', 'mixed-7'])
 
@@ -328,18 +329,18 @@ show_fig('dist-of-dis')
 
 # violin
 violin_x_1 = [
-    ('random', S_rr),
-    ('structure', S_rs),
-    ('mixed-3', S_rm3),
-    ('mixed-7', S_rm7),
-    ('opinion', S_ro),
+    ('random', S_sr1),
+    ('structure', S_sr2),
+    ('mixed-3', S_or2),
+    ('mixed-7', S_sr3),
+    ('opinion', S_or1),
 ]
 violin_x_2 = [
-    ('random', S_sfr),
-    ('structure', S_sfs),
-    ('mixed-3', S_sfm3),
-    ('mixed-7', S_sfm7),
-    ('opinion', S_sfo),
+    ('random', S_or3),
+    ('structure', S_or4),
+    ('mixed-3', S_sr5),
+    ('mixed-7', S_or5),
+    ('opinion', S_sr4),
 ]
 
 violin_x_axis = np.arange(1, len(violin_x_1) + 1)
