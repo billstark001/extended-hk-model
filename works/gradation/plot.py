@@ -72,7 +72,7 @@ for f in pat_file_paths:
     pat_files_raw += pat_files_[:used_len]
   
 
-keys = ['name', 'active_step', 'pat_abs_mean', 'pat_area_hp', 'p_last']
+keys = ['name', 'active_step', 'pat_abs_mean', 'pat_area_hp', 'p_last', 'g_index_mean_active']
 pat_csv_values_ = [[x[key] for key in keys] for x in pat_files_raw]
 pat_csv_values_raw = np.array(pat_csv_values_)
     
@@ -84,7 +84,7 @@ pat_csv_values = pat_csv_values_raw.T.reshape((
   len(p.n_gens),
 ))
 # axes: (#sim, rewiring, decay, recsys)
-names, active_steps, abs_hp, areas_hp, hs_last = pat_csv_values
+names, active_steps, abs_hp, areas_hp, hs_last, g_index_mean_active = pat_csv_values
 
 # in the following operations, average data is calculated through all simulations
 
@@ -161,7 +161,7 @@ ax1.set_ylabel('rewiring')
 cmap_setter4()
 cmap_setter5()
 
-show_fig('pat1_area')
+show_fig('grad_stat_heatmap')
 
 
 fig, ax1 = plt_figure(total_width=5)
@@ -173,7 +173,7 @@ plt.xscale('log')
 plt.xlabel('rewiring / decay')
 plt.ylabel('gradation index')
 
-show_fig('pat1_area_2')
+show_fig('grad_stat_scatter')
 
 
 # figure 2
@@ -201,7 +201,48 @@ def plot_line(x_data, y_data):
 # plt.legend(['opinion', 'structure'])
 # show_fig('corr_area')
 
+# env index
 
+g_index_mean_by_sim_active = np.mean(g_index_mean_active, axis=0, dtype=float)
+g_index_op = g_index_mean_by_sim_active[..., 0]
+g_index_st = g_index_mean_by_sim_active[..., 1]
+g_index_diff = g_index_op - g_index_st
+
+fig, (ax1, ax2, ax3) = plt_figure(n_col=3, hw_ratio=1, total_width=12)
+
+cmap_arr5, cmap_setter5 = get_colormap([ax3], cmap='RdBu', fig=fig, vmin=-0.2, vmax=0.2, anchor='W')
+cmap_arr4, cmap_setter4 = get_colormap([ax1, ax2], cmap='YlGnBu', vmin=0.4, vmax=0.8, seg=9, fig=fig, anchor='W')
+  
+ax1.imshow(g_index_st, **cmap_arr4)
+ax2.imshow(g_index_op, **cmap_arr4)
+ax3.imshow(g_index_diff, **cmap_arr5)
+
+fig.tight_layout()
+
+for _ in (ax1, ax2, ax3):
+  _.invert_yaxis()
+  _.set_xticks(np.arange(p.decay_rate_array.size))
+  _.set_xticklabels(p.decay_rate_array, rotation=90)
+  _.set_yticks(np.arange(p.rewiring_rate_array.size))
+  _.set_yticklabels([' ' for _ in p.rewiring_rate_array])
+  _.grid(False)
+  
+  _.set_xlabel('decay')
+  
+ax1.set_yticklabels(p.rewiring_rate_array)
+ax3.set_yticklabels(p.rewiring_rate_array)
+
+ax1.set_title('(a) structure', loc='left')
+ax2.set_title('(b) opinion', loc='left')
+ax3.set_title('(c) difference', loc='left')
+
+ax1.set_ylabel('rewiring')
+# ax3.set_ylabel('rewiring')
+
+cmap_setter4()
+cmap_setter5()
+
+show_fig('env_index_heatmap')
 
 # figure 3
 
@@ -212,11 +253,13 @@ kde_gradation_cache = []
 
 triads_cache = []
 
+g_index_cache = []
+
 for r in pat_files_raw_op, pat_files_raw_st:
 
-  gradation, cluster, triads, in_degree, d_opinion, p_last = [
+  gradation, cluster, triads, in_degree, d_opinion, p_last, g_index_mean_by_rec_active = [
     np.array([x[k] for x in r]) \
-      for k in ('pat_area_hp', 'cluster', 'triads', 'in_degree', 'opinion_diff', 'p_last')
+      for k in ('pat_area_hp', 'cluster', 'triads', 'in_degree', 'opinion_diff', 'p_last', 'g_index_mean_active')
   ]
   
   in_degree_alpha, in_degree_p, in_degree_r = in_degree.T.copy()
@@ -248,6 +291,10 @@ for r in pat_files_raw_op, pat_files_raw_st:
     np.mean(gradation[is_consensus]), 
     np.mean(gradation[is_not_consensus])
   )
+  
+  # env index
+  
+  g_index_cache.append([gradation, g_index_mean_by_rec_active, is_consensus, is_not_consensus])
   
   # gradation - triads
   
@@ -361,3 +408,44 @@ for _ in (axst2, axop2):
   
 plt.tight_layout()
 show_fig('grad_triads_rel')
+
+
+# triads
+
+(g_op, tr_op, c_op, nc_op), (g_st, tr_st, c_st, nc_st) = g_index_cache
+fig, (axfreq, axst2, axop2) = plt_figure(n_col = 3, hw_ratio=4/5)
+
+s = .5
+
+kde_cl_op_ = gaussian_kde(tr_op)
+kde_cl_st_ = gaussian_kde(tr_st)
+
+metrics = np.arange(0.2, 1, 0.001)
+kde_cl_op = kde_cl_op_(metrics)
+kde_cl_st = kde_cl_st_(metrics)
+
+axfreq.plot(metrics, kde_cl_st, label='structure')
+axfreq.plot(metrics, kde_cl_op, label='opinion')
+axfreq.legend()
+
+axop2.scatter(g_op[nc_op], tr_op[nc_op], label='polarized', s=s)
+axop2.scatter(g_op[c_op], tr_op[c_op], label='consented', s=s)
+axop2.legend()
+
+axst2.scatter(g_st[nc_st], tr_st[nc_st], label='polarized', s=s)
+axst2.scatter(g_st[c_st], tr_st[c_st], label='consented', s=s)
+axst2.legend()
+
+axfreq.set_title('(a) PDF of environment index', loc='left')
+axst2.set_title('(b) structure', loc='left')
+axop2.set_title('(c) opinion', loc='left')
+
+axfreq.set_xlabel('environment index')
+axfreq.set_ylabel('probability')
+
+for _ in (axst2, axop2):
+  _.set_ylabel('environment index')
+  _.set_xlabel('gradation index')
+  
+plt.tight_layout()
+show_fig('grad_env_index_rel')
