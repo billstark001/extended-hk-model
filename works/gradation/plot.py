@@ -1,4 +1,5 @@
 from typing import cast, List, Iterable, Union
+from numpy.typing import NDArray
 
 import os
 
@@ -244,7 +245,7 @@ cmap_setter5()
 
 show_fig('env_index_heatmap')
 
-# figure 3
+# rest figures
 
 pat_files_raw_op = pat_files_raw[::2]
 pat_files_raw_st = pat_files_raw[1::2]
@@ -267,9 +268,17 @@ for r in pat_files_raw_op, pat_files_raw_st:
   in_degree_bound = 10
   in_degree_alpha[in_degree_alpha > in_degree_bound] = in_degree_bound
   in_degree_alpha[in_degree_r <= 0] = in_degree_bound
+  
+  # is_consensus
 
   is_consensus = p_last < consensus_threshold
   is_not_consensus = np.logical_not(is_consensus)
+  
+  # is_near_diag
+  
+  rd_rate_vec_all = np.array([rd_rate_vec] * int(len(r) / rd_rate_vec.size)).flatten()
+  is_near_diag = np.logical_and(rd_rate_vec_all > -1, rd_rate_vec_all < 1)
+  is_not_near_diag = np.logical_not(is_near_diag)
   
   # gradation - consensus
 
@@ -293,13 +302,14 @@ for r in pat_files_raw_op, pat_files_raw_st:
   )
   
   # env index
-  
-  g_index_cache.append([gradation, g_index_mean_by_rec_active, is_consensus, is_not_consensus])
-  
   # gradation - triads
   
-  triads_cache.append([gradation, triads, is_consensus, is_not_consensus])
-  
+  g_index_cache.append([
+    gradation, 
+    is_consensus, is_not_consensus,
+    is_near_diag, is_not_near_diag,
+    triads, g_index_mean_by_rec_active, 
+  ])
   
   d_opinion[d_opinion < 0] = 0
   # plt.scatter(gradation, d_opinion, s=1)
@@ -341,14 +351,14 @@ fig, (axst, axop, axrt) = plt_figure(n_col = 3)
 
 y_ticks = np.array([0, 1, 2, 4, 7, 12])
 
-axop.plot(grad_met_op, grad_nc_op, label='polarized')
-axop.plot(grad_met_op, grad_c_op, label='consented')
-axop.plot(grad_met_op, grad_all_op, label='all')
+axop.plot(grad_met_op, grad_nc_op, label='polarized', color='tab:blue')
+axop.plot(grad_met_op, grad_c_op, label='consented', color='tab:cyan')
+axop.plot(grad_met_op, grad_all_op, label='all', color='tab:green')
 axop.legend()
 
-axst.plot(grad_met_st, grad_nc_st, label='polarized')
-axst.plot(grad_met_st, grad_c_st, label='consented')
-axst.plot(grad_met_st, grad_all_st, label='all')
+axst.plot(grad_met_st, grad_nc_st, label='polarized', color='tab:blue')
+axst.plot(grad_met_st, grad_c_st, label='consented', color='tab:cyan')
+axst.plot(grad_met_st, grad_all_st, label='all', color='tab:green')
 axst.legend()
 
 axrt.plot(grad_met_st, grad_ratio_c_st, label='structure')
@@ -371,10 +381,31 @@ show_fig('grad_consensus_rel')
 
 # triads
 
-(g_op, tr_op, c_op, nc_op), (g_st, tr_st, c_st, nc_st) = triads_cache
+def scatter_data(
+  ax: Axes,
+  x: NDArray, y: NDArray,
+  c: NDArray, nc: NDArray,
+  d: NDArray, nd: NDArray,
+  s=4, lw=.8,
+  legend=False,
+):
+  ax.scatter(x[np.logical_and(nc, nd)], y[np.logical_and(nc, nd)], 
+             color='tab:blue', marker='x', label='ND;P', s=s, linewidths=lw)
+  ax.scatter(x[np.logical_and(c, nd)], y[np.logical_and(c, nd)], 
+             color='tab:cyan', marker='+', label='ND;C', s=s * 1.25, linewidths=lw)
+  ax.scatter(x[np.logical_and(nc, d)], y[np.logical_and(nc, d)], 
+             color='tab:red', marker='x', label='D;P', s=s, linewidths=lw)
+  ax.scatter(x[np.logical_and(c, d)], y[np.logical_and(c, d)], 
+             color='tab:orange', marker='+', label='D;C', s=s * 1.25, linewidths=lw)
+  if legend:
+    ax.legend(bbox_to_anchor=(1.05, 1))
+
+(g_op, c_op, nc_op, d_op, nd_op, tr_op, gi_op), \
+  (g_st, c_st, nc_st, d_st, nd_st, tr_st, gi_st) = g_index_cache
 fig, (axfreq, axst2, axop2) = plt_figure(n_col = 3, hw_ratio=4/5)
 
-s = .5
+s = 3
+lw = .5
 
 kde_cl_op_ = gaussian_kde(tr_op)
 kde_cl_st_ = gaussian_kde(tr_st)
@@ -387,13 +418,8 @@ axfreq.plot(metrics, kde_cl_st, label='structure')
 axfreq.plot(metrics, kde_cl_op, label='opinion')
 axfreq.legend()
 
-axop2.scatter(g_op[nc_op], tr_op[nc_op], label='polarized', s=s)
-axop2.scatter(g_op[c_op], tr_op[c_op], label='consented', s=s)
-axop2.legend()
-
-axst2.scatter(g_st[nc_st], tr_st[nc_st], label='polarized', s=s)
-axst2.scatter(g_st[c_st], tr_st[c_st], label='consented', s=s)
-axst2.legend()
+scatter_data(axst2, g_st, tr_st, c_st, nc_st, d_st, nd_st)
+scatter_data(axop2, g_op, tr_op, c_op, nc_op, d_op, nd_op, legend=True)
 
 axfreq.set_title('(a) PDF of #C. T.', loc='left')
 axst2.set_title('(b) structure', loc='left')
@@ -410,15 +436,12 @@ plt.tight_layout()
 show_fig('grad_triads_rel')
 
 
-# triads
+# env index
 
-(g_op, tr_op, c_op, nc_op), (g_st, tr_st, c_st, nc_st) = g_index_cache
 fig, (axfreq, axst2, axop2) = plt_figure(n_col = 3, hw_ratio=4/5)
 
-s = .5
-
-kde_cl_op_ = gaussian_kde(tr_op)
-kde_cl_st_ = gaussian_kde(tr_st)
+kde_cl_op_ = gaussian_kde(gi_op)
+kde_cl_st_ = gaussian_kde(gi_st)
 
 metrics = np.arange(0.2, 1, 0.001)
 kde_cl_op = kde_cl_op_(metrics)
@@ -428,13 +451,9 @@ axfreq.plot(metrics, kde_cl_st, label='structure')
 axfreq.plot(metrics, kde_cl_op, label='opinion')
 axfreq.legend()
 
-axop2.scatter(g_op[nc_op], tr_op[nc_op], label='polarized', s=s)
-axop2.scatter(g_op[c_op], tr_op[c_op], label='consented', s=s)
-axop2.legend()
+scatter_data(axst2, g_st, gi_st, c_st, nc_st, d_st, nd_st)
+scatter_data(axop2, g_op, gi_op, c_op, nc_op, d_op, nd_op, legend=True)
 
-axst2.scatter(g_st[nc_st], tr_st[nc_st], label='polarized', s=s)
-axst2.scatter(g_st[c_st], tr_st[c_st], label='consented', s=s)
-axst2.legend()
 
 axfreq.set_title('(a) PDF of environment index', loc='left')
 axst2.set_title('(b) structure', loc='left')
