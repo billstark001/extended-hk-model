@@ -9,6 +9,7 @@ import matplotlib as mpl
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
+
 def plot_network_snapshot(
     pos: Mapping,
     opinion: NDArray,
@@ -34,27 +35,30 @@ def plot_network_snapshot(
 
   plt.colorbar(sm, ticks=np.linspace(-1, 1, 5), ax=ax)
   plt.tight_layout()
-  
-@overload
-def plt_figure(n_row: int, 
-  hw_ratio=3/4, total_width=16) -> Tuple[Figure, List[Axes]]: ...
+
 
 @overload
-def plt_figure(n_col: int, 
-  hw_ratio=3/4, total_width=16) -> Tuple[Figure, List[Axes]]: ...
+def plt_figure(n_row: int,
+               hw_ratio=3/4, total_width=16) -> Tuple[Figure, List[Axes]]: ...
+
+
+@overload
+def plt_figure(n_col: int,
+               hw_ratio=3/4, total_width=16) -> Tuple[Figure, List[Axes]]: ...
+
 
 @overload
 def plt_figure(
-  n_row: int, n_col: int, 
-  hw_ratio=3/4, total_width=16, 
-  **kwargs
+    n_row: int, n_col: int,
+    hw_ratio=3/4, total_width=16,
+    **kwargs
 ) -> Tuple[Figure, List[List[Axes]]]: ...
 
 
 def plt_figure(
-  n_row=1, n_col=1, 
-  hw_ratio=3/4, total_width=16, 
-  **kwargs
+    n_row=1, n_col=1,
+    hw_ratio=3/4, total_width=16,
+    **kwargs
 ) -> Tuple[Figure, List[List[Axes]]]:
   width = total_width / n_col
   height = width * hw_ratio
@@ -63,17 +67,58 @@ def plt_figure(
 
 
 def get_colormap(
-  axes: Union[Axes, Iterable[Axes]],
-  cmap='YlGnBu',
-  vmin: float = -1, vmax: float = 1, seg: int = 5,
-  fig: Any = plt,
-  **kwargs
+    axes: Union[Axes, Iterable[Axes]],
+    cmap='YlGnBu',
+    vmin: float = -1, vmax: float = 1, seg: int = 5,
+    fig: Any = plt,
+    **kwargs
 ):
   norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
   sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
   sm.set_array([])
-  
+
   cmap_arr = dict(cmap=cmap, vmin=vmin, vmax=vmax)
-  set_cmap_func = lambda: fig.colorbar(sm, ticks=np.linspace(vmin, vmax, seg), ax=axes, **kwargs)
-  
+
+  def set_cmap_func(): return fig.colorbar(
+      sm, ticks=np.linspace(vmin, vmax, seg), ax=axes, **kwargs)
+
   return cmap_arr, set_cmap_func
+
+
+def numpy_to_latex_table(
+    data: NDArray,
+    filename: str,
+    caption="Table",
+    row_labels: Optional[List[str]] = None,
+    col_labels: Optional[List[str]] = None,
+    scientific=True,
+    precision=4
+):
+  # convert to string
+  formatted_data = []
+  for row in data:
+    formatted_row = []
+    for val in row:
+      if scientific:
+        formatted_row.append(f"{val:.{precision}e}")
+      else:
+        formatted_row.append(f"{val:.{precision}f}")
+    formatted_data.append(formatted_row)
+
+  # create table
+  table = "\\begin{table}[h]\n\\centering\n"
+  if row_labels is not None and col_labels is not None:
+    table += "\\begin{tabular}{|l|" + "c|" * (data.shape[1]-1) + "c|}\n"
+    table += "\\hline\n"
+    table += " & " + " & ".join(col_labels) + "\\\\\n\\hline\n"
+    for i, row in enumerate(formatted_data):
+      table += row_labels[i] + " & " + " & ".join(row) + "\\\\\n\\hline\n"
+  else:
+    table += "\\begin{tabular}{" + "c" * data.shape[1] + "}\n"
+    for row in formatted_data:
+      table += " & ".join(row) + "\\\\\n"
+  table += "\\end{tabular}\n\\caption{" + caption + "}\n\\end{table}"
+
+  # save table
+  with open(filename, "w") as f:
+    f.write(table)

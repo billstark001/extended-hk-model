@@ -28,7 +28,7 @@ importlib.reload(_p)
 importlib.reload(p)
 importlib.reload(pp)
 
-from utils.plot import plot_network_snapshot, plt_figure, get_colormap
+from utils.plot import numpy_to_latex_table, plt_figure, get_colormap
 
 # parameters
 
@@ -389,20 +389,26 @@ def scatter_data(
   s=4, lw=.8,
   legend=False,
 ):
-  ax.scatter(x[np.logical_and(nc, nd)], y[np.logical_and(nc, nd)], 
+  _1 = np.logical_and(nc, nd)
+  _2 = np.logical_and(c, nd)
+  _3 = np.logical_and(nc, d)
+  _4 = np.logical_and(c, d)
+  ax.scatter(x[_1], y[_1], 
              color='tab:blue', marker='x', label='ND;P', s=s, linewidths=lw)
-  ax.scatter(x[np.logical_and(c, nd)], y[np.logical_and(c, nd)], 
+  ax.scatter(x[_2], y[_2], 
              color='tab:cyan', marker='+', label='ND;C', s=s * 1.25, linewidths=lw)
-  ax.scatter(x[np.logical_and(nc, d)], y[np.logical_and(nc, d)], 
+  ax.scatter(x[_3], y[_3], 
              color='tab:red', marker='x', label='D;P', s=s, linewidths=lw)
-  ax.scatter(x[np.logical_and(c, d)], y[np.logical_and(c, d)], 
+  ax.scatter(x[_4], y[_4], 
              color='tab:orange', marker='+', label='D;C', s=s * 1.25, linewidths=lw)
   if legend:
     ax.legend(bbox_to_anchor=(1.05, 1))
+    
+  return np.array([[np.mean(z[_i]) for _i in [_1, _2, _3, _4]] for z in [x, y]])
 
 (g_op, c_op, nc_op, d_op, nd_op, tr_op, gi_op), \
   (g_st, c_st, nc_st, d_st, nd_st, tr_st, gi_st) = g_index_cache
-fig, (axfreq, axst2, axop2) = plt_figure(n_col = 3, hw_ratio=4/5)
+fig, (axfreq, axst2, axop2) = plt_figure(n_col = 3, hw_ratio=4/5, total_width=18)
 
 s = 3
 lw = .5
@@ -418,8 +424,10 @@ axfreq.plot(metrics, kde_cl_st, label='structure')
 axfreq.plot(metrics, kde_cl_op, label='opinion')
 axfreq.legend()
 
-scatter_data(axst2, g_st, tr_st, c_st, nc_st, d_st, nd_st)
-scatter_data(axop2, g_op, tr_op, c_op, nc_op, d_op, nd_op, legend=True)
+tr_st_stat = scatter_data(axst2, g_st, tr_st, c_st, nc_st, d_st, nd_st)
+tr_op_stat = scatter_data(axop2, g_op, tr_op, c_op, nc_op, d_op, nd_op, legend=True)
+
+tr_stat_diff = tr_op_stat - tr_st_stat
 
 axfreq.set_title('(a) PDF of #C. T.', loc='left')
 axst2.set_title('(b) structure', loc='left')
@@ -438,7 +446,7 @@ show_fig('grad_triads_rel')
 
 # env index
 
-fig, (axfreq, axst2, axop2) = plt_figure(n_col = 3, hw_ratio=4/5)
+fig, (axfreq, axst2, axop2) = plt_figure(n_col = 3, hw_ratio=4/5, total_width=18)
 
 kde_cl_op_ = gaussian_kde(gi_op)
 kde_cl_st_ = gaussian_kde(gi_st)
@@ -451,9 +459,10 @@ axfreq.plot(metrics, kde_cl_st, label='structure')
 axfreq.plot(metrics, kde_cl_op, label='opinion')
 axfreq.legend()
 
-scatter_data(axst2, g_st, gi_st, c_st, nc_st, d_st, nd_st)
-scatter_data(axop2, g_op, gi_op, c_op, nc_op, d_op, nd_op, legend=True)
+gi_st_stat = scatter_data(axst2, g_st, gi_st, c_st, nc_st, d_st, nd_st)
+gi_op_stat = scatter_data(axop2, g_op, gi_op, c_op, nc_op, d_op, nd_op, legend=True)
 
+gi_stat_diff = gi_op_stat - gi_st_stat
 
 axfreq.set_title('(a) PDF of environment index', loc='left')
 axst2.set_title('(b) structure', loc='left')
@@ -468,3 +477,9 @@ for _ in (axst2, axop2):
   
 plt.tight_layout()
 show_fig('grad_env_index_rel')
+
+stat_diff_all = np.concatenate([tr_stat_diff, gi_stat_diff[1:]], axis=0)
+numpy_to_latex_table(
+  stat_diff_all, './fig_final/stat_diff_all.tex', 
+  row_labels=['grad. index', '\#triads', 'env. index'], 
+  col_labels=['ND;P', 'ND;C', 'D;P', 'D;C'])
