@@ -4,6 +4,7 @@ from numpy.typing import NDArray
 
 import os
 
+import base64
 import json
 import pickle
 import importlib
@@ -20,7 +21,7 @@ from scipy.interpolate import interp1d
 
 from base import Scenario
 
-from utils.stat import area_under_curve, first_more_or_equal_than
+from utils.stat import area_under_curve, compress_array_to_b64, first_more_or_equal_than
 import works.gradation.simulate as p
 import utils.plot as _p
 importlib.reload(_p)
@@ -63,6 +64,10 @@ class ScenarioPatternRecorder:
   triads: float
   in_degree: Tuple[float, float, float]
   opinion_diff: float
+  
+  event_step: str
+  event_unfollow: str
+  event_follow: str
 
 
 active_threshold = 0.98
@@ -75,6 +80,8 @@ mpl.rcParams['font.size'] = 18
 
 # build scenario
 short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
+
+_b = compress_array_to_b64
 
 if __name__ == '__main__':
 
@@ -122,8 +129,31 @@ if __name__ == '__main__':
 
     if S.steps not in S.stats:
       S.add_model_stats()
+      
+      
+    S_agent_stats = S.generate_agent_stats()
+    n_n = S_agent_stats['n_neighbor']
+    n_agents = n_n.shape[1]
+    
+    S_data_steps = S_agent_stats['step']
+    S_data_steps_mat = np.repeat(S_data_steps.reshape((-1, 1)), n_agents, axis=1)
+    S_data_agents_mat = np.repeat(np.arange(n_agents, dtype=int).reshape((1, -1)), S_data_steps.size, axis=0)
+    opinion = S_agent_stats['cur_opinion']
+    
+    has_follow_event = S_agent_stats['has_follow_event']
+    unfollowed = S_agent_stats['unfollowed']
+    followed = S_agent_stats['followed']
+    
+    event_step = S_data_steps_mat[has_follow_event]
+    event_agent = S_data_agents_mat[has_follow_event]
+    event_unfo = unfollowed[has_follow_event]
+    event_fo = followed[has_follow_event]
+    
+    opinion_f = opinion.flatten()
+    event_op_cur = opinion_f[event_step * n_agents + event_agent]
+    event_op_unfo = np.abs(opinion_f[event_step * n_agents + event_unfo] - event_op_cur)
+    event_op_fo = np.abs(opinion_f[event_step * n_agents + event_fo] - event_op_cur)
 
-    S_data_steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = S.generate_agent_stats_v1()
     S_stats = S.generate_model_stats()
     S_stat_steps = S_stats['step']
 
@@ -185,6 +215,10 @@ if __name__ == '__main__':
                    for x in ['in-degree-alpha', 'in-degree-p-value', 'in-degree-R']],
         opinion_diff=opinion_last_diff if np.isfinite(
             opinion_last_diff) else -1,
+        
+        event_step=_b(event_step),
+        event_unfollow=_b(event_op_unfo),
+        event_follow=_b(event_op_fo),
     )
 
     pat_stats_set.append(dataclasses.asdict(pat_stats))
