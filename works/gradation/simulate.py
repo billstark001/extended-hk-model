@@ -33,8 +33,8 @@ logger = get_logger(__name__, os.path.join(BASE_PATH, 'logfile.log'))
 # build scenarios
 
 
-def stat_collectors_f(): return {
-    # 'layout': stats.NetworkLayoutCollector(use_last=True),
+def stat_collectors_f(layout=False):
+  ret = {
     'triads': stats.TriadsCountCollector(),
     'cluster': stats.ClusteringCollector(),
     's-index': stats.SegregationIndexCollector(),
@@ -43,7 +43,10 @@ def stat_collectors_f(): return {
         use_js_divergence=True,
         hist_interval=0.08,
     ),
-}
+  }
+  if layout:
+    ret['layout'] = stats.NetworkLayoutCollector(use_last=True)
+  return ret
 
 
 def save_sim_result(S: Scenario, name: str):
@@ -60,7 +63,12 @@ network_provider = RandomNetworkProvider(
 )
 sim_p_standard = SimulationParams(
     max_total_step=15000,
-    model_stat_interval=20,
+    model_stat_interval={
+        50: 5,
+        150: 10,
+        300: 15,
+        114514: 20,
+    },
     opinion_change_error=1e-4,
     model_stat_collectors=stat_collectors_f()
 )
