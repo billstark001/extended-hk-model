@@ -107,7 +107,7 @@ if __name__ == '__main__':
     # load scenario
 
     params = p.gen_params(r, d, g)
-    p.sim_p_standard.stat_collectors = p.stat_collectors_f()
+    p.sim_p_standard.model_stat_collectors = p.stat_collectors_f()
     S = Scenario(p.network_provider, params, p.sim_p_standard)
 
     scenario_path = os.path.join(scenario_base_path, scenario_name + '.pkl')
@@ -121,10 +121,10 @@ if __name__ == '__main__':
     # collect stats
 
     if S.steps not in S.stats:
-      S.add_stats()
+      S.add_model_stats()
 
-    S_data_steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = S.get_opinion_data()
-    S_stats = S.generate_stats()
+    S_data_steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = S.generate_agent_stats_v1()
+    S_stats = S.generate_model_stats()
     S_stat_steps = S_stats['step']
 
     # collect indices

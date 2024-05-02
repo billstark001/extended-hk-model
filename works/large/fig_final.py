@@ -73,8 +73,8 @@ if len(all_data) == 0:
       continue
     model.load(*snapshot)
 
-    stats = model.generate_stats()
-    steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = model.get_opinion_data()
+    stats = model.generate_model_stats()
+    steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = model.generate_agent_stats_v1()
     dn[0] = dn[1]
     dr[0] = dr[1]
 

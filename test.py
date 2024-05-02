@@ -21,8 +21,8 @@ s_params = RandomNetworkProvider(
 )
 sim_p_standard = SimulationParams(
     max_total_step=1000,
-    stat_interval=15,
-    stat_collectors=stat_collectors
+    model_stat_interval=15,
+    model_stat_collectors=stat_collectors
 )
 
 params = HKModelParams(
@@ -35,13 +35,13 @@ params = HKModelParams(
 
 S = Scenario(s_params, params, sim_p_standard)
 S.init()
-S.step()
+S.iter()
 
 # plot
 
 sns.set_theme()
 
-steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = S.get_opinion_data()  # (t, n)
+steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = S.generate_agent_stats_v1()  # (t, n)
 
 plt.plot(opinion, lw=0.5)
 plt.title('Opinion')

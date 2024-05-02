@@ -74,10 +74,10 @@ recsys_s10 = lambda m: Structure(m)
 
 sim_p_standard = SimulationParams(
     max_total_step=10000,
-    stat_interval=15,
+    model_stat_interval=15,
     opinion_change_error=1e-5,
     halt_monitor_step=40,
-    stat_collectors={
+    model_stat_collectors={
       'triads': stats.TriadsCountCollector(),
       'cluster': stats.ClusteringCollector(),
       's-index': stats.SegregationIndexCollector(),

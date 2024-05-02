@@ -46,8 +46,8 @@ s_params = RandomNetworkProvider(
 )
 sim_p_standard = SimulationParams(
     max_total_step=1000,
-    stat_interval=15,
-    stat_collectors=stat_collectors
+    model_stat_interval=15,
+    model_stat_collectors=stat_collectors
 )
 
 params1= HKModelParams(
@@ -78,15 +78,15 @@ for i_p, params in enumerate((params1, params2)):
     
   S = Scenario(s_params, params, sim_p_standard)
   S.init()
-  S.step()
+  S.iter()
 
   # generate stats
 
   if S.steps not in S.stats:
-    S.add_stats()
+    S.add_model_stats()
     
-  S_data_steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = S.get_opinion_data()
-  S_stats = S.generate_stats()
+  S_data_steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = S.generate_agent_stats_v1()
+  S_stats = S.generate_model_stats()
   S_stat_steps = S_stats['step']
   
   fig, (axop, axst, axhp) = cast(Tuple[Any, List[Axes]], plt_figure(n_col=3, total_width=12))

@@ -57,14 +57,14 @@ network_provider = RandomNetworkProvider(
 )
 sim_p_standard = SimulationParams(
     max_total_step=15000,
-    stat_interval={
+    model_stat_interval={
         50: 5,
         150: 10,
         300: 15,
         114514: 20,
     },
     opinion_change_error=1e-5,
-    stat_collectors=stat_collectors_f()
+    model_stat_collectors=stat_collectors_f()
 )
 
 steepness_array = np.array([0, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64])
@@ -119,7 +119,7 @@ if __name__ == '__main__':
 
     params = gen_params(r, d, g)
 
-    sim_p_standard.stat_collectors = stat_collectors_f()
+    sim_p_standard.model_stat_collectors = stat_collectors_f()
     scenario = Scenario(network_provider, params, sim_p_standard)
     scenario.init()
 
@@ -127,7 +127,7 @@ if __name__ == '__main__':
 
     try:
 
-      scenario.step()
+      scenario.iter()
       save_sim_result(scenario, scenario_name)
 
       logger.info('Saved scenario %s. Model at step %d.',

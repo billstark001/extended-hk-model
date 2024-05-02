@@ -40,6 +40,14 @@ class StatCollector(Protocol):
 
 short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
+_sim_data_keys = [
+    'cur_opinion',
+    'n_neighbor', 'n_recommended',
+    'diff_neighbor', 'diff_recommended',
+    'sum_neighbor', 'sum_recommended',
+    'has_follow_event', 'unfollowed', 'followed',
+]
+
 
 @dataclasses.dataclass
 class SimulationParams:
@@ -47,20 +55,21 @@ class SimulationParams:
   opinion_change_error: float = 1e-10
   halt_monitor_step: int = 60
 
-  data_interval: int = 1
-  stat_interval: Union[int, Dict[int, int]] = 20
-  stat_collectors: Dict[str, StatCollector] = dataclasses.field(
+  agent_stat_interval: int = 1
+  model_stat_interval: Union[int, Dict[int, int]] = 20
+  model_stat_collectors: Dict[str, StatCollector] = dataclasses.field(
       default_factory=dict)
 
   def __post_init__(self):
-    self.stat_interval_index = np.array([] if not isinstance(
-        self.stat_interval, dict) else sorted(self.stat_interval.keys()), dtype=int)
+    self.model_stat_interval_index = np.array([] if not isinstance(
+        self.model_stat_interval, dict) \
+          else sorted(self.model_stat_interval.keys()), dtype=int)
     self.last_steps = -1
     self.last_range = -1
 
   def needs_stat(self, steps: int):
-    if isinstance(self.stat_interval, dict):
-      _i = self.stat_interval
+    if isinstance(self.model_stat_interval, dict):
+      _i = self.model_stat_interval
       if steps in _i:
         self.last_steps = -1
         self.last_range = -1
@@ -69,13 +78,13 @@ class SimulationParams:
       if self.last_steps > 0 and self.last_range > 0 and steps == self.last_steps + 1:
         return steps % _i[self.last_range] == 0
 
-      i_range = first_more_or_equal_than(self.stat_interval_index, steps)
-      range = self.stat_interval_index[i_range] if i_range < self.stat_interval_index.size else self.stat_interval_index[-1]
+      i_range = first_more_or_equal_than(self.model_stat_interval_index, steps)
+      range = self.model_stat_interval_index[i_range] if i_range < self.model_stat_interval_index.size else self.model_stat_interval_index[-1]
       self.last_range = range
       self.last_steps = steps
       return steps % _i[range] == 0
 
-    return steps % self.stat_interval == 0
+    return steps % self.model_stat_interval == 0
 
 
 class Scenario:
@@ -93,7 +102,7 @@ class Scenario:
   ):
     self.env_provider = env_provider
     self.sim_params = sim_params
-    self.stat_collectors = self.sim_params.stat_collectors
+    self.stat_collectors = self.sim_params.model_stat_collectors
     self.model_params = model_params
     self.stats = {}
     self.steps = 0
@@ -101,21 +110,15 @@ class Scenario:
         self.sim_params.halt_monitor_step
 
   def init_data(self, collect=True):
-    self.datacollector = DataCollector(agent_reporters=dict(
-        Opinion='cur_opinion',
-        DiffNeighbor='diff_neighbor',
-        DiffRecommended='diff_recommended',
-        SumNeighbor='sum_neighbor',
-        SumRecommended='sum_recommended',
-        NumNeighbor='n_neighbor',
-        NumRecommended='n_recommended',
-    ), model_reporters=dict(
-        Step=lambda _: self.steps
-    ))
+    self.datacollector = DataCollector(
+        agent_reporters=dict((x, x) for x in _sim_data_keys),
+        model_reporters=dict(
+            step=lambda _: self.steps
+        ))
     self.stats = {}
     if collect:
-      self.add_data()
-      self.add_stats()
+      self.add_agent_stats()
+      self.add_model_stats()
     self.model.datacollector = self.datacollector
     self.halt_monitor = [(0xffffff, 0xffffff)] * \
         self.sim_params.halt_monitor_step
@@ -168,7 +171,7 @@ class Scenario:
       self.stats = stats
     self.steps = step or 0
 
-  def step_once(self):
+  def iter_one_step(self):
     c_edge, c_opinion = self.model.step()
     self.steps += 1
 
@@ -177,16 +180,16 @@ class Scenario:
     self.halt_monitor.append((c_edge, c_opinion))
 
     # stats
-    if self.steps % self.sim_params.data_interval == 0:
-      self.add_data()
+    if self.steps % self.sim_params.agent_stat_interval == 0:
+      self.add_agent_stats()
     if self.sim_params.needs_stat(self.steps):
-      self.add_stats()
+      self.add_model_stats()
 
-  def step(self, count: int = 0):
+  def iter(self, count: int = 0):
     if count < 1:
       count = self.sim_params.max_total_step
     for _ in tqdm(range(count), bar_format=short_progress_bar):
-      self.step_once()
+      self.iter_one_step()
       halt, _, __ = self.check_halt_cond()
       if halt:
         break
@@ -207,25 +210,13 @@ class Scenario:
       opinion[a.unique_id] = a.cur_opinion
     return opinion
 
-  def get_opinion_data(self):
-    data = self.datacollector.get_agent_vars_dataframe().unstack()
-    steps = data.index.to_numpy()
-    opinion = data['Opinion'].to_numpy()
-    dn = data['DiffNeighbor'].to_numpy()
-    dr = data['DiffRecommended'].to_numpy()
-    sum_n = data['SumNeighbor'].to_numpy()
-    sum_r = data['SumRecommended'].to_numpy()
-    n_n = data['NumNeighbor'].to_numpy()
-    n_r = data['NumRecommended'].to_numpy()
-    return steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r
-
-  def add_data(self):
+  def add_agent_stats(self):
     self.datacollector.collect(self.model)
 
-  def add_stats(self):
-    self.stats[self.steps] = self.collect_stats()
+  def add_model_stats(self):
+    self.stats[self.steps] = self.collect_model_stats()
 
-  def collect_stats(self):
+  def collect_model_stats(self):
 
     digraph = self.model.graph
     graph = nx.Graph(digraph)
@@ -250,7 +241,29 @@ class Scenario:
 
     return ret_dict
 
-  def generate_stats(self):
+  def generate_agent_stats(self):
+    data = self.datacollector.get_agent_vars_dataframe().unstack()
+    results = {
+        'step': self.datacollector.get_model_vars_dataframe()['step'].to_numpy(),
+    }
+    for k in _sim_data_keys:
+      results[k] = data[k].to_numpy()
+    return results
+
+  def generate_agent_stats_v1(self):
+    results = self.generate_agent_stats()
+    return (
+        results['step'],
+        results['cur_opinion'],
+        results['diff_neighbor'],
+        results['diff_recommended'],
+        results['sum_neighbor'],
+        results['sum_recommended'],
+        results['n_neighbor'],
+        results['n_recommended'],
+    )
+
+  def generate_model_stats(self):
     step_indices = list(self.stats.keys())
     item_set = set()
     for v in self.stats.values():

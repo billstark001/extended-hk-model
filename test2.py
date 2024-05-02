@@ -49,9 +49,9 @@ network_provider = RandomNetworkProvider(
 )
 sim_p_standard = SimulationParams(
     max_total_step=10000,
-    stat_interval=20,
+    model_stat_interval=20,
     opinion_change_error=1e-4,
-    stat_collectors=stat_collectors_f()
+    model_stat_collectors=stat_collectors_f()
 )
 
 
@@ -98,7 +98,7 @@ if __name__ == '__main__':
   g = n_gens[0]
   params = gen_params(r, d, g)
 
-  sim_p_standard.stat_collectors = stat_collectors_f()
+  sim_p_standard.model_stat_collectors = stat_collectors_f()
 
   # simulate & collect
   
@@ -108,12 +108,12 @@ if __name__ == '__main__':
   if do_step or S is None:
     S = Scenario(network_provider, params, sim_p_standard)
     S.init()
-    S.step()
+    S.iter()
     if S.steps not in S.stats:
-      S.add_stats()
+      S.add_model_stats()
     
-  S_data_steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = S.get_opinion_data()
-  S_stats = S.generate_stats()
+  S_data_steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = S.generate_agent_stats_v1()
+  S_stats = S.generate_model_stats()
   S_stat_steps = S_stats['step']
   
   # n = 260

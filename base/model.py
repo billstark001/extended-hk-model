@@ -26,25 +26,33 @@ class HKAgent(Agent):
     self.cur_opinion = opinion if opinion is not None else np.random.uniform(-1, 1)
 
     # future state
+    self.next_opinion = self.cur_opinion
+    self.next_follow: Optional[Tuple['HKAgent', 'HKAgent']] = None
+    
+    # recorded data
     self.diff_neighbor = 0
     self.diff_recommended = 0
     self.sum_neighbor = 0
     self.sum_recommended = 0
-    self.n_neighbor = 0
-    self.n_recommended = 0
-    self.next_opinion = self.cur_opinion
-    self.next_follow: Optional[Tuple['HKAgent', 'HKAgent']] = None
+    self.n_neighbor = 0 # #concordant neighbors
+    self.n_recommended = 0 # #concordant recommendations
+    self.has_follow_event = False
+    self.unfollowed = -1
+    self.followed = -1
 
   def step(self):
     # clear data
     self.next_opinion = self.cur_opinion
+    self.next_follow = None
     self.n_neighbor = 0
     self.n_recommended = 0
     self.diff_neighbor = 0
     self.diff_recommended = 0
     self.sum_neighbor = 0
     self.sum_recommended = 0
-    self.next_follow = None
+    self.has_follow_event = False
+    self.unfollowed = -1
+    self.followed = -1
 
     # get the neighbors
     neighbors: List['HKAgent'] = self.model.grid.get_neighbors(
@@ -90,6 +98,9 @@ class HKAgent(Agent):
       follow = np.random.choice(concordant_recommended)
       unfollow = np.random.choice(discordant_neighbor)
       self.next_follow = (unfollow, follow)
+      self.has_follow_event = True
+      self.unfollowed = unfollow.unique_id
+      self.followed = follow.unique_id
 
 
 class HKModel(Model):

@@ -34,7 +34,7 @@ logger = get_logger(__name__, os.path.join(BASE_PATH, 'logfile.log'))
 
 
 def stat_collectors_f(): return {
-    'layout': stats.NetworkLayoutCollector(use_last=True),
+    # 'layout': stats.NetworkLayoutCollector(use_last=True),
     'triads': stats.TriadsCountCollector(),
     'cluster': stats.ClusteringCollector(),
     's-index': stats.SegregationIndexCollector(),
@@ -60,9 +60,9 @@ network_provider = RandomNetworkProvider(
 )
 sim_p_standard = SimulationParams(
     max_total_step=15000,
-    stat_interval=20,
+    model_stat_interval=20,
     opinion_change_error=1e-4,
-    stat_collectors=stat_collectors_f()
+    model_stat_collectors=stat_collectors_f()
 )
 
 
@@ -127,7 +127,7 @@ if __name__ == '__main__':
     
     params = gen_params(r, d, g)
 
-    sim_p_standard.stat_collectors = stat_collectors_f()
+    sim_p_standard.model_stat_collectors = stat_collectors_f()
     scenario = Scenario(network_provider, params, sim_p_standard)
     scenario.init()
 
@@ -135,7 +135,7 @@ if __name__ == '__main__':
 
     try:
 
-      scenario.step()
+      scenario.iter()
       save_sim_result(scenario, scenario_name)
 
       logger.info('Saved scenario %s. Model at step %d.',

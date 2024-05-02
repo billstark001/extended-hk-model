@@ -54,7 +54,7 @@ if __name__ == "__main__":
     errored = False
     while not should_halt:
       try:
-        scenario.step_once()
+        scenario.iter_one_step()
         should_halt, max_edge, max_opinion = scenario.check_halt_cond()
         
         if scenario.steps % 100 == 0:
