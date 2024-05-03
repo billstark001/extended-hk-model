@@ -1,4 +1,3 @@
-from utils.plot import plot_network_snapshot, plt_figure
 from typing import cast, List, Tuple, Any, Optional
 from numpy.typing import NDArray
 
@@ -21,6 +20,7 @@ from scipy.interpolate import interp1d
 
 from base import Scenario
 
+from utils.plot import plot_network_snapshot, plt_figure
 from utils.stat import area_under_curve, compress_array_to_b64, first_more_or_equal_than
 import works.gradation.simulate as p
 import utils.plot as _p

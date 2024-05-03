@@ -1,4 +1,3 @@
-from utils.plot import numpy_to_latex_table, plt_figure, get_colormap
 from typing import cast, List, Iterable, Union
 from numpy.typing import NDArray
 
@@ -22,6 +21,8 @@ from scipy.stats import gaussian_kde
 from base import Scenario
 
 from utils.stat import adaptive_moving_stats
+from utils.plot import numpy_to_latex_table, plt_figure, get_colormap
+
 import works.gradation.simulate as p
 import works.gradation.stat as pp
 
@@ -36,8 +37,10 @@ importlib.reload(pp)
 plot_path = './fig2'
 pat_file_paths = [
     f'{plot_path}/pattern_stats.json',
-    f'{plot_path}/pattern_stats_2.json',
     f'{plot_path}/pattern_stats_1.json',
+    f'{plot_path}/pattern_stats_2.json',
+    f'{plot_path}/pattern_stats_3.json',
+    f'{plot_path}/pattern_stats_4.json',
 ]
 
 mpl.rcParams['font.size'] = 16
@@ -108,6 +111,8 @@ m_is_consensus = np.mean(hs_last.astype(
 # m_hs_last_op = hs_last[..., 0, :].astype(float)
 # m_hs_last_st = hs_last[..., 1, :].astype(float)
 
+m_active_step_op = np.log10(m_active_step[..., 0])
+m_active_step_st = np.log10(m_active_step[..., 1])
 
 m_pattern_1_op = m_pattern_1_abs[..., 0]
 m_pattern_1_st = m_pattern_1_abs[..., 1]
@@ -169,6 +174,52 @@ cmap_setter4()
 cmap_setter5()
 
 show_fig('grad_stat_heatmap')
+
+
+# active index
+
+
+fig, (ax1, ax2, ax3) = plt_figure(n_col=3, hw_ratio=1, total_width=12)
+
+cmap_arr5, cmap_setter5 = get_colormap(
+    [ax3], cmap='RdBu', fig=fig, vmin=-1, vmax=1, anchor='W', seg=9)
+cmap_arr4, cmap_setter4 = get_colormap(
+    [ax1, ax2], cmap='YlGnBu', vmin=1.5, vmax=4.5, seg=7, fig=fig, anchor='W')
+
+ax1.imshow(m_active_step_st, **cmap_arr4)
+ax2.imshow(m_active_step_op, **cmap_arr4)
+ax3.imshow(m_active_step_op - m_active_step_st, **cmap_arr5)
+
+fig.tight_layout()
+
+
+for _ in (ax1, ax2, ax3):
+  _.invert_yaxis()
+  _.set_xticks(np.arange(p.decay_rate_array.size))
+  _.set_xticklabels(p.decay_rate_array, rotation=90)
+  _.set_yticks(np.arange(p.rewiring_rate_array.size))
+  _.set_yticklabels([' ' for _ in p.rewiring_rate_array])
+  _.grid(False)
+
+  _.set_xlabel('decay')
+
+
+ax1.set_yticklabels(p.rewiring_rate_array)
+ax3.set_yticklabels(p.rewiring_rate_array)
+
+ax1.set_title('(a) structure', loc='left')
+ax2.set_title('(b) opinion', loc='left')
+ax3.set_title('(c) difference', loc='left')
+
+ax1.set_ylabel('rewiring')
+# ax3.set_ylabel('rewiring')
+
+cmap_setter4()
+cmap_setter5()
+
+show_fig('active_step_heatmap')
+
+# ???
 
 
 fig, ax1 = plt_figure(total_width=5)
