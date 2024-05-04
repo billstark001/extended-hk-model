@@ -70,7 +70,7 @@ sim_p_standard = SimulationParams(
         114514: 20,
     },
     opinion_change_error=1e-4,
-    model_stat_collectors=stat_collectors_f()
+    model_stat_collectors=stat_collectors_f(layout=True)
 )
 
 
