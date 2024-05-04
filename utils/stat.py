@@ -1,5 +1,5 @@
 from typing import Optional, Union, Tuple
-from numpy.typing import NDArray
+from numpy.typing import NDArray, DTypeLike
 from scipy.interpolate import interp1d
 
 import logging
@@ -16,10 +16,10 @@ def compress_array_to_b64(arr: NDArray) -> str:
   b64_compressed_data = base64.b64encode(compressed_data)
   return b64_compressed_data.decode('utf-8')
 
-def decompress_b64_to_array(b64_str: str) -> NDArray:
+def decompress_b64_to_array(b64_str: str, dtype: DTypeLike) -> NDArray:
   compressed_data = base64.b64decode(b64_str.encode('utf-8'))
   bytes_data = zlib.decompress(compressed_data)
-  arr = np.frombuffer(bytes_data, dtype=np.dtype(bytes_data))
+  arr = np.frombuffer(bytes_data, dtype=dtype)
 
   return arr
 

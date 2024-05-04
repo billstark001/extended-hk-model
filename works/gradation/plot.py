@@ -21,7 +21,7 @@ from scipy.stats import gaussian_kde
 
 from base import Scenario
 
-from utils.stat import adaptive_moving_stats
+from utils.stat import adaptive_moving_stats, decompress_b64_to_array
 import works.gradation.simulate as p
 import works.gradation.stat as pp
 
@@ -250,15 +250,23 @@ pat_files_raw_st = pat_files_raw[1::2]
 
 kde_gradation_cache = []
 
-triads_cache = []
-
 g_index_cache = []
+
+event_cache = []
 
 for r in pat_files_raw_op, pat_files_raw_st:
 
-  gradation, cluster, triads, in_degree, d_opinion, p_last, g_index_mean_by_rec_active = [
-      np.array([x[k] for x in r])
-      for k in ('pat_area_hp', 'cluster', 'triads', 'in_degree', 'opinion_diff', 'p_last', 'g_index_mean_active')
+  gradation, cluster, triads, in_degree, \
+    d_opinion, p_last, g_index_mean_by_rec_active, \
+      event_step_, event_unfollow_, event_follow_, \
+        active_steps = [
+      np.array([x[k] for x in r]) if not k.startswith('event') else [x[k] for x in r if k in x]
+      for k in (
+        'pat_area_hp', 'cluster', 'triads', 'in_degree', 
+        'opinion_diff', 'p_last', 'g_index_mean_active',
+        'event_step', 'event_unfollow', 'event_follow',
+        'active_step'
+      )
   ]
 
   in_degree_alpha, in_degree_p, in_degree_r = in_degree.T.copy()
@@ -318,7 +326,31 @@ for r in pat_files_raw_op, pat_files_raw_st:
       np.mean(d_opinion[is_consensus]),
       np.mean(d_opinion[is_not_consensus])
   )
+  
+  # event
+  event_step = [decompress_b64_to_array(x, int) for x in event_step_]
+  event_unfollow = [decompress_b64_to_array(x, float) for x in event_unfollow_]
+  event_follow = [decompress_b64_to_array(x, float) for x in event_follow_]
+  
+  event_step_normalized = [
+    x / active_steps[i] for i, x in enumerate(event_step)
+  ]
+  
+  event_cache.append((
+    event_step, event_step_normalized, event_unfollow, event_follow
+  ))
 
+event_cache_op, event_cache_st = event_cache
+event_flattened_op = [[], [], [], []]
+event_flattened_st = [[], [], [], []]
+for i in range(4):
+  for e in event_cache_op[i]: event_flattened_op[i] += list(e)
+  for e in event_cache_st[i]: event_flattened_st[i] += list(e)
+# _x = np.arange(0, 1.2, 0.01)
+# eopd = gaussian_kde(eop)(_x)
+# estd = gaussian_kde(est)(_x)
+# plt.plot(_x, eopd)
+# plt.plot(_x, estd)
 
 # consensus
 
