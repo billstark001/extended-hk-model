@@ -114,7 +114,7 @@ if __name__ == '__main__':
     # load scenario
 
     params = p.gen_params(r, d, g)
-    p.sim_p_standard.model_stat_collectors = p.stat_collectors_f()
+    p.sim_p_standard.model_stat_collectors = p.stat_collectors_f(layout=True)
     S = Scenario(p.network_provider, params, p.sim_p_standard)
 
     scenario_path = os.path.join(scenario_base_path, scenario_name + '.pkl')

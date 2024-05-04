@@ -135,7 +135,7 @@ if __name__ == '__main__':
     
     params = gen_params(r, d, g)
 
-    sim_p_standard.model_stat_collectors = stat_collectors_f()
+    sim_p_standard.model_stat_collectors = stat_collectors_f(layout=True)
     scenario = Scenario(network_provider, params, sim_p_standard)
     scenario.init()
 
