@@ -10,6 +10,9 @@ import importlib
 import dataclasses
 
 import numpy as np
+from sklearn.metrics import mutual_info_score
+from scipy.stats import pearsonr
+import networkx as nx
 from tqdm import tqdm
 
 import matplotlib.pyplot as plt
@@ -40,6 +43,8 @@ pat_csv_path = os.path.join(plot_path, 'pattern_stats.json')
 do_plot = False
 do_plot_layout = False
 
+_b = compress_array_to_b64
+dummy_comp_arr = _b(np.zeros((0,), dtype=int))
 
 @dataclasses.dataclass
 class ScenarioPatternRecorder:
@@ -62,12 +67,15 @@ class ScenarioPatternRecorder:
 
   cluster: float
   triads: float
-  in_degree: Tuple[float, float, float]
   opinion_diff: float
+  in_degree: Tuple[float, float, float] = dataclasses.field(default_factory=lambda: [-1, -1, -1])
   
-  event_step: str
-  event_unfollow: str
-  event_follow: str
+  event_step: str = dummy_comp_arr
+  event_unfollow: str = dummy_comp_arr
+  event_follow: str = dummy_comp_arr
+  
+  smpl_pearson_rel: List[float] = dataclasses.field(default_factory=list)
+  smpl_mutual_info: List[float] = dataclasses.field(default_factory=list)
 
 
 active_threshold = 0.98
@@ -81,7 +89,6 @@ mpl.rcParams['font.size'] = 18
 # build scenario
 short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
-_b = compress_array_to_b64
 
 if __name__ == '__main__':
 
@@ -136,6 +143,7 @@ if __name__ == '__main__':
     n_agents = n_n.shape[1]
     
     S_data_steps = S_agent_stats['step']
+    
     S_data_steps_mat = np.repeat(S_data_steps.reshape((-1, 1)), n_agents, axis=1)
     S_data_agents_mat = np.repeat(np.arange(n_agents, dtype=int).reshape((1, -1)), S_data_steps.size, axis=0)
     opinion = S_agent_stats['cur_opinion']
@@ -149,13 +157,12 @@ if __name__ == '__main__':
     event_unfo = unfollowed[has_follow_event]
     event_fo = followed[has_follow_event]
     
-    opinion_f = opinion.flatten()
-    event_op_cur = opinion_f[event_step * n_agents + event_agent]
-    event_op_unfo = np.abs(opinion_f[event_step * n_agents + event_unfo] - event_op_cur)
-    event_op_fo = np.abs(opinion_f[event_step * n_agents + event_fo] - event_op_cur)
+    event_op_cur = opinion[event_step, event_agent]
+    event_op_unfo = np.abs(opinion[event_step, event_unfo] - event_op_cur)
+    event_op_fo = np.abs(opinion[event_step, event_fo] - event_op_cur)
 
     S_stats = S.generate_model_stats()
-    S_stat_steps = S_stats['step']
+    S_stat_steps = np.array(S_stats['step'], dtype=int)
 
     # collect indices
 
@@ -190,6 +197,44 @@ if __name__ == '__main__':
     opinion_last_diff = \
         np.mean(opinion_last[opinion_last > opinion_last_mean]) - \
         np.mean(opinion_last[opinion_last <= opinion_last_mean])
+        
+    # calculate micro-level stats
+    
+    step_indices = np.array([
+      np.argmin(np.abs(S_stat_steps - active_step * k)) \
+        for k in [1/16, 1/8, 1/4, 1/2, 3/4]
+    ])
+    smpl_steps = S_stat_steps[step_indices]
+    layouts_smpl = [S_stats['layout'][x] for x in step_indices]
+    opinions_smpl = [x[1] for x in layouts_smpl]
+    graphs_smpl = [x[2] for x in layouts_smpl]
+    opinion_diff_smpl = [np.abs(x.reshape((1, -1)) - x.reshape((-1, 1))) for x in opinions_smpl]
+    graph_dis_smpl = [nx.floyd_warshall_numpy(x.to_undirected()) for x in graphs_smpl]
+    
+    mask_mat = np.ones((400, 400), dtype=bool)
+    mask_mat = np.triu(mask_mat, 1)
+    masks_smpl = [np.logical_and(np.isfinite(x), mask_mat) for x in graph_dis_smpl]
+    
+    point_set_smpl = [
+      np.concatenate([
+        opinion_diff_smpl[i][masks_smpl[i]].reshape((1, -1)), 
+        graph_dis_smpl[i][masks_smpl[i]].reshape((1, -1))], axis=0) \
+        for i in range(len(masks_smpl))
+    ]
+    
+    mutual_info_smpl = [
+      mutual_info_score(x[0], x[1]) for x in point_set_smpl
+    ]
+    pearson_rel_smpl = [
+      pearsonr(x[0], x[1]).statistic for x in point_set_smpl
+    ]
+    
+    # explanation of recommended distance
+    
+    # TODO
+    
+        
+    # create json
 
     pat_stats = ScenarioPatternRecorder(
         name=scenario_name,
@@ -219,6 +264,9 @@ if __name__ == '__main__':
         event_step=_b(event_step),
         event_unfollow=_b(event_op_unfo),
         event_follow=_b(event_op_fo),
+        
+        smpl_mutual_info=mutual_info_smpl,
+        smpl_pearson_rel=pearson_rel_smpl,
     )
 
     pat_stats_set.append(dataclasses.asdict(pat_stats))
