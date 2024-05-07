@@ -66,8 +66,9 @@ class ScenarioPatternRecorder:
   pat_area_ps: float
 
   cluster: float
-  triads: float
-  opinion_diff: float
+  triads: int
+  triads2: int = 0
+  opinion_diff: float = 0
   in_degree: Tuple[float, float, float] = dataclasses.field(default_factory=lambda: [-1, -1, -1])
   
   event_step: str = dummy_comp_arr
@@ -76,6 +77,8 @@ class ScenarioPatternRecorder:
   
   smpl_pearson_rel: List[float] = dataclasses.field(default_factory=list)
   smpl_mutual_info: List[float] = dataclasses.field(default_factory=list)
+  smpl_rec_dis_network: List[float] = dataclasses.field(default_factory=list)
+  smpl_rec_concordant_n: List[float] = dataclasses.field(default_factory=list)
 
 
 active_threshold = 0.98
@@ -89,6 +92,31 @@ mpl.rcParams['font.size'] = 18
 # build scenario
 short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
+# from nx.floyd_warshall_numpy
+def floyd_warshall_weight_matrix(A: NDArray):
+  n, m = A.shape
+  np.fill_diagonal(A, 0)  # diagonal elements should be zero
+  for i in range(n):
+    # The second term has the same shape as A due to broadcasting
+    A = np.minimum(A, A[i, :][np.newaxis, :] + A[:, i][:, np.newaxis])
+  return A
+
+def get_adj_fw_triads(G: nx.DiGraph, fw=True, triads=True):
+  A = nx.to_numpy_array(G, multigraph_weight=min, nonedge=np.inf)
+  A_graph = np.maximum(A, A.T)
+  
+  # floyd_warshall
+  A_fw = floyd_warshall_weight_matrix(A_graph) if fw else A
+  
+  n_triads = 0
+  A_triads = A
+  if triads:
+    A[np.isinf(A)] = 0
+    A2 = A @ A
+    A_triads = np.minimum(A, A2)
+    n_triads = np.sum(A_triads)
+  
+  return A_fw, n_triads, A_triads
 
 if __name__ == '__main__':
 
@@ -153,6 +181,8 @@ if __name__ == '__main__':
     followed = S_agent_stats['followed']
     
     event_step = S_data_steps_mat[has_follow_event]
+    event_step_based_on = S_data_steps_mat[has_follow_event] - 1
+    assert event_step_based_on.min() >= 0
     event_agent = S_data_agents_mat[has_follow_event]
     event_unfo = unfollowed[has_follow_event]
     event_fo = followed[has_follow_event]
@@ -198,18 +228,23 @@ if __name__ == '__main__':
         np.mean(opinion_last[opinion_last > opinion_last_mean]) - \
         np.mean(opinion_last[opinion_last <= opinion_last_mean])
         
+    S_stat_layout = S_stats['layout']
+    _, n_triads, __ = get_adj_fw_triads(S_stat_layout[-1][2], fw=False)
+    n_triads = int(n_triads)
+        
     # calculate micro-level stats
     
     step_indices = np.array([
       np.argmin(np.abs(S_stat_steps - active_step * k)) \
-        for k in [1/16, 1/8, 1/4, 1/2, 3/4]
+        for k in [0, 1/16, 1/8, 1/4, 1/2, 3/4, 1]
     ])
     smpl_steps = S_stat_steps[step_indices]
-    layouts_smpl = [S_stats['layout'][x] for x in step_indices]
+    layouts_smpl = [S_stat_layout[x] for x in step_indices]
     opinions_smpl = [x[1] for x in layouts_smpl]
     graphs_smpl = [x[2] for x in layouts_smpl]
     opinion_diff_smpl = [np.abs(x.reshape((1, -1)) - x.reshape((-1, 1))) for x in opinions_smpl]
-    graph_dis_smpl = [nx.floyd_warshall_numpy(x.to_undirected()) for x in graphs_smpl]
+    graph_dis_smpl_ = [get_adj_fw_triads(x, triads=False) for x in graphs_smpl]
+    graph_dis_smpl = [x[0] for x in graph_dis_smpl_]
     
     mask_mat = np.ones((400, 400), dtype=bool)
     mask_mat = np.triu(mask_mat, 1)
@@ -222,17 +257,48 @@ if __name__ == '__main__':
         for i in range(len(masks_smpl))
     ]
     
-    mutual_info_smpl = [
-      mutual_info_score(x[0], x[1]) for x in point_set_smpl
-    ]
+    # mutual_info_smpl = [
+    #   mutual_info_score(x[0], x[1]) for x in point_set_smpl
+    # ]
     pearson_rel_smpl = [
-      pearsonr(x[0], x[1]).statistic for x in point_set_smpl
+      pearsonr(x[0], x[1]) for x in point_set_smpl
     ]
+    pearson_rel_smpl = [None if not np.isfinite(x.statistic) else x.statistic for x in pearson_rel_smpl]
     
     # explanation of recommended distance
     
-    # TODO
+    smpl_rec_dis_network = []
     
+    
+    for i, smpl_step in enumerate(smpl_steps):
+      event_mask = event_step > smpl_step
+      if i != smpl_steps.size - 1:
+        event_mask = np.logical_and(event_mask, event_step <= smpl_steps[i + 1])
+      graph_dis = graph_dis_smpl[i]
+      
+      e_agents = event_agent[event_mask]
+      e_targets = event_fo[event_mask]
+      dis = graph_dis[e_agents, e_targets]
+      dis_op = event_op_fo[event_mask]
+      dis_mask = np.logical_not(np.isinf(dis))
+      dis = dis[dis_mask]
+      dis_op = dis_op[dis_mask]
+      smpl_rec_dis_network.append(
+        [e_agents.size, dis.size, np.mean(dis) if dis.size > 0 else None]
+      )
+      
+    # explanation of recommended opinion distance
+    
+    smpl_rec_concordant_n = []
+    
+    n_rec = S_agent_stats['n_recommended']
+    n_rec_m = np.mean(n_rec, axis=1)
+    for i, smpl_step in enumerate(smpl_steps):
+      step_mask = S_data_steps > smpl_step
+      if i != smpl_steps.size - 1:
+        step_mask = np.logical_and(step_mask, S_data_steps < smpl_steps[i + 1])
+      n_rec_mm = np.mean(n_rec_m[step_mask])
+      smpl_rec_concordant_n.append(n_rec_mm if np.isfinite(n_rec_mm) else None)
         
     # create json
 
@@ -255,18 +321,21 @@ if __name__ == '__main__':
         
         cluster=S_stats['cluster'][-1],
         triads=S_stats['triads'][-1],
+        triads2 = n_triads,
         
         in_degree=[S_stats[x][-1]
                    for x in ['in-degree-alpha', 'in-degree-p-value', 'in-degree-R']],
         opinion_diff=opinion_last_diff if np.isfinite(
             opinion_last_diff) else -1,
         
-        event_step=_b(event_step),
-        event_unfollow=_b(event_op_unfo),
-        event_follow=_b(event_op_fo),
+        # event_step=_b(event_step),
+        # event_unfollow=_b(event_op_unfo),
+        # event_follow=_b(event_op_fo),
         
-        smpl_mutual_info=mutual_info_smpl,
+        # smpl_mutual_info=mutual_info_smpl,
         smpl_pearson_rel=pearson_rel_smpl,
+        smpl_rec_dis_network=smpl_rec_dis_network,
+        smpl_rec_concordant_n=smpl_rec_concordant_n,
     )
 
     pat_stats_set.append(dataclasses.asdict(pat_stats))

@@ -285,3 +285,26 @@ class Scenario:
         ret_dict[item].append(step_dict[item] if item in step_dict else None)
 
     return ret_dict
+  
+  def generate_record_data(self):
+    
+    # record last step model stats
+    if self.steps not in self.stats:
+      self.add_model_stats()
+      
+    model_stats = self.generate_model_stats()
+    agent_stats = self.generate_agent_stats()
+    
+    n_edges_ = np.array(
+        sorted(list(self.model.graph.out_degree), key=lambda x: x[0]))
+    node_indices = n_edges_[:, 0]
+    n_edges = n_edges_[:, 1]
+    
+    metadata = dict(
+      total_steps=self.steps,
+      model_params = self.model.p,
+      node_indices = node_indices,
+      n_edges = n_edges,
+    )
+    
+    return metadata, model_stats, agent_stats
