@@ -310,13 +310,13 @@ for r in pat_files_raw_op, pat_files_raw_st:
   gradation, cluster, triads, in_degree, \
     d_opinion, p_last, g_index_mean_by_rec_active, \
       event_step_, event_unfollow_, event_follow_, \
-        active_steps = [
+        active_steps, smpl_rel, smpl_rel_dis_nw, smpl_rel_n_cc = [
       np.array([x[k] for x in r]) if not k.startswith('event') else [x[k] for x in r if k in x]
       for k in (
-        'pat_area_hp', 'cluster', 'triads', 'in_degree', 
+        'pat_area_hp', 'cluster', 'triads2', 'in_degree', 
         'opinion_diff', 'p_last', 'g_index_mean_active',
         'event_step', 'event_unfollow', 'event_follow',
-        'active_step'
+        'active_step', 'smpl_pearson_rel', 'smpl_rec_dis_network', 'smpl_rec_concordant_n',
       )
   ]
 
@@ -368,6 +368,9 @@ for r in pat_files_raw_op, pat_files_raw_st:
       is_near_diag, is_not_near_diag,
       triads, 
       g_index_mean_by_rec_active,
+      smpl_rel,
+      smpl_rel_dis_nw,
+      smpl_rel_n_cc,
   ])
 
   d_opinion[d_opinion < 0] = 0
@@ -480,8 +483,8 @@ def scatter_data(
   return np.array([[np.mean(z[_i]) for _i in [_1, _2, _3, _4]] for z in [x, y]])
 
 
-(g_op, c_op, nc_op, d_op, nd_op, tr_op, gi_op), \
-    (g_st, c_st, nc_st, d_st, nd_st, tr_st, gi_st) = g_index_cache
+(g_op, c_op, nc_op, d_op, nd_op, tr_op, gi_op, s_rec_op, s_rec_nw_op, s_rec_cc_op), \
+    (g_st, c_st, nc_st, d_st, nd_st, tr_st, gi_st, s_rec_st, s_rec_nw_st, s_rec_cc_st) = g_index_cache
 fig, (axfreq, axst2, axop2) = plt_figure(n_col=3, hw_ratio=4/5, total_width=18)
 
 s = 3
@@ -490,7 +493,7 @@ lw = .5
 kde_cl_op_ = gaussian_kde(tr_op)
 kde_cl_st_ = gaussian_kde(tr_st)
 
-metrics = np.arange(0, 40000, 100)
+metrics = np.arange(1000, 7000, 10)
 kde_cl_op = kde_cl_op_(metrics)
 kde_cl_st = kde_cl_st_(metrics)
 
@@ -559,3 +562,10 @@ numpy_to_latex_table(
     stat_diff_all, f'{BASE_PATH}/stat_diff_all.tex',
     row_labels=['grad. index', '\#triads', 'env. index'],
     col_labels=['ND;P', 'ND;C', 'D;P', 'D;C'])
+
+# s_rec?
+
+# s_rec_nw_op_2 = s_rec_nw_op[:, :, 2].astype(float)
+# s_rec_nw_op_mask = np.isfinite(s_rec_nw_op_2)
+# i = 6
+# plt.scatter(g_op[s_rec_nw_op_mask[:, i]], s_rec_nw_op_2[:, i][s_rec_nw_op_mask[:, i]], s=2)
