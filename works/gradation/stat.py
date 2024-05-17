@@ -1,16 +1,14 @@
-from typing import cast, List, Tuple, Any, Optional
+from typing import cast, List, Tuple, Any
 from numpy.typing import NDArray
 
 import os
 
-import base64
 import json
 import pickle
 import importlib
 import dataclasses
 
 import numpy as np
-from sklearn.metrics import mutual_info_score
 from scipy.stats import pearsonr
 import networkx as nx
 from tqdm import tqdm
@@ -21,7 +19,6 @@ from matplotlib.axes import Axes
 
 from scipy.interpolate import interp1d
 
-from base import Scenario
 
 from utils.plot import plot_network_snapshot, plt_figure
 from utils.stat import area_under_curve, compress_array_to_b64, first_more_or_equal_than
@@ -65,8 +62,8 @@ class ScenarioPatternRecorder:
   pat_area_hp: float
   pat_area_ps: float
 
-  cluster: float
-  triads: int
+  cluster: float = 0
+  triads: int = 0
   triads2: int = 0
   opinion_diff: float = 0
   in_degree: Tuple[float, float, float] = dataclasses.field(default_factory=lambda: [-1, -1, -1])
@@ -147,27 +144,19 @@ if __name__ == '__main__':
       save_stats()
 
     # load scenario
-
-    params = p.gen_params(r, d, g)
-    p.sim_p_standard.model_stat_collectors = p.stat_collectors_f(layout=True)
-    S = Scenario(p.network_provider, params, p.sim_p_standard)
-
-    scenario_path = os.path.join(scenario_base_path, scenario_name + '.pkl')
+    
+    scenario_path = os.path.join(scenario_base_path, scenario_name + '_record.pkl')
     if not os.path.exists(scenario_path):
       continue
 
     with open(scenario_path, 'rb') as f:
-      dump_data = pickle.load(f)
-    S.load(*dump_data)
-
-    # collect stats
-
-    if S.steps not in S.stats:
-      S.add_model_stats()
+      S_metadata, S_stats, S_agent_stats = pickle.load(f)
       
       
-    S_agent_stats = S.generate_agent_stats()
-    n_n = S_agent_stats['n_neighbor']
+    nr_agents = S_agent_stats['nr_agents']
+      
+    n_n = nr_agents[..., 0]
+    n_rec = nr_agents[..., 1]
     n_agents = n_n.shape[1]
     
     S_data_steps = S_agent_stats['step']
@@ -176,9 +165,10 @@ if __name__ == '__main__':
     S_data_agents_mat = np.repeat(np.arange(n_agents, dtype=int).reshape((1, -1)), S_data_steps.size, axis=0)
     opinion = S_agent_stats['cur_opinion']
     
-    has_follow_event = S_agent_stats['has_follow_event']
-    unfollowed = S_agent_stats['unfollowed']
-    followed = S_agent_stats['followed']
+    follow_events = S_agent_stats['follow_event']
+    has_follow_event = follow_events[..., 0] == 1
+    unfollowed = follow_events[..., 1]
+    followed = follow_events[..., 2]
     
     event_step = S_data_steps_mat[has_follow_event]
     event_step_based_on = S_data_steps_mat[has_follow_event] - 1
@@ -191,13 +181,11 @@ if __name__ == '__main__':
     event_op_unfo = np.abs(opinion[event_step, event_unfo] - event_op_cur)
     event_op_fo = np.abs(opinion[event_step, event_fo] - event_op_cur)
 
-    S_stats = S.generate_model_stats()
     S_stat_steps = np.array(S_stats['step'], dtype=int)
 
     # collect indices
 
-    n_edges = np.array(
-        sorted(list(S.model.graph.out_degree), key=lambda x: x[0]))[:, 1]
+    n_edges = S_metadata['n_edges']
     h_index = np.mean(n_n / n_edges[np.newaxis, :], axis=1)
     if h_index.shape[0] > 1:
       h_index[0] = h_index[1]
@@ -228,8 +216,7 @@ if __name__ == '__main__':
         np.mean(opinion_last[opinion_last > opinion_last_mean]) - \
         np.mean(opinion_last[opinion_last <= opinion_last_mean])
         
-    S_stat_layout = S_stats['layout']
-    _, n_triads, __ = get_adj_fw_triads(S_stat_layout[-1][2], fw=False)
+    _, n_triads, __ = get_adj_fw_triads(S_stats['layout-graph'][-1], fw=False)
     n_triads = int(n_triads)
         
     # calculate micro-level stats
@@ -237,11 +224,10 @@ if __name__ == '__main__':
     step_indices = np.array([
       np.argmin(np.abs(S_stat_steps - active_step * k)) \
         for k in [0, 1/16, 1/8, 1/4, 1/2, 3/4, 1]
-    ])
+    ]) 
     smpl_steps = S_stat_steps[step_indices]
-    layouts_smpl = [S_stat_layout[x] for x in step_indices]
-    opinions_smpl = [x[1] for x in layouts_smpl]
-    graphs_smpl = [x[2] for x in layouts_smpl]
+    opinions_smpl = [S_stats['layout-opinion'][x] for x in step_indices]
+    graphs_smpl = [S_stats['layout-graph'][x] for x in step_indices]
     opinion_diff_smpl = [np.abs(x.reshape((1, -1)) - x.reshape((-1, 1))) for x in opinions_smpl]
     graph_dis_smpl_ = [get_adj_fw_triads(x, triads=False) for x in graphs_smpl]
     graph_dis_smpl = [x[0] for x in graph_dis_smpl_]
@@ -291,7 +277,6 @@ if __name__ == '__main__':
     
     smpl_rec_concordant_n = []
     
-    n_rec = S_agent_stats['n_recommended']
     n_rec_m = np.mean(n_rec, axis=1)
     for i, smpl_step in enumerate(smpl_steps):
       step_mask = S_data_steps > smpl_step
@@ -302,9 +287,10 @@ if __name__ == '__main__':
         
     # create json
 
+    total_steps = S_metadata['total_steps']
     pat_stats = ScenarioPatternRecorder(
         name=scenario_name,
-        step=S.steps,
+        step=total_steps,
         
         active_step=active_step,
         active_step_threshold=active_step_threshold,
@@ -319,8 +305,8 @@ if __name__ == '__main__':
         pat_area_hp=area_under_curve([p_index_resmpl, h_index]),
         pat_area_ps=area_under_curve([s_index, p_index]),
         
-        cluster=S_stats['cluster'][-1],
-        triads=S_stats['triads'][-1],
+        # cluster=S_stats['cluster'][-1],
+        # triads=S_stats['triads'][-1],
         triads2 = n_triads,
         
         in_degree=[S_stats[x][-1]
@@ -353,7 +339,7 @@ if __name__ == '__main__':
     ax.legend(['homophily', 'segregation', 'polarization', 'general'])
 
     ax.set_title(scenario_name)
-    ax.set_xlabel(f'step (total: {S.steps})')
+    ax.set_xlabel(f'step (total: {total_steps})')
 
     # plot curves
 

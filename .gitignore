@@ -157,6 +157,7 @@ cython_debug/
 # project related
 **/.DS_Store
 run
+run2_old
 run2
 run3
 run4

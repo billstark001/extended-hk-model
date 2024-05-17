@@ -66,7 +66,8 @@ sim_p_standard = SimulationParams(
         114514: 20,
     },
     opinion_change_error=1e-5,
-    model_stat_collectors=stat_collectors_f()
+    model_stat_collectors=stat_collectors_f(),
+    agent_stat_keys=['cur_opinion', 'nr_agents', 'op_sum_agents', 'follow_event'],
 )
 
 
