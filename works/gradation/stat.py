@@ -103,7 +103,7 @@ def floyd_warshall_weight_matrix(A: NDArray):
 
 def get_adj_fw_triads(G: nx.DiGraph, fw=True, triads=True):
   A = nx.to_numpy_array(G, multigraph_weight=min, nonedge=np.inf)
-  A_graph = np.maximum(A, A.T)
+  A_graph = np.minimum(A, A.T)
   
   # floyd_warshall
   A_fw = floyd_warshall_weight_matrix(A_graph) if fw else A
