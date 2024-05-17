@@ -50,12 +50,12 @@ def stat_collectors_f(layout=False):
 
 
 def save_sim_result(S: Scenario, name: str):
-  dump_data = S.dump()
-  with open(os.path.join(BASE_PATH, name + '.pkl'), 'wb') as f:
+  dump_data = S.generate_record_data()
+  with open(os.path.join(BASE_PATH, name + '_record.pkl'), 'wb') as f:
     pickle.dump(dump_data, f)
 
 def check_sim_result(name: str):
-  return os.path.exists(os.path.join(BASE_PATH, name + '.pkl'))
+  return os.path.exists(os.path.join(BASE_PATH, name + '_record.pkl'))
 
 network_provider = RandomNetworkProvider(
     agent_count=400,

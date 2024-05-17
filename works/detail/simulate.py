@@ -50,7 +50,7 @@ def save_sim_result(S: Scenario, name: str):
 
 
 def check_sim_result(name: str):
-  return os.path.exists(os.path.join(BASE_PATH, name + '.pkl'))
+  return os.path.exists(os.path.join(BASE_PATH, name + '_record.pkl'))
 
 
 network_provider = RandomNetworkProvider(
