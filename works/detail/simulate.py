@@ -15,7 +15,7 @@ import seaborn as sns
 from base import HKModelParams, Scenario, SimulationParams
 from base.model import HKModel, HKModelRecommendationSystem
 from env import RandomNetworkProvider, ScaleFreeNetworkProvider
-from recsys import Random, OpinionRandom
+from recsys import Random, Opinion, Structure, Mixed
 import stats
 
 
@@ -30,20 +30,22 @@ logger = get_logger(__name__, os.path.join(BASE_PATH, 'logfile.log'))
 # build scenarios
 
 
-def stat_collectors_f(): return {
-    'triads': stats.TriadsCountCollector(),
-    'cluster': stats.ClusteringCollector(),
+def stat_collectors_f():
+  ret = {
+    # 'triads': stats.TriadsCountCollector(),
+    'layout': stats.NetworkLayoutCollector(return_dict=True),
     's-index': stats.SegregationIndexCollector(),
     'distance': stats.DistanceCollectorDiscrete(
         use_js_divergence=True,
         hist_interval=0.08,
     ),
-}
-
+  }
+  return ret
 
 def save_sim_result(S: Scenario, name: str):
-  dump_data = S.dump()
-  with open(os.path.join(BASE_PATH, name + '.pkl'), 'wb') as f:
+  # dump_data = S.dump()
+  dump_data = S.generate_record_data()
+  with open(os.path.join(BASE_PATH, name + '_record.pkl'), 'wb') as f:
     pickle.dump(dump_data, f)
 
 
@@ -64,42 +66,52 @@ sim_p_standard = SimulationParams(
         114514: 20,
     },
     opinion_change_error=1e-5,
-    model_stat_collectors=stat_collectors_f()
+    model_stat_collectors=stat_collectors_f(),
+    agent_stat_keys=['cur_opinion', 'nr_agents', 'op_sum_agents', 'follow_event'],
 )
 
-steepness_array = np.array([0, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64])
-rewiring_rate_array = decay_rate_array = np.array([0.05, 0.1, 0.3])
+
+decay_rewiring_segs = 7
+decay_rewiring_groups = (10 ** np.vstack([
+  np.linspace(-1, -2, decay_rewiring_segs),
+  np.linspace(-2, -1, decay_rewiring_segs)
+])).T
+
+n_gens = [
+    # lambda m: Random(m),
+    lambda m: Mixed(
+        m,
+        Random(m, 10),
+        Opinion(m),
+        0.1),
+    lambda m: Mixed(
+        m,
+        Random(m, 10),
+        Structure(m, noise_std=0.2, matrix_init=True),
+        0.1),
+]
 
 
-def get_recsys_factory(steepness: float):
-  if steepness <= 0:
-    return lambda m: Random(m)
-  return lambda m: OpinionRandom(
-      m,
-      tolerance=0.45,
-      steepness=steepness,
-  )
+n_gen_names = ['op', 'st']
 
 
 n_sims = 20
 
 # all parameters
 
-params_arr: List[Tuple[str, float, float, float,
-                       Callable[[HKModel], HKModelRecommendationSystem]]] = []
+params_arr: List[Tuple[str, float, float, float]] = []
 
 for i_sim in range(n_sims):
-  for i_s, s in enumerate(steepness_array):
-    for i_d, d in enumerate(decay_rate_array):
-      for i_r, r in enumerate(rewiring_rate_array):
-        x = (
-            f'scenario_i{len(params_arr)}_s{i_s}_d{i_d}_r{i_r}_sim{i_sim}',
-            s,
-            d,
-            r,
-            get_recsys_factory(s)
-        )
-        params_arr.append(x)
+  for i_dr, (d, r) in enumerate(decay_rewiring_groups):
+    for i_g, g in enumerate(n_gens):
+      g_name = n_gen_names[i_g]
+      x = (
+          f'scenario_i{len(params_arr)}_dr{i_dr}_{g_name}_sim{i_sim}',
+          r,
+          d,
+          g,
+      )
+      params_arr.append(x)
 
 
 def gen_params(r: float, d: float, g: float):
@@ -113,7 +125,7 @@ def gen_params(r: float, d: float, g: float):
 
 
 if __name__ == '__main__':
-  for scenario_name, s, d, r, g in params_arr:
+  for scenario_name, r, d, g in params_arr:
     if check_sim_result(scenario_name):
       continue
 

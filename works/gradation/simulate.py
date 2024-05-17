@@ -35,8 +35,8 @@ logger = get_logger(__name__, os.path.join(BASE_PATH, 'logfile.log'))
 
 def stat_collectors_f(layout=False):
   ret = {
-    'triads': stats.TriadsCountCollector(),
-    'cluster': stats.ClusteringCollector(),
+    # 'triads': stats.TriadsCountCollector(),
+    # 'cluster': stats.ClusteringCollector(),
     's-index': stats.SegregationIndexCollector(),
     'in-degree': stats.InDegreeCollector(),
     'distance': stats.DistanceCollectorDiscrete(
@@ -70,7 +70,8 @@ sim_p_standard = SimulationParams(
         114514: 20,
     },
     opinion_change_error=1e-4,
-    model_stat_collectors=stat_collectors_f(layout=True)
+    model_stat_collectors=stat_collectors_f(layout=True),
+    agent_stat_keys=['cur_opinion', 'nr_agents', 'op_sum_agents', 'follow_event'],
 )
 
 

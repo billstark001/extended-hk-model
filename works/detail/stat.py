@@ -21,7 +21,7 @@ from scipy.interpolate import interp1d
 from base import Scenario
 
 from utils.stat import area_under_curve
-import works.steepness.simulate as p
+import works.detail.simulate as p
 import utils.plot as _p
 importlib.reload(_p)
 
@@ -108,29 +108,26 @@ if __name__ == '__main__':
 
     params = p.gen_params(r, d, g)
     p.sim_p_standard.model_stat_collectors = p.stat_collectors_f()
-    S = Scenario(p.network_provider, params, p.sim_p_standard)
 
-    scenario_path = os.path.join(scenario_base_path, scenario_name + '.pkl')
+    scenario_path = os.path.join(scenario_base_path, scenario_name + '_record.pkl')
     if not os.path.exists(scenario_path):
       continue
 
     with open(scenario_path, 'rb') as f:
       dump_data = pickle.load(f)
-    S.load(*dump_data)
+    metadata, model_stats, agent_stats = dump_data
 
     # collect stats
 
-    if S.steps not in S.stats:
-      S.add_model_stats()
-
-    S_data_steps, opinion, dn, dr, sum_n, sum_r, n_n, n_r = S.generate_agent_stats_v1()
-    S_stats = S.generate_model_stats()
+    S_data_steps = agent_stats['step']
+    S_stats = model_stats
     S_stat_steps = S_stats['step']
 
     # collect indices
+    
+    n_n = agent_stats['nr_agents'][..., 0] # concordant neighbors
 
-    n_edges = np.array(
-        sorted(list(S.model.graph.out_degree), key=lambda x: x[0]))[:, 1]
+    n_edges = metadata['n_edges']
     h_index = np.mean(n_n / n_edges[np.newaxis, :], axis=1)
     if h_index.shape[0] > 1:
       h_index[0] = h_index[1]
@@ -154,12 +151,13 @@ if __name__ == '__main__':
         np.mean(opinion_last[opinion_last > opinion_last_mean]) - \
         np.mean(opinion_last[opinion_last <= opinion_last_mean])
 
+    total_steps = metadata['total_steps']
     pat_stats = ScenarioPatternRecorder(
         name=scenario_name,
         steepness=s,
         rewiring=r,
         decay=d,
-        step=S.steps,
+        step=total_steps,
         active_step=int(np.sum(g_mask, dtype=int)),
         p_last=p_index[-1],
         h_last=h_index[-1],
@@ -189,7 +187,7 @@ if __name__ == '__main__':
     ax.legend(['homophily', 'segregation', 'polarization', 'general'])
 
     ax.set_title(scenario_name)
-    ax.set_xlabel(f'step (total: {S.steps})')
+    ax.set_xlabel(f'step (total: {total_steps})')
 
     # plot curves
 

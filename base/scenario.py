@@ -40,13 +40,13 @@ class StatCollector(Protocol):
 
 short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
-_sim_data_keys = [
-    'cur_opinion',
-    'n_neighbor', 'n_recommended',
-    'diff_neighbor', 'diff_recommended',
-    'sum_neighbor', 'sum_recommended',
-    'has_follow_event', 'unfollowed', 'followed',
-]
+# _sim_data_keys = [
+#     'cur_opinion',
+#     'n_neighbor', 'n_recommended',
+#     'diff_neighbor', 'diff_recommended',
+#     'sum_neighbor', 'sum_recommended',
+#     'has_follow_event', 'unfollowed', 'followed',
+# ]
 
 
 @dataclasses.dataclass
@@ -56,6 +56,7 @@ class SimulationParams:
   halt_monitor_step: int = 60
 
   agent_stat_interval: int = 1
+  agent_stat_keys: Optional[List[str]] = None
   model_stat_interval: Union[int, Dict[int, int]] = 20
   model_stat_collectors: Dict[str, StatCollector] = dataclasses.field(
       default_factory=dict)
@@ -103,6 +104,8 @@ class Scenario:
     self.env_provider = env_provider
     self.sim_params = sim_params
     self.stat_collectors = self.sim_params.model_stat_collectors
+    self.agent_keys = self.sim_params.agent_stat_keys or []
+    
     self.model_params = model_params
     self.stats = {}
     self.steps = 0
@@ -111,7 +114,7 @@ class Scenario:
 
   def init_data(self, collect=True):
     self.datacollector = DataCollector(
-        agent_reporters=dict((x, x) for x in _sim_data_keys),
+        agent_reporters=dict((x, x) for x in self.agent_keys),
         model_reporters=dict(
             step=lambda _: self.steps
         ))
@@ -125,7 +128,7 @@ class Scenario:
 
   def init(self, *args, **kwargs):
     graph, opinion = self.env_provider.generate(*args, **kwargs)
-    model = HKModel(graph, opinion, self.model_params)
+    model = HKModel(graph, opinion, self.model_params, collect=set(self.agent_keys))
     self.model = model
     self.steps = 0
     self.init_data()
@@ -157,7 +160,8 @@ class Scenario:
       step: int = 0,
   ):
     self.model = HKModel(
-        graph, opinion, self.model_params, dump_data=model_dump)
+        graph, opinion, self.model_params, 
+        collect=set(self.agent_keys), dump_data=model_dump)
     if data is not None:
       self.init_data(collect=False)
       v, r, t, m = data
@@ -242,15 +246,19 @@ class Scenario:
     return ret_dict
 
   def generate_agent_stats(self):
-    data = self.datacollector.get_agent_vars_dataframe().unstack()
     results = {
         'step': self.datacollector.get_model_vars_dataframe()['step'].to_numpy(),
     }
-    for k in _sim_data_keys:
-      results[k] = data[k].to_numpy()
+    if not self.agent_keys:
+      return results
+    
+    data = self.datacollector.get_agent_vars_dataframe().unstack()
+    for k in self.agent_keys:
+      results[k] = np.array(data[k].values.tolist())
     return results
 
   def generate_agent_stats_v1(self):
+    raise Exception('Deprecated')
     results = self.generate_agent_stats()
     return (
         results['step'],
@@ -302,7 +310,7 @@ class Scenario:
     
     metadata = dict(
       total_steps=self.steps,
-      model_params = self.model.p,
+      model_params = self.model.p.to_dict(),
       node_indices = node_indices,
       n_edges = n_edges,
     )
