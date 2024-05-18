@@ -45,7 +45,7 @@ def stat_collectors_f(layout=False):
     ),
   }
   if layout:
-    ret['layout'] = stats.NetworkLayoutCollector(use_last=True)
+    ret['layout'] = stats.NetworkLayoutCollector(return_dict=True)
   return ret
 
 
