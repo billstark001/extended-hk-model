@@ -517,6 +517,7 @@ axfreq.set_ylabel('probability')
 for _ in (axst2, axop2):
   _.set_ylabel('#closed triads')
   _.set_xlabel('gradation index')
+  _.set_ylim(2000, 5500)
 
 plt.tight_layout()
 show_fig('grad_triads_rel')
@@ -553,6 +554,7 @@ axfreq.set_ylabel('probability')
 for _ in (axst2, axop2):
   _.set_ylabel('environment index')
   _.set_xlabel('gradation index')
+  _.set_ylim(0.2, 1)
 
 plt.tight_layout()
 show_fig('grad_env_index_rel')
