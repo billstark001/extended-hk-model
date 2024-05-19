@@ -111,7 +111,7 @@ def get_adj_fw_triads(G: nx.DiGraph, fw=True, triads=True):
     A[np.isinf(A)] = 0
     A2 = A @ A
     A_triads = np.copy(A2)
-    A2[A == 0] = 0
+    A_triads[A == 0] = 0
     n_triads = np.sum(A_triads)
   
   return A_fw, n_triads, A_triads
