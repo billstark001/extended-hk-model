@@ -1,6 +1,4 @@
-from utils.plot import plot_network_snapshot, plt_figure
-from typing import cast, List, Tuple, Any, Optional
-from numpy.typing import NDArray
+from typing import List
 
 import os
 
@@ -12,16 +10,14 @@ import dataclasses
 import numpy as np
 from tqdm import tqdm
 
-import matplotlib.pyplot as plt
 import matplotlib as mpl
-from matplotlib.axes import Axes
 
 from scipy.interpolate import interp1d
 
-from base import Scenario
 
 from utils.stat import area_under_curve
 import works.detail.simulate as p
+from works.gradation.stat import ScenarioPatternRecorder
 import utils.plot as _p
 importlib.reload(_p)
 
@@ -35,35 +31,6 @@ os.makedirs(scenario_base_path, exist_ok=True)
 os.makedirs(plot_path, exist_ok=True)
 
 pat_csv_path = os.path.join(plot_path, 'pattern_stats.json')
-
-do_plot = False
-do_plot_layout = False
-
-
-@dataclasses.dataclass
-class ScenarioPatternRecorder:
-  name: str
-  
-  steepness: float
-  rewiring: float
-  decay: float
-  
-  step: int
-  active_step: int
-
-  p_last: float
-  s_last: float
-  h_last: float
-
-  pat_abs_mean: float
-  pat_abs_std: float
-
-  pat_area_hp: float
-  pat_area_ps: float
-
-  cluster: float
-  triads: float
-  opinion_diff: float
 
 
 active_threshold = 0.98
@@ -95,7 +62,7 @@ if __name__ == '__main__':
       json.dump(pat_stats_set, f, indent=2, ensure_ascii=False)
     unsaved = False
 
-  for scenario_name, s, d, r, g in tqdm(p.params_arr, bar_format=short_progress_bar):
+  for scenario_name, r, d, g in tqdm(p.params_arr, bar_format=short_progress_bar):
 
     if scenario_name in processed_data:
       pat_stats_set.append(processed_data[scenario_name])
@@ -154,7 +121,6 @@ if __name__ == '__main__':
     total_steps = metadata['total_steps']
     pat_stats = ScenarioPatternRecorder(
         name=scenario_name,
-        steepness=s,
         rewiring=r,
         decay=d,
         step=total_steps,
@@ -174,62 +140,6 @@ if __name__ == '__main__':
 
     pat_stats_set.append(dataclasses.asdict(pat_stats))
     save_stats()
-
-    if not do_plot:
-      continue
-    # plot indices
-    fig, (ax, axhp, axps) = cast(Tuple[Any, List[Axes]], plt_figure(n_col=3))
-
-    ax.plot(S_data_steps, h_index, linewidth=1)
-    ax.plot(S_stat_steps, s_index, linewidth=1)
-    ax.plot(S_stat_steps, p_index, linewidth=1)
-    ax.plot(S_stat_steps, g_index, linewidth=1)
-    ax.legend(['homophily', 'segregation', 'polarization', 'general'])
-
-    ax.set_title(scenario_name)
-    ax.set_xlabel(f'step (total: {total_steps})')
-
-    # plot curves
-
-    axhp.plot(p_index_resmpl, h_index)
-    axhp.set_ylabel('homophily')
-    axhp.set_xlabel('polarization')
-    axhp.set_title(pat_stats.pat_area_hp)
-
-    axps.plot(s_index, p_index)
-    axps.set_ylabel('polarization')
-    axps.set_xlabel('segregation')
-    axps.set_title(pat_stats.pat_area_ps)
-
-    plt.savefig(os.path.join(plot_path, scenario_name +
-                '_stats.png'), bbox_inches='tight')
-    plt.close()
-
-    # plot networks
-
-    if not do_plot_layout:
-      continue
-
-    layouts = S_stats['layout']
-
-    _, (r1, r2) = cast(Tuple[Any, List[List[Axes]]],
-                       plt_figure(n_col=4, n_row=2))
-    all_axes = list(r1) + list(r2)
-    all_indices = np.array(np.linspace(
-        0, len(layouts) - 1, len(all_axes)), dtype=int)
-
-    plotted_indices = set()
-    for i_ax, i in enumerate(all_indices):
-      if i in plotted_indices:
-        continue
-      step = S_stat_steps[i]
-      pos, opinion, graph = layouts[i]
-      plot_network_snapshot(pos, opinion, graph, all_axes[i_ax], step)
-      plotted_indices.add(i)
-
-    plt.savefig(os.path.join(plot_path, scenario_name +
-                '_snapshot.png'), bbox_inches='tight')
-    plt.close()
 
     print(scenario_name)
 

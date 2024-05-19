@@ -223,7 +223,7 @@ if __name__ == '__main__':
     
     step_indices = np.array([
       np.argmin(np.abs(S_stat_steps - active_step * k)) \
-        for k in [0, 1/16, 1/8, 1/4, 1/2, 3/4, 1]
+        for k in np.arange(0, 1 + 1/16, 1/16)
     ]) 
     smpl_steps = S_stat_steps[step_indices]
     opinions_smpl = [S_stats['layout-opinion'][x] for x in step_indices]
