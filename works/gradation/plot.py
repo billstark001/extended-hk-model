@@ -571,3 +571,34 @@ numpy_to_latex_table(
 # s_rec_nw_op_mask = np.isfinite(s_rec_nw_op_2)
 # i = 6
 # plt.scatter(g_op[s_rec_nw_op_mask[:, i]], s_rec_nw_op_2[:, i][s_rec_nw_op_mask[:, i]], s=2)
+
+# relation between opinion similarity & network distance
+
+fig, (axfreq, axst3, axop3) = plt_figure(n_col=3, hw_ratio=4/5, total_width=18)
+
+y_op = np.mean(s_rec_op.astype(float), axis=1)
+y_op[np.isnan(y_op)] = 0.5
+scatter_data(axop3, g_op, y_op, c_op, nc_op, d_op, nd_op)
+
+y_st = np.mean(s_rec_st.astype(float), axis=1)
+y_st[np.isnan(y_st)] = 0.5
+scatter_data(axst3, g_st, y_st, c_st, nc_st, d_st, nd_st)
+
+kde_cl_op_ = gaussian_kde(y_op)
+kde_cl_st_ = gaussian_kde(y_st)
+
+metrics = np.arange(-0.1, 1.1, 0.001)
+kde_cl_op = kde_cl_op_(metrics)
+kde_cl_st = kde_cl_st_(metrics)
+
+axfreq.plot(metrics, kde_cl_st, label='structure')
+axfreq.plot(metrics, kde_cl_op, label='opinion')
+axfreq.legend()
+
+for _ in (axst3, axop3):
+  _.set_ylabel('pearson rel.')
+  _.set_xlabel('gradation index')
+  _.set_ylim(-0.1, 1.1)
+
+plt.tight_layout()
+show_fig('grad_op_st_sim_rel_rel')

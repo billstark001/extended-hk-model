@@ -110,7 +110,8 @@ def get_adj_fw_triads(G: nx.DiGraph, fw=True, triads=True):
   if triads:
     A[np.isinf(A)] = 0
     A2 = A @ A
-    A_triads = np.minimum(A, A2)
+    A_triads = np.copy(A2)
+    A2[A == 0] = 0
     n_triads = np.sum(A_triads)
   
   return A_fw, n_triads, A_triads
@@ -285,6 +286,11 @@ if __name__ == '__main__':
       n_rec_mm = np.mean(n_rec_m[step_mask])
       smpl_rec_concordant_n.append(n_rec_mm if np.isfinite(n_rec_mm) else None)
         
+    # in_degree
+    in_degree = [S_stats[x][-1]
+                   for x in ['in-degree-alpha', 'in-degree-p-value', 'in-degree-R']]
+    in_degree = [None if not np.isfinite(x) else x for x in in_degree]
+        
     # create json
 
     total_steps = S_metadata['total_steps']
@@ -309,8 +315,7 @@ if __name__ == '__main__':
         # triads=S_stats['triads'][-1],
         triads2 = n_triads,
         
-        in_degree=[S_stats[x][-1]
-                   for x in ['in-degree-alpha', 'in-degree-p-value', 'in-degree-R']],
+        in_degree=in_degree,
         opinion_diff=opinion_last_diff if np.isfinite(
             opinion_last_diff) else -1,
         
