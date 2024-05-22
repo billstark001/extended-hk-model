@@ -34,6 +34,7 @@ pat_csv_path = os.path.join(plot_path, 'pattern_stats.json')
 
 
 active_threshold = 0.98
+min_inactive_value = 0.75
 
 # utilities
 
