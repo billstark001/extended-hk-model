@@ -320,11 +320,11 @@ for r in pat_files_raw_op, pat_files_raw_st:
       )
   ]
 
-  in_degree_alpha, in_degree_p, in_degree_r = in_degree.T.copy()
+  # in_degree_alpha, in_degree_p, in_degree_r = in_degree.T.copy()
 
-  in_degree_bound = 10
-  in_degree_alpha[in_degree_alpha > in_degree_bound] = in_degree_bound
-  in_degree_alpha[in_degree_r <= 0] = in_degree_bound
+  # in_degree_bound = 10
+  # in_degree_alpha[in_degree_alpha > in_degree_bound] = in_degree_bound
+  # in_degree_alpha[in_degree_r <= 0] = in_degree_bound
 
   # is_consensus
 
