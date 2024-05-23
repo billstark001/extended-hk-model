@@ -320,11 +320,11 @@ for r in pat_files_raw_op, pat_files_raw_st:
       )
   ]
 
-  in_degree_alpha, in_degree_p, in_degree_r = in_degree.T.copy()
+  # in_degree_alpha, in_degree_p, in_degree_r = in_degree.T.copy()
 
-  in_degree_bound = 10
-  in_degree_alpha[in_degree_alpha > in_degree_bound] = in_degree_bound
-  in_degree_alpha[in_degree_r <= 0] = in_degree_bound
+  # in_degree_bound = 10
+  # in_degree_alpha[in_degree_alpha > in_degree_bound] = in_degree_bound
+  # in_degree_alpha[in_degree_r <= 0] = in_degree_bound
 
   # is_consensus
 
@@ -493,7 +493,7 @@ lw = .5
 kde_cl_op_ = gaussian_kde(tr_op)
 kde_cl_st_ = gaussian_kde(tr_st)
 
-metrics = np.arange(1000, 7000, 10)
+metrics = np.arange(0, 50000, 100)
 kde_cl_op = kde_cl_op_(metrics)
 kde_cl_st = kde_cl_st_(metrics)
 
@@ -517,7 +517,7 @@ axfreq.set_ylabel('probability')
 for _ in (axst2, axop2):
   _.set_ylabel('#closed triads')
   _.set_xlabel('gradation index')
-  _.set_ylim(2000, 5500)
+  # _.set_ylim(2000, 40000)
 
 plt.tight_layout()
 show_fig('grad_triads_rel')
@@ -577,17 +577,17 @@ numpy_to_latex_table(
 fig, (axfreq, axst3, axop3) = plt_figure(n_col=3, hw_ratio=4/5, total_width=18)
 
 y_op = np.mean(s_rec_op.astype(float), axis=1)
-y_op[np.isnan(y_op)] = 0.5
-scatter_data(axop3, g_op, y_op, c_op, nc_op, d_op, nd_op)
+_y_op = np.logical_not(np.isnan(y_op))
+scatter_data(axop3, g_op[_y_op], y_op[_y_op], c_op[_y_op], nc_op[_y_op], d_op[_y_op], nd_op[_y_op])
 
 y_st = np.mean(s_rec_st.astype(float), axis=1)
-y_st[np.isnan(y_st)] = 0.5
-scatter_data(axst3, g_st, y_st, c_st, nc_st, d_st, nd_st)
+_y_st = np.logical_not(np.isnan(y_st))
+scatter_data(axst3, g_st[_y_st], y_st[_y_st], c_st[_y_st], nc_st[_y_st], d_st[_y_st], nd_st[_y_st])
 
 kde_cl_op_ = gaussian_kde(y_op)
 kde_cl_st_ = gaussian_kde(y_st)
 
-metrics = np.arange(-0.1, 1.1, 0.001)
+metrics = np.linspace(-0.1, 1.1, 200)
 kde_cl_op = kde_cl_op_(metrics)
 kde_cl_st = kde_cl_st_(metrics)
 
@@ -602,3 +602,33 @@ for _ in (axst3, axop3):
 
 plt.tight_layout()
 show_fig('grad_op_st_sim_rel_rel')
+
+
+fig, (axfreq, axst4, axop4) = plt_figure(n_col=3, hw_ratio=4/5, total_width=18)
+
+y_op = np.mean(s_rec_nw_op.astype(float)[:, :, 2], axis=1)
+_y_op = np.logical_not(np.isnan(y_op))
+scatter_data(axop4, g_op[_y_op], y_op[_y_op], c_op[_y_op], nc_op[_y_op], d_op[_y_op], nd_op[_y_op])
+
+y_st = np.mean(s_rec_nw_st.astype(float)[:, :, 2], axis=1)
+_y_st = np.logical_not(np.isnan(y_st))
+scatter_data(axst4, g_st[_y_st], y_st[_y_st], c_st[_y_st], nc_st[_y_st], d_st[_y_st], nd_st[_y_st])
+
+kde_cl_op_ = gaussian_kde(y_op[_y_op])
+kde_cl_st_ = gaussian_kde(y_st[_y_st])
+
+metrics = np.linspace(1.6, 2.1, 200)
+kde_cl_op = kde_cl_op_(metrics)
+kde_cl_st = kde_cl_st_(metrics)
+
+axfreq.plot(metrics, kde_cl_st, label='structure')
+axfreq.plot(metrics, kde_cl_op, label='opinion')
+axfreq.legend()
+
+for _ in (axst4, axop4):
+  _.set_ylabel('pearson rel.')
+  _.set_xlabel('gradation index')
+  _.set_ylim(1.65, 2.05)
+
+plt.tight_layout()
+show_fig('grad_op_st_rec_rel_rel')
