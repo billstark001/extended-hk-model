@@ -493,7 +493,7 @@ lw = .5
 kde_cl_op_ = gaussian_kde(tr_op)
 kde_cl_st_ = gaussian_kde(tr_st)
 
-metrics = np.arange(0, 50000, 100)
+metrics = np.linspace(0, 50000, 100)
 kde_cl_op = kde_cl_op_(metrics)
 kde_cl_st = kde_cl_st_(metrics)
 
@@ -530,7 +530,7 @@ fig, (axfreq, axst2, axop2) = plt_figure(n_col=3, hw_ratio=4/5, total_width=18)
 kde_cl_op_ = gaussian_kde(gi_op)
 kde_cl_st_ = gaussian_kde(gi_st)
 
-metrics = np.arange(0.2, 1, 0.001)
+metrics = np.linspace(0.2, 1, 200)
 kde_cl_op = kde_cl_op_(metrics)
 kde_cl_st = kde_cl_st_(metrics)
 
