@@ -187,12 +187,9 @@ def get_in_degree(model_stats):
   in_degree = [None if not np.isfinite(x) else x for x in in_degree]
   return in_degree
 
-
-@c.selector(('smpl_pearson_rel', 'smpl_rec_dis_network', 'smpl_rec_concordant_n'))
-def get_micro_level_stats(
-    model_stats, model_stats_step, active_step,
-    n_recommended, agent_stats_step,
-    event_step, event_agent, event_fo, event_op_fo,
+@c.selector(('step_indices', 'smpl_steps', 'opinions_smpl', 'graphs_smpl'))
+def get_smpl_slices(
+  model_stats_step, active_step, model_stats
 ):
   step_indices = np.array([
       np.argmin(np.abs(model_stats_step - active_step * k))
@@ -201,6 +198,14 @@ def get_micro_level_stats(
   smpl_steps = model_stats_step[step_indices]
   opinions_smpl = [model_stats['layout-opinion'][x] for x in step_indices]
   graphs_smpl = [model_stats['layout-graph'][x] for x in step_indices]
+  return step_indices, smpl_steps, opinions_smpl, graphs_smpl
+
+@c.selector(('smpl_pearson_rel', 'smpl_rec_dis_network', 'smpl_rec_concordant_n'))
+def get_micro_level_stats(
+    smpl_steps, opinions_smpl, graphs_smpl,
+    n_recommended, agent_stats_step,
+    event_step, event_agent, event_fo, event_op_fo,
+):
   opinion_diff_smpl = [
       np.abs(x.reshape((1, -1)) - x.reshape((-1, 1))) for x in opinions_smpl]
   graph_dis_smpl_ = [get_adj_fw_triads(x, triads=False) for x in graphs_smpl]

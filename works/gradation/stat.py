@@ -1,4 +1,4 @@
-from works.stat import c
+
 from typing import List, Any, Dict
 
 import os
@@ -14,8 +14,8 @@ import matplotlib as mpl
 
 from utils.stat import compress_array_to_b64
 import works.gradation.simulate as p
-import utils.plot as _p
-importlib.reload(_p)
+
+from works.stat import c
 
 
 # parameters
@@ -26,10 +26,8 @@ plot_path = './fig2'
 os.makedirs(scenario_base_path, exist_ok=True)
 os.makedirs(plot_path, exist_ok=True)
 
-pat_csv_path = os.path.join(plot_path, 'pattern_stats.json')
+pat_stats_path = os.path.join(plot_path, 'pattern_stats.json')
 
-do_plot = False
-do_plot_layout = False
 
 _b = compress_array_to_b64
 dummy_comp_arr = _b(np.zeros((0,), dtype=int))
@@ -55,8 +53,8 @@ if __name__ == '__main__':
   pat_stats_set: List[Dict[str, Any]] = []
   processed_data = {}
 
-  if os.path.exists(pat_csv_path):
-    with open(pat_csv_path, 'r', encoding='utf8') as fp:
+  if os.path.exists(pat_stats_path):
+    with open(pat_stats_path, 'r', encoding='utf8') as fp:
       lst = json.load(fp)
       for d in lst:
         processed_data[d['name']] = d
@@ -65,7 +63,7 @@ if __name__ == '__main__':
 
   def save_stats():
     global unsaved
-    with open(pat_csv_path, 'w', encoding='utf8') as f:
+    with open(pat_stats_path, 'w', encoding='utf8') as f:
       json.dump(pat_stats_set, f, indent=2, ensure_ascii=False)
     unsaved = False
 
