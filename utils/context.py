@@ -17,6 +17,9 @@ class Context:
     for key, value in state.items():
       self.state[key] = value
     self.cache = {}
+    
+  def clear_cache(self):
+    self.cache = {}
 
   def add_selector(
       self,

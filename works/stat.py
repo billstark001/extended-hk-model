@@ -18,11 +18,6 @@ c.set_state(
     min_inactive_value=0.75,
 )
 
-
-_b = compress_array_to_b64
-dummy_comp_arr = _b(np.zeros((0,), dtype=int))
-
-
 # from nx.floyd_warshall_numpy
 def floyd_warshall_weight_matrix(A: NDArray):
   n, m = A.shape
