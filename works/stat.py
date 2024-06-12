@@ -118,6 +118,7 @@ def get_total_steps(model_metadata):
 @c.selector(('h_index', 's_index', 'p_index', 'g_index'))
 def get_indices(n_neighbor, model_stats, model_metadata):
   n_edges = model_metadata['n_edges']
+  # TODO NaN encountered
   h_index = np.mean(n_neighbor / n_edges[np.newaxis, :], axis=1)
   if h_index.shape[0] > 1:
     h_index[0] = h_index[1]

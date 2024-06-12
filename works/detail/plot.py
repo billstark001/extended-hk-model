@@ -40,3 +40,15 @@ pdf_XY = np.reshape(kde_XY(np.vstack([X_grid.ravel(), Y_grid.ravel()])), X_grid.
 
 mutual_info = np.sum(pdf_XY * np.log(pdf_XY / (pdf_X[:, None] * pdf_Y[None, :])))
 mutual_info
+
+
+keys = ['grad_index', 'event_count', 'event_step_mean', 'active_step']
+mats = []
+for k in keys:
+  vals = [x[k] for x in pat_stats_set]
+  vals = np.array(vals).reshape((-1, 14))
+  vals_op = vals[:, ::2]
+  vals_st = vals[:, 1::2]
+  mats.append((vals_op, vals_st))
+  
+(giop, gist), (ecop, ecst), (esmop, esmst), (asop, asst) = mats

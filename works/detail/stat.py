@@ -91,8 +91,15 @@ if __name__ == '__main__':
         model_stats=S_stats,
         agent_stats=S_agent_stats,
     )
+    
+    
+    # expr
+    
+    
+    # save
 
     opinion_last_diff = c.opinion_last_diff
+    event_step_mean = np.mean(c.event_step)
     pat_stats = dict(
         name=scenario_name,
         step=c.total_steps,
@@ -105,16 +112,13 @@ if __name__ == '__main__':
         h_last=c.h_index[-1],
         s_last=c.s_index[-1],
 
-        pat_area_hp=c.gradation_index_hp,
-
-        triads2=c.n_triads,
+        grad_index=c.gradation_index_hp,
+        event_count = c.event_step.size,
+        event_step_mean = event_step_mean,
+        triads=c.n_triads,
         
         opinion_diff=opinion_last_diff if np.isfinite(
             opinion_last_diff) else -1,
-
-        smpl_pearson_rel=c.smpl_pearson_rel,
-        smpl_rec_dis_network=c.smpl_rec_dis_network,
-        smpl_rec_concordant_n=c.smpl_rec_concordant_n,
     )
 
     pat_stats_set.append(pat_stats)
