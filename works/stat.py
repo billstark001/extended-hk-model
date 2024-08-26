@@ -1,7 +1,8 @@
+from typing import List
 from numpy.typing import NDArray
 
 import numpy as np
-from scipy.stats import pearsonr
+from scipy.stats import pearsonr, skew, kurtosis
 import networkx as nx
 
 from scipy.interpolate import interp1d
@@ -19,6 +20,8 @@ c.set_state(
 )
 
 # from nx.floyd_warshall_numpy
+
+
 def floyd_warshall_weight_matrix(A: NDArray):
   n, m = A.shape
   np.fill_diagonal(A, 0)  # diagonal elements should be zero
@@ -28,39 +31,83 @@ def floyd_warshall_weight_matrix(A: NDArray):
   return A
 
 
-def get_adj_fw_triads(G: nx.DiGraph, fw=True, triads=True):
-  A = nx.to_numpy_array(G, multigraph_weight=min, nonedge=np.inf)
+def get_fw_stats(A_in: NDArray):
+  # A_in: adjacency boolean array (nonedge = 0)
+  A = np.copy(A_in).astype(float)
+  A[A > 1] = 1
+  A[A == 0] = np.inf
   A_graph = np.minimum(A, A.T)
+  A_fw = floyd_warshall_weight_matrix(A_graph)
+  return A_fw
 
-  # floyd_warshall
-  A_fw = floyd_warshall_weight_matrix(A_graph) if fw else A
 
-  n_triads = 0
-  A_triads = A
-  if triads:
-    A[np.isinf(A)] = 0
-    A2 = A @ A
-    A_triads = np.copy(A2)
-    A_triads[A == 0] = 0
-    n_triads = np.sum(A_triads)
+def get_triads_stats(A: NDArray):
+  # A: adjacency boolean array (nonedge = 0)
+  A2 = A @ A
+  A_triads = np.copy(A2)
+  A_triads[A == 0] = 0
+  n_triads = np.sum(A_triads)
 
-  return A_fw, n_triads, A_triads
+  return n_triads, A_triads
 
+
+def get_opinion_diff_vars(adj_mat: NDArray, opinion: NDArray):
+  out_deg = np.sum(adj_mat, axis=1).reshape(-1, 1)
+  o = opinion.reshape(-1, 1)
+  o_adj_sum = adj_mat @ o
+  o_cur_sum = out_deg * o
+
+  var_term_1_sum = o_adj_sum ** 2 + o_cur_sum ** 2 - 2 * o_adj_sum * o_cur_sum
+  var_term_2_sum = o_adj_sum - o_cur_sum
+
+  var = var_term_1_sum / out_deg - (var_term_2_sum / out_deg) ** 2
+
+  return var.flatten()
+
+# bimodality coefficient
+
+def bimodality_coefficient(data: NDArray):
+  """
+  Calculate the Bimodality Coefficient (BC) for a given dataset.
+  
+  Parameters:
+  data (numpy.array): Input data
+  
+  Returns:
+  float: Bimodality Coefficient
+  """
+  n = data.size
+  m3 = skew(data, bias=False)
+  m4 = kurtosis(data, bias=False)
+  numerator = m3 ** 2 + 1
+  denominator = m4 + 3 * ((n-1)**2) / ((n-2)*(n-3))
+  
+  bc = numerator / denominator
+  return bc
+
+def get_bc_hom(G: nx.DiGraph, opinion: NDArray):
+  edges = np.array(G.edges())
+  paired_opinion = opinion[edges]
+  rotated_opinion = np.sum(paired_opinion, axis=1) / 2
+  return bimodality_coefficient(rotated_opinion)
+  
+
+# selectors
 
 @c.selector
 def get_agent_stats_step(agent_stats):
   return np.array(agent_stats['step'], dtype=int)
 
 
-@c.selector(('n_neighbor', 'n_recommended', 'n_agents'))
+@c.selector  # (('n_neighbor', 'n_recommended', 'n_agents'))
 def parse_numbers(agent_stats):
   nr_agents = agent_stats['nr_agents']
 
-  n_n = nr_agents[..., 0]
-  n_rec = nr_agents[..., 1]
-  n_agents = n_n.shape[1]
+  n_neighbor = nr_agents[..., 0]
+  n_recommended = nr_agents[..., 1]
+  n_agents = n_neighbor.shape[1]
 
-  return n_n, n_rec, n_agents
+  return n_neighbor, n_recommended, n_agents
 
 
 @c.selector
@@ -68,11 +115,7 @@ def get_opinion(agent_stats):
   return agent_stats['cur_opinion']
 
 
-@c.selector((
-    'event_step', 'event_step_based_on', 'event_agent',
-    'event_unfo', 'event_fo',
-    'event_op_cur', 'event_op_unfo', 'event_op_fo'
-))
+@c.selector
 def parse_events(
     agent_stats, agent_stats_step,
     n_agents
@@ -115,7 +158,7 @@ def get_total_steps(model_metadata):
   return model_metadata['total_steps']
 
 
-@c.selector(('h_index', 's_index', 'p_index', 'g_index'))
+@c.selector
 def get_indices(n_neighbor, model_stats, model_metadata):
   n_edges = model_metadata['n_edges']
   # TODO NaN encountered
@@ -129,8 +172,11 @@ def get_indices(n_neighbor, model_stats, model_metadata):
   return h_index, s_index, p_index, g_index
 
 
-@c.selector(('s_index_resmpl', 'p_index_resmpl', 'g_index_resmpl'))
-def get_indices_resmpl(model_stats_step, agent_stats_step, s_index, p_index, g_index):
+@c.selector
+def get_indices_resmpl(
+    model_stats_step, agent_stats_step,
+    s_index, p_index, g_index
+):
   s_index_resmpl = interp1d(model_stats_step, s_index,
                             kind='linear')(agent_stats_step)
   p_index_resmpl = interp1d(model_stats_step, p_index,
@@ -145,7 +191,7 @@ def get_gradation_index_hp(p_index_resmpl, h_index):
   return area_under_curve([p_index_resmpl, h_index])
 
 
-@c.selector(('active_step', 'active_step_threshold', 'g_index_active', 'g_index_mean_active'))
+@c.selector
 def calc_active_step(g_index, g_index_resmpl, active_threshold, min_inactive_value):
   active_step = int(first_more_or_equal_than(
       g_index_resmpl,
@@ -155,15 +201,21 @@ def calc_active_step(g_index, g_index_resmpl, active_threshold, min_inactive_val
   g_index_active = g_index_resmpl[:active_step]
   g_index_mean_active = np.mean(g_index_active)
 
-  return active_step, active_step_threshold, g_index_active, g_index_mean_active
+  return active_step, active_step_threshold, \
+      g_index_active, g_index_mean_active
 
 
 @c.selector
-def get_n_triads(model_stats):
-  _, n_triads, __ = get_adj_fw_triads(
-      model_stats['layout-graph'][-1], fw=False)
+def get_n_triads_and_bc_hom(model_stats):
+  last_graph = model_stats['layout-graph'][-1]
+  last_opinion = model_stats['layout-opinion'][-1]
+  adj_mat = nx.to_numpy_array(last_graph, multigraph_weight=min)
+  n_triads, _ = get_triads_stats(adj_mat)
   n_triads = int(n_triads)
-  return n_triads
+  
+  bc_hom = get_bc_hom(last_graph, last_opinion)
+  
+  return n_triads, bc_hom
 
 
 @c.selector
@@ -171,7 +223,7 @@ def get_gradation_index_pat_diff(h_index, p_index_resmpl, active_step):
   return (h_index - p_index_resmpl)[:active_step]
 
 
-@c.selector(('opinion_last', 'opinion_last_mean', 'opinion_last_diff'))
+@c.selector
 def calc_opinion_last(opinion):
   opinion_last = opinion[-1]
   opinion_last_mean = np.mean(opinion_last)
@@ -188,29 +240,69 @@ def get_in_degree(model_stats):
   in_degree = [None if not np.isfinite(x) else x for x in in_degree]
   return in_degree
 
-@c.selector(('step_indices', 'smpl_steps', 'opinions_smpl', 'graphs_smpl'))
-def get_smpl_slices(
-  model_stats_step, active_step, model_stats
-):
-  step_indices = np.array([
-      np.argmin(np.abs(model_stats_step - active_step * k))
-      for k in np.arange(0, 1 + 1/16, 1/16)
-  ])
-  smpl_steps = model_stats_step[step_indices]
-  opinions_smpl = [model_stats['layout-opinion'][x] for x in step_indices]
-  graphs_smpl = [model_stats['layout-graph'][x] for x in step_indices]
-  return step_indices, smpl_steps, opinions_smpl, graphs_smpl
 
-@c.selector(('smpl_pearson_rel', 'smpl_rec_dis_network', 'smpl_rec_concordant_n'))
+# sample a few steps from the whole time axis to do elaborate analyses
+
+sample_interval = 1 / 16
+
+@c.selector
+def get_smpl_steps(
+    model_stats_step, active_step
+):
+  smpl_indices = np.array([
+      np.argmin(np.abs(model_stats_step - active_step * k))
+      for k in np.arange(0, 1 + sample_interval, sample_interval)
+  ])
+  smpl_steps = model_stats_step[smpl_indices]
+  return smpl_steps, smpl_indices
+
+
+@c.selector
+def get_smpl_slices(
+    smpl_indices, model_stats
+):
+  opinions_smpl = [model_stats['layout-opinion'][x] for x in smpl_indices]
+  graphs_smpl = [model_stats['layout-graph'][x] for x in smpl_indices]
+  return opinions_smpl, graphs_smpl
+
+# get adjacency matrices of the selected graphs
+
+
+@c.selector
+def get_graphs_adj_mat_smpl(graphs_smpl: List[nx.DiGraph]):
+  return [nx.to_numpy_array(G, multigraph_weight=min) for G in graphs_smpl]
+
+# adjacency variances
+
+
+@c.selector
+def get_vars_smpl(
+    graphs_adj_mat_smpl,
+    opinions_smpl,
+):
+  vars_smpl = []
+  for A, o in zip(graphs_adj_mat_smpl, opinions_smpl):
+    vars_smpl.append(get_opinion_diff_vars(A, o))
+    
+  mean_vars_smpl = [np.mean(x) for x in vars_smpl]
+  return vars_smpl, mean_vars_smpl
+
+
+@c.selector
+def get_graph_dis_smpl(
+    graphs_adj_mat_smpl
+):
+  return [get_fw_stats(A) for A in graphs_adj_mat_smpl]
+
+
+@c.selector
 def get_micro_level_stats(
-    smpl_steps, opinions_smpl, graphs_smpl,
+    smpl_steps, opinions_smpl, graph_dis_smpl,
     n_recommended, agent_stats_step,
     event_step, event_agent, event_fo, event_op_fo,
 ):
   opinion_diff_smpl = [
       np.abs(x.reshape((1, -1)) - x.reshape((-1, 1))) for x in opinions_smpl]
-  graph_dis_smpl_ = [get_adj_fw_triads(x, triads=False) for x in graphs_smpl]
-  graph_dis_smpl = [x[0] for x in graph_dis_smpl_]
 
   mask_mat = np.ones((400, 400), dtype=bool)
   mask_mat = np.triu(mask_mat, 1)
@@ -271,6 +363,20 @@ def get_micro_level_stats(
 
 
 G, state_vars, cycles = c.get_dep_graph()
+
+valid_state_vars = {
+    'agent_stats',
+    'model_stats',
+    'model_metadata',
+    'active_threshold',
+    'min_inactive_value'
+}
+
+invalid_state_vars = [x for x in state_vars if x not in valid_state_vars]
+
+if invalid_state_vars:
+  raise ValueError('Invalid state variables detected: ' +
+                   ','.join([str(c) for c in invalid_state_vars]))
 
 if cycles:
   raise ValueError('Cyclic dependencies detected: ' +

@@ -71,11 +71,45 @@ sim_p_standard = SimulationParams(
 )
 
 
-decay_rewiring_segs = 7
+decay_rewiring_segs = 13
 decay_rewiring_groups = (10 ** np.vstack([
-  np.linspace(-1, -2, decay_rewiring_segs),
-  np.linspace(-2, -1, decay_rewiring_segs)
+  np.linspace(-0.5, -2.5, decay_rewiring_segs),
+  np.linspace(-2.5, -0.5, decay_rewiring_segs)
 ])).T
+
+def mix_opinion_structure(m: HKModel, opinion_ratio = 0.5):
+  return Mixed(
+    m,
+    Random(m, 10),
+    Mixed(
+      m,
+      Opinion(m),
+      Structure(m, noise_std=0.2, matrix_init=True),
+      opinion_ratio,
+    ),
+    0.1,
+  )
+  
+def linear_function(x1, y1, x2, y2, x):
+  m = (y2 - y1) / (x2 - x1)
+  b = y1 - m * x1
+  y = m * x + b
+  return y
+  
+def get_mix_op_ratio(
+  decay: float, rewiring: float,
+  low_intercept = 0.2, 
+  high_intercept = 1.2,
+  low_fuse = 1, 
+  high_fuse = 0,
+):
+  bias = np.abs(np.log10(decay / rewiring))
+  if bias < low_intercept:
+    return low_fuse
+  elif bias > high_fuse:
+    return high_fuse
+  return linear_function(low_intercept, low_fuse, high_intercept, high_fuse, bias)
+  
 
 n_gens = [
     # lambda m: Random(m),
@@ -89,10 +123,11 @@ n_gens = [
         Random(m, 10),
         Structure(m, noise_std=0.2, matrix_init=True),
         0.1),
+    None,
 ]
 
 
-n_gen_names = ['op', 'st']
+n_gen_names = ['op', 'st', 'mx']
 
 
 n_sims = 20
@@ -105,6 +140,12 @@ for i_sim in range(n_sims):
   for i_dr, (d, r) in enumerate(decay_rewiring_groups):
     for i_g, g in enumerate(n_gens):
       g_name = n_gen_names[i_g]
+      if g is None:
+        # mixed strategy
+        r = get_mix_op_ratio() # the ratio of opinion-based recsys
+        if r >= 1 or r <= 0: # mitigation is not needed, continue
+          continue
+        g = lambda m: mix_opinion_structure(m, r)
       x = (
           f'scenario_i{len(params_arr)}_dr{i_dr}_{g_name}_sim{i_sim}',
           r,

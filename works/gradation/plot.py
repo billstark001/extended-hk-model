@@ -81,7 +81,7 @@ for f in pat_file_paths:
 
 
 keys = ['name', 'active_step', 'pat_abs_mean',
-        'pat_area_hp', 'p_last', 'g_index_mean_active']
+        'grad_index', 'p_last', 'g_index_mean_active']
 pat_csv_values_ = [[x[key] for key in keys] for x in pat_files_raw]
 pat_csv_values_raw = np.array(pat_csv_values_)
 
@@ -313,7 +313,7 @@ for r in pat_files_raw_op, pat_files_raw_st:
         active_steps, smpl_rel, smpl_rel_dis_nw, smpl_rel_n_cc = [
       np.array([x[k] for x in r]) if not k.startswith('event') else [x[k] for x in r if k in x]
       for k in (
-        'pat_area_hp', 'cluster', 'triads2', 'in_degree', 
+        'grad_index', 'cluster', 'triads', 'in_degree', 
         'opinion_diff', 'p_last', 'g_index_mean_active',
         'event_step', 'event_unfollow', 'event_follow',
         'active_step', 'smpl_pearson_rel', 'smpl_rec_dis_network', 'smpl_rec_concordant_n',

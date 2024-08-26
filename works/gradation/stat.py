@@ -67,7 +67,10 @@ if __name__ == '__main__':
       json.dump(pat_stats_set, f, indent=2, ensure_ascii=False)
     unsaved = False
 
-  for scenario_name, r, d, g in tqdm(p.params_arr, bar_format=short_progress_bar):
+  itr = tqdm(p.params_arr, bar_format=short_progress_bar)
+  for scenario_name, r, d, g in itr:
+    
+    itr.set_postfix_str(scenario_name)
 
     if scenario_name in processed_data:
       pat_stats_set.append(processed_data[scenario_name])
@@ -93,6 +96,10 @@ if __name__ == '__main__':
     )
 
     opinion_last_diff = c.opinion_last_diff
+    event_step_mean = np.mean(c.event_step)
+    
+
+    
     pat_stats = dict(
         name=scenario_name,
         step=c.total_steps,
@@ -105,9 +112,13 @@ if __name__ == '__main__':
         h_last=c.h_index[-1],
         s_last=c.s_index[-1],
 
-        pat_area_hp=c.gradation_index_hp,
-
-        triads2=c.n_triads,
+        grad_index=c.gradation_index_hp,
+        event_count = c.event_step.size,
+        event_step_mean = event_step_mean,
+        triads=c.n_triads,
+        
+        bc_hom=c.bc_hom,
+        mean_vars_smpl=c.mean_vars_smpl,
 
         in_degree=c.in_degree,
         opinion_diff=opinion_last_diff if np.isfinite(
@@ -121,7 +132,6 @@ if __name__ == '__main__':
     pat_stats_set.append(pat_stats)
     save_stats()
 
-    print(scenario_name)
 
   if unsaved:
     save_stats()

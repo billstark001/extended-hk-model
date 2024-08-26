@@ -4,6 +4,8 @@ from typing import Callable, Dict, Any, List, Optional, Union, Tuple
 
 import networkx as nx
 
+from utils.ast import analyze_last_return
+
 
 class Context:
   def __init__(self, ignore_prefix: Optional[str] = None) -> None:
@@ -102,13 +104,19 @@ class Context:
       input_vars = [name for name, param in params.items()
                     if param.kind in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.KEYWORD_ONLY)]
 
+      # auto parse return name if not assigned
+      output_var = return_name
+      if output_var is None:
+        output_var = analyze_last_return(func)
+        if output_var is None:
+          output_var = func.__name__
+          
       # ensure it is a string tuple with length more than 2 or a string
-      output_var = return_name if return_name else func.__name__
       if isinstance(output_var, list):
         output_var = tuple(output_var)
       if isinstance(output_var, tuple) and len(output_var) == 1:
         output_var = output_var[0]
-
+    
       # ignore_prefix
       if self.ignore_prefix and isinstance(output_var, str) and output_var.startswith(self.ignore_prefix):
         output_var = output_var[len(self.ignore_prefix):]
@@ -122,7 +130,7 @@ class Context:
     # for usage `@context.selector`
     if callable(return_name):
       f = return_name
-      return_name = f.__name__
+      return_name = None
       return decorator(f)
 
     # for usage `@context.selector()`
