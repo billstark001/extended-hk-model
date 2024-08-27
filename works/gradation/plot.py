@@ -98,19 +98,27 @@ vals_non_0d = { k: [v[k] for v in pat_files_raw]\
 
 # plot gradation index graph
 
+# y = vals_0d['event_step_mean'] / vals_0d['active_step']
+# y[y > 0.6] = 0.6
+# y = np.mean(vals_non_0d['mean_vars_smpl'], axis=1)
+# plt.scatter((vals_0d['grad_index'] ** 3)[::2], y[::2], s=1, label='op')
+# plt.scatter((vals_0d['grad_index'] ** 3)[1::2], y[1::2], s=1, label='st')
+
+vals_0d['mean_vars_smpl'] = np.mean(vals_non_0d['mean_vars_smpl'], axis=1)
+
 pat_csv_values_ = [vals_0d[k].to_numpy(dtype=float) for k in \
-  ['active_step', 'grad_index', 'p_last', 'g_index_mean_active']]
+  ['active_step', 'grad_index', 'p_last', 'g_index_mean_active', 'mean_vars_smpl']]
 pat_csv_values_raw = np.array(pat_csv_values_)
 
-pat_csv_values = pat_csv_values_raw.T.reshape((
-    4,
+pat_csv_values = pat_csv_values_raw.reshape((
+    5,
     -1,
     p.rewiring_rate_array.shape[0],
     p.decay_rate_array.shape[0],
     len(p.n_gens),
 ))
 # axes: (#sim, rewiring, decay, recsys)
-active_steps, areas_hp, hs_last, g_index_mean_active = pat_csv_values
+active_steps, areas_hp, hs_last, g_index_mean_active, mean_vars = pat_csv_values
 
 # in the following operations, average data is calculated through all simulations
 
@@ -187,17 +195,25 @@ show_fig('grad_stat_heatmap')
 
 # active index
 
+mean_vars_avg = np.mean(mean_vars, axis=0)
+mean_vars_op = mean_vars_avg[..., 0]
+mean_vars_st = mean_vars_avg[..., 1]
+
 
 fig, (ax1, ax2, ax3) = plt_figure(n_col=3, hw_ratio=1, total_width=12)
 
 cmap_arr5, cmap_setter5 = get_colormap(
-    [ax3], cmap='RdBu', fig=fig, vmin=-1, vmax=1, anchor='W', seg=9)
+    [ax3], cmap='RdBu', fig=fig, vmin=-0.05, vmax=0.05, anchor='W', seg=9)
 cmap_arr4, cmap_setter4 = get_colormap(
-    [ax1, ax2], cmap='YlGnBu', vmin=1.5, vmax=4.5, seg=7, fig=fig, anchor='W')
+    [ax1, ax2], cmap='YlGnBu', vmin=0, vmax=0.1, seg=7, fig=fig, anchor='W')
+# cmap_arr5, cmap_setter5 = get_colormap(
+#     [ax3], cmap='RdBu', fig=fig, vmin=-1, vmax=1, anchor='W', seg=9)
+# cmap_arr4, cmap_setter4 = get_colormap(
+#     [ax1, ax2], cmap='YlGnBu', vmin=1.5, vmax=4.5, seg=7, fig=fig, anchor='W')
 
-ax1.imshow(m_active_step_st, **cmap_arr4)
-ax2.imshow(m_active_step_op, **cmap_arr4)
-ax3.imshow(m_active_step_op - m_active_step_st, **cmap_arr5)
+ax1.imshow(mean_vars_st, **cmap_arr4)
+ax2.imshow(mean_vars_op, **cmap_arr4)
+ax3.imshow(mean_vars_op - mean_vars_st, **cmap_arr5)
 
 fig.tight_layout()
 
@@ -226,7 +242,9 @@ ax1.set_ylabel('rewiring')
 cmap_setter4()
 cmap_setter5()
 
-show_fig('active_step_heatmap')
+show_fig('mean_vars_heatmap')
+
+assert False
 
 # gradation stats scatter plot
 

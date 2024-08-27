@@ -19,6 +19,7 @@ from recsys import Random, Opinion, Structure, Mixed
 import stats
 
 
+from utils.file import find_and_rename
 from utils.stat import get_logger
 
 
@@ -106,7 +107,7 @@ def get_mix_op_ratio(
   bias = np.abs(np.log10(decay / rewiring))
   if bias < low_intercept:
     return low_fuse
-  elif bias > high_fuse:
+  elif bias > high_intercept:
     return high_fuse
   return linear_function(low_intercept, low_fuse, high_intercept, high_fuse, bias)
   
@@ -142,18 +143,23 @@ for i_sim in range(n_sims):
       g_name = n_gen_names[i_g]
       if g is None:
         # mixed strategy
-        r = get_mix_op_ratio(d, r) # the ratio of opinion-based recsys
-        if r >= 1 or r <= 0: # mitigation is not needed, continue
+        r2 = get_mix_op_ratio(d, r) # the ratio of opinion-based recsys
+        if r2 >= 1 or r2 <= 0: # mitigation is not needed, continue
           continue
-        g = lambda m: mix_opinion_structure(m, r)
+        g = lambda m: mix_opinion_structure(m, r2)
       x = (
-          f'scenario_i{len(params_arr)}_dr{i_dr}_{g_name}_sim{i_sim}',
+          f'scenario_i{len(params_arr):04}_dr{i_dr}_{g_name}_sim{i_sim}',
           r,
           d,
           g,
       )
       params_arr.append(x)
 
+RENAME = False
+if RENAME:
+  for name, *_ in params_arr:
+    suffix = name[len('scenario_i0000_'):] + '_record.pkl'
+    find_and_rename(BASE_PATH, suffix, name + '_record.pkl')
 
 def gen_params(r: float, d: float, g: float):
   return HKModelParams(
