@@ -2,8 +2,10 @@ from typing import cast, List, Iterable, Union
 from numpy.typing import NDArray
 
 import os
+import math
 
 import json
+import pandas as pd
 import importlib
 
 import numpy as np
@@ -79,26 +81,40 @@ for f in pat_file_paths:
     used_len = total_len - total_len % full_sim_len
     pat_files_raw += pat_files_[:used_len]
 
+pat_file_seed: dict = pat_files_raw[0] if pat_files_raw else {}
 
-keys = ['name', 'active_step', 'pat_abs_mean',
-        'grad_index', 'p_last', 'g_index_mean_active']
-pat_csv_values_ = [[x[key] for key in keys] for x in pat_files_raw]
+# partition keys into 2 groups
+keys_0d = []
+keys_non_0d = []
+for (k, v) in pat_file_seed.items():
+  if isinstance(v, (int, float, complex, str)) or v is None:
+    keys_0d.append(k)
+  else:
+    keys_non_0d.append(k)
+    
+vals_0d = pd.DataFrame([[x[key] for key in keys_0d] for x in pat_files_raw], columns=keys_0d)
+vals_non_0d = { k: [v[k] for v in pat_files_raw]\
+  for k in keys_non_0d }
+
+# plot gradation index graph
+
+pat_csv_values_ = [vals_0d[k].to_numpy(dtype=float) for k in \
+  ['active_step', 'grad_index', 'p_last', 'g_index_mean_active']]
 pat_csv_values_raw = np.array(pat_csv_values_)
 
 pat_csv_values = pat_csv_values_raw.T.reshape((
-    len(keys),
+    4,
     -1,
     p.rewiring_rate_array.shape[0],
     p.decay_rate_array.shape[0],
     len(p.n_gens),
 ))
 # axes: (#sim, rewiring, decay, recsys)
-names, active_steps, abs_hp, areas_hp, hs_last, g_index_mean_active = pat_csv_values
+active_steps, areas_hp, hs_last, g_index_mean_active = pat_csv_values
 
 # in the following operations, average data is calculated through all simulations
 
 m_active_step = np.mean(active_steps, axis=0, dtype=float)
-m_pattern_1_abs = np.mean(abs_hp, axis=0, dtype=float)
 m_pattern_1_areas = np.mean(areas_hp, axis=0, dtype=float)
 
 consensus_threshold = 0.6
@@ -106,16 +122,9 @@ m_hs_last = np.mean(hs_last, axis=0, dtype=float)
 m_is_consensus = np.mean(hs_last.astype(
     float) < consensus_threshold, axis=0, dtype=float)
 
-# m_pattern_1_op = means[..., 0, :].astype(float)
-# m_pattern_1_st = means[..., 1, :].astype(float)
-# m_hs_last_op = hs_last[..., 0, :].astype(float)
-# m_hs_last_st = hs_last[..., 1, :].astype(float)
-
 m_active_step_op = np.log10(m_active_step[..., 0])
 m_active_step_st = np.log10(m_active_step[..., 1])
 
-m_pattern_1_op = m_pattern_1_abs[..., 0]
-m_pattern_1_st = m_pattern_1_abs[..., 1]
 m_pattern_1_a_op = m_pattern_1_areas[..., 0]
 m_pattern_1_a_st = m_pattern_1_areas[..., 1]
 m_hs_last_op = m_hs_last[..., 0]
@@ -133,7 +142,7 @@ rd_rate_mat = np.log10(rewiring_mat) - np.log10(decay_mat)
 rd_rate_vec, pat1_st_vec, pat1_op_vec = np.array(
     [rd_rate_mat, m_pattern_1_a_st, m_pattern_1_a_op]).reshape((3, -1))
 
-# figure 1
+# figure 1: gradation stats
 
 fig, (ax1, ax2, ax3) = plt_figure(n_col=3, hw_ratio=1, total_width=12)
 
@@ -219,7 +228,7 @@ cmap_setter5()
 
 show_fig('active_step_heatmap')
 
-# ???
+# gradation stats scatter plot
 
 
 fig, ax1 = plt_figure(total_width=5)
@@ -307,13 +316,13 @@ event_cache = []
 
 for r in pat_files_raw_op, pat_files_raw_st:
 
-  gradation, cluster, triads, in_degree, \
+  gradation, triads, in_degree, \
     d_opinion, p_last, g_index_mean_by_rec_active, \
       event_step_, event_unfollow_, event_follow_, \
         active_steps, smpl_rel, smpl_rel_dis_nw, smpl_rel_n_cc = [
       np.array([x[k] for x in r]) if not k.startswith('event') else [x[k] for x in r if k in x]
       for k in (
-        'grad_index', 'cluster', 'triads', 'in_degree', 
+        'grad_index', 'triads', 'in_degree', 
         'opinion_diff', 'p_last', 'g_index_mean_active',
         'event_step', 'event_unfollow', 'event_follow',
         'active_step', 'smpl_pearson_rel', 'smpl_rec_dis_network', 'smpl_rec_concordant_n',
@@ -469,16 +478,21 @@ def scatter_data(
   if legend:
     ax.legend(bbox_to_anchor=(1.05, 1))
 
-  points1, mean1, var1 = adaptive_moving_stats(x[nc], y[nc], h0)
-  points2, mean2, var2 = adaptive_moving_stats(x[c], y[c], h0)
-  std1 = var1 ** 0.5
-  std2 = var2 ** 0.5
-  ax.plot(points1, mean1, lw=1, color='tab:gray')
-  ax.plot(points2, mean2, lw=1, color='tab:gray')
-  ax.fill_between(points1, mean1 - std1, mean1 +
-                  std1, color='tab:gray', alpha=0.1)
-  ax.fill_between(points2, mean2 - std2, mean2 +
-                  std2, color='tab:gray', alpha=0.1)
+  points1 = mean1 = var1 = points2 = mean2 = var2 = None
+  if x[nc].size:
+    points1, mean1, var1 = adaptive_moving_stats(x[nc], y[nc], h0)
+  if x[c].size:
+    points2, mean2, var2 = adaptive_moving_stats(x[c], y[c], h0)
+  if var1 is not None:
+    std1 = var1 ** 0.5
+    ax.plot(points1, mean1, lw=1, color='tab:gray')
+    ax.fill_between(points1, mean1 - std1, mean1 +
+                    std1, color='tab:gray', alpha=0.1)
+  if var2 is not None:
+    std2 = var2 ** 0.5
+    ax.plot(points2, mean2, lw=1, color='tab:gray')
+    ax.fill_between(points2, mean2 - std2, mean2 +
+                    std2, color='tab:gray', alpha=0.1)
 
   return np.array([[np.mean(z[_i]) for _i in [_1, _2, _3, _4]] for z in [x, y]])
 
@@ -632,3 +646,16 @@ for _ in (axst4, axop4):
 
 plt.tight_layout()
 show_fig('grad_op_st_rec_rel_rel')
+
+# event freq and time quant
+
+keys = ['grad_index', 'event_count', 'event_step_mean', 'active_step']
+mats = []
+for k in keys:
+  vals = [x[k] for x in pat_stats_set]
+  vals = np.array(vals).reshape((-1, 14))
+  vals_op = vals[:, ::2]
+  vals_st = vals[:, 1::2]
+  mats.append((vals_op, vals_st))
+  
+(giop, gist), (ecop, ecst), (esmop, esmst), (asop, asst) = mats

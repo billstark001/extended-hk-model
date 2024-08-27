@@ -56,8 +56,11 @@ def get_opinion_diff_vars(adj_mat: NDArray, opinion: NDArray):
   o = opinion.reshape(-1, 1)
   o_adj_sum = adj_mat @ o
   o_cur_sum = out_deg * o
+  o2_adj_sum = adj_mat @ (o ** 2)
+  o2_cur_sum = out_deg * (o ** 2)
+  
 
-  var_term_1_sum = o_adj_sum ** 2 + o_cur_sum ** 2 - 2 * o_adj_sum * o_cur_sum
+  var_term_1_sum = o2_adj_sum + o2_cur_sum - 2 * o_adj_sum * o_cur_sum
   var_term_2_sum = o_adj_sum - o_cur_sum
 
   var = var_term_1_sum / out_deg - (var_term_2_sum / out_deg) ** 2

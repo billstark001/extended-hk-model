@@ -142,7 +142,7 @@ for i_sim in range(n_sims):
       g_name = n_gen_names[i_g]
       if g is None:
         # mixed strategy
-        r = get_mix_op_ratio() # the ratio of opinion-based recsys
+        r = get_mix_op_ratio(d, r) # the ratio of opinion-based recsys
         if r >= 1 or r <= 0: # mitigation is not needed, continue
           continue
         g = lambda m: mix_opinion_structure(m, r)
