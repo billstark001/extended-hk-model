@@ -2,7 +2,7 @@
 from typing import List, Any, Dict
 
 import os
-
+import re
 import json
 import pickle
 import importlib
@@ -13,7 +13,7 @@ from tqdm import tqdm
 import matplotlib as mpl
 
 from utils.stat import compress_array_to_b64
-import works.detail.simulate as p
+import works.mix.simulate as p
 
 from works.stat import c
 
@@ -47,7 +47,27 @@ c.set_state(
     min_inactive_value=0.75
 )
 
-
+def parse_scenario_string(scenario_string: str):
+  
+  match = re.match(
+    r'scenario_i(\d+)_dr(\d+)_(\w+)_sim(\d+)', 
+    scenario_string
+  )
+  
+  if match:
+    i = int(match.group(1))
+    dr = int(match.group(2))
+    word = match.group(3)
+    sim = int(match.group(4))
+    return {
+      'index': i,
+      'params_index': dr,
+      'recsys': word,
+      'sim_count': sim
+    }
+  else:
+    assert False, 'TODO'
+      
 if __name__ == '__main__':
 
   pat_stats_set: List[Dict[str, Any]] = []
@@ -67,8 +87,11 @@ if __name__ == '__main__':
       json.dump(pat_stats_set, f, indent=2, ensure_ascii=False)
     unsaved = False
 
-  for scenario_name, r, d, g in tqdm(p.params_arr, bar_format=short_progress_bar):
-
+  itr = tqdm(p.params_arr, bar_format=short_progress_bar)
+  for scenario_name, r, d, g in itr:
+    
+    itr.set_postfix_str(scenario_name)
+    
     if scenario_name in processed_data:
       pat_stats_set.append(processed_data[scenario_name])
       continue
@@ -103,6 +126,7 @@ if __name__ == '__main__':
     pat_stats = dict(
         name=scenario_name,
         step=c.total_steps,
+        **parse_scenario_string(scenario_name),
 
         active_step=c.active_step,
         active_step_threshold=c.active_step_threshold,
@@ -119,12 +143,13 @@ if __name__ == '__main__':
         
         opinion_diff=opinion_last_diff if np.isfinite(
             opinion_last_diff) else -1,
+        
+        bc_hom_smpl=c.bc_hom_smpl,
+        mean_vars_smpl=c.mean_vars_smpl,
     )
 
     pat_stats_set.append(pat_stats)
     save_stats()
-
-    print(scenario_name)
 
   if unsaved:
     save_stats()

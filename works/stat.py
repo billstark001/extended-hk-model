@@ -208,17 +208,6 @@ def calc_active_step(g_index, g_index_resmpl, active_threshold, min_inactive_val
       g_index_active, g_index_mean_active
 
 
-@c.selector
-def get_n_triads_and_bc_hom(model_stats):
-  last_graph = model_stats['layout-graph'][-1]
-  last_opinion = model_stats['layout-opinion'][-1]
-  adj_mat = nx.to_numpy_array(last_graph, multigraph_weight=min)
-  n_triads, _ = get_triads_stats(adj_mat)
-  n_triads = int(n_triads)
-  
-  bc_hom = get_bc_hom(last_graph, last_opinion)
-  
-  return n_triads, bc_hom
 
 
 @c.selector
@@ -243,6 +232,17 @@ def get_in_degree(model_stats):
   in_degree = [None if not np.isfinite(x) else x for x in in_degree]
   return in_degree
 
+@c.selector
+def get_n_triads_and_bc_hom(model_stats):
+  last_graph = model_stats['layout-graph'][-1]
+  last_opinion = model_stats['layout-opinion'][-1]
+  adj_mat = nx.to_numpy_array(last_graph, multigraph_weight=min)
+  n_triads, _ = get_triads_stats(adj_mat)
+  n_triads = int(n_triads)
+  
+  bc_hom_last = get_bc_hom(last_graph, last_opinion)
+  
+  return n_triads, bc_hom_last
 
 # sample a few steps from the whole time axis to do elaborate analyses
 
@@ -297,6 +297,16 @@ def get_graph_dis_smpl(
 ):
   return [get_fw_stats(A) for A in graphs_adj_mat_smpl]
 
+
+@c.selector
+def get_bc_hom_smpl(opinions_smpl, graphs_smpl):
+  bc_hom_smpl = []
+  for o, g in zip(opinions_smpl, graphs_smpl):
+    bc_hom_last = get_bc_hom(g, o)
+    if np.isnan(bc_hom_last):
+      bc_hom_last = None
+    bc_hom_smpl.append(bc_hom_last)
+  return bc_hom_smpl
 
 @c.selector
 def get_micro_level_stats(

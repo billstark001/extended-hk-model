@@ -15,8 +15,7 @@ import matplotlib as mpl
 
 import seaborn as sns
 
-from base import HKModelParams, Scenario, SimulationParams
-from base.model import HKModel, HKModelRecommendationSystem
+from base import HKModelParams, Scenario, SimulationParams, HKModel, HKModelRecommendationSystem
 from env import RandomNetworkProvider, ScaleFreeNetworkProvider
 from recsys import Random, Opinion, Structure, Mixed
 import stats

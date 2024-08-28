@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 
 from scipy.stats import gaussian_kde
 
+from utils.file import read_records
+
 # drafts
 
 
@@ -12,6 +14,40 @@ from scipy.stats import gaussian_kde
 # plt.xscale('log')
 # plt.grid(True)
 # plt.show()
+
+vals_0d, vals_non_0d = read_records(['./fig3/pattern_stats.json'])
+
+vals_0d['bc_hom'] = np.array(vals_non_0d['bc_hom_smpl']).mean(axis=1)
+vals_0d['mean_vars'] = np.array(vals_non_0d['mean_vars_smpl']).mean(axis=1)
+
+consensus_threshold = 0.6
+c_mask = vals_0d['p_last'] < consensus_threshold
+nc_mask = np.logical_not(c_mask)
+
+# group - mix
+
+pi_opst = np.arange(13)
+pi_mx = np.array([3, 4, 5, 7, 8, 9])
+
+for grp, recsys in (
+  (vals_0d[vals_0d['recsys'] == r], r)
+  for r in ['op', 'st', 'mx']
+):
+  pi = pi_mx if recsys == 'mx' else pi_opst
+  res_raw = []
+  for p in pi:
+    data = grp[grp['params_index'] == p]
+    data_c = data[data['p_last'] < consensus_threshold]
+    mean = np.mean(data_c['grad_index'])
+    std = np.std(data_c['grad_index'])
+    res_raw.append((p, mean, std))
+  res = np.array(res_raw).T
+  
+  plt.plot(res[0], res[1], label=recsys, lw=1)
+plt.legend()
+plt.show()
+
+assert False
 
 data_ = [x for x in data[::9] if x['p_last'] >= 0.6]
 data_x = [x['steepness']for x in data_]

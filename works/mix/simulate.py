@@ -12,8 +12,7 @@ import matplotlib as mpl
 
 import seaborn as sns
 
-from base import HKModelParams, Scenario, SimulationParams
-from base.model import HKModel, HKModelRecommendationSystem
+from base import HKModelParams, Scenario, SimulationParams, HKModel, HKModelRecommendationSystem
 from env import RandomNetworkProvider, ScaleFreeNetworkProvider
 from recsys import Random, Opinion, Structure, Mixed
 import stats
@@ -101,8 +100,8 @@ def get_mix_op_ratio(
   decay: float, rewiring: float,
   low_intercept = 0.2, 
   high_intercept = 1.2,
-  low_fuse = 1, 
-  high_fuse = 0,
+  low_fuse = 0, 
+  high_fuse = 1,
 ):
   bias = np.abs(np.log10(decay / rewiring))
   if bias < low_intercept:

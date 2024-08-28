@@ -22,6 +22,7 @@ from scipy.stats import gaussian_kde
 
 from base import Scenario
 
+from utils.file import read_records
 from utils.stat import adaptive_moving_stats, decompress_b64_to_array
 from utils.plot import numpy_to_latex_table, plt_figure, get_colormap
 
@@ -71,30 +72,8 @@ def show_fig(name: str = 'test'):
 full_sim_len = p.rewiring_rate_array.shape[0] * \
     p.decay_rate_array.shape[0] * len(p.n_gens)
 
-pat_files_raw = []
-for f in pat_file_paths:
-  if not os.path.exists(f):
-    continue
-  with open(f, 'r', encoding='utf8') as fp:
-    pat_files_ = json.load(fp)
-    total_len = len(pat_files_)
-    used_len = total_len - total_len % full_sim_len
-    pat_files_raw += pat_files_[:used_len]
+vals_0d, vals_non_0d = read_records(pat_file_paths, full_sim_len)
 
-pat_file_seed: dict = pat_files_raw[0] if pat_files_raw else {}
-
-# partition keys into 2 groups
-keys_0d = []
-keys_non_0d = []
-for (k, v) in pat_file_seed.items():
-  if isinstance(v, (int, float, complex, str)) or v is None:
-    keys_0d.append(k)
-  else:
-    keys_non_0d.append(k)
-    
-vals_0d = pd.DataFrame([[x[key] for key in keys_0d] for x in pat_files_raw], columns=keys_0d)
-vals_non_0d = { k: [v[k] for v in pat_files_raw]\
-  for k in keys_non_0d }
 
 # plot gradation index graph
 
@@ -244,7 +223,7 @@ cmap_setter5()
 
 show_fig('mean_vars_heatmap')
 
-assert False
+# assert False
 
 # gradation stats scatter plot
 
@@ -670,10 +649,10 @@ show_fig('grad_op_st_rec_rel_rel')
 keys = ['grad_index', 'event_count', 'event_step_mean', 'active_step']
 mats = []
 for k in keys:
-  vals = [x[k] for x in pat_stats_set]
-  vals = np.array(vals).reshape((-1, 14))
-  vals_op = vals[:, ::2]
-  vals_st = vals[:, 1::2]
+  vals = vals_0d[k]
+  vals = np.array(vals).reshape((-1, 8, 8, 2))
+  vals_op = vals[..., ::2]
+  vals_st = vals[..., 1::2]
   mats.append((vals_op, vals_st))
   
 (giop, gist), (ecop, ecst), (esmop, esmst), (asop, asst) = mats

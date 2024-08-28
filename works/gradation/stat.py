@@ -98,9 +98,9 @@ if __name__ == '__main__':
     opinion_last_diff = c.opinion_last_diff
     event_step_mean = np.mean(c.event_step)
 
-    bc_hom = c.bc_hom
-    if np.isnan(bc_hom):
-      bc_hom = None
+    bc_hom_last = c.bc_hom_last
+    if np.isnan(bc_hom_last):
+      bc_hom_last = None
     
     
     pat_stats = dict(
@@ -120,7 +120,7 @@ if __name__ == '__main__':
         event_step_mean = event_step_mean,
         triads=c.n_triads,
         
-        bc_hom=bc_hom,
+        bc_hom_last=bc_hom_last,
         mean_vars_smpl=c.mean_vars_smpl,
 
         in_degree=c.in_degree,
