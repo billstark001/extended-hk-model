@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional, Tuple, Callable, Union, Iterable, Dict, Any, Set
-from numpy.typing import NDArray
+from typing import TYPE_CHECKING, List, Optional, Tuple, TypeAlias
 
 import numpy as np
 from mesa import Agent
 
 if TYPE_CHECKING:
   from base.model import HKModel
-
 
 class HKAgent(Agent):
 

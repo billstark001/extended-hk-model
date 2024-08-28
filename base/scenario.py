@@ -128,7 +128,10 @@ class Scenario:
 
   def init(self, *args, **kwargs):
     graph, opinion = self.env_provider.generate(*args, **kwargs)
-    model = HKModel(graph, opinion, self.model_params, collect=set(self.agent_keys))
+    model = HKModel(
+      graph, opinion, self.model_params, 
+      collect=set(self.agent_keys)
+    )
     self.model = model
     self.steps = 0
     self.init_data()
