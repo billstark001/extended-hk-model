@@ -90,6 +90,11 @@ def mix_opinion_structure(m: HKModel, opinion_ratio = 0.5):
     0.1,
   )
   
+def create_mixer(opinion_ratio = 0.5):
+  def mix(m: HKModel):
+    return mix_opinion_structure(m, opinion_ratio)
+  return mix
+  
 def linear_function(x1, y1, x2, y2, x):
   m = (y2 - y1) / (x2 - x1)
   b = y1 - m * x1
@@ -145,7 +150,7 @@ for i_sim in range(n_sims):
         r2 = get_mix_op_ratio(d, r) # the ratio of opinion-based recsys
         if r2 >= 1 or r2 <= 0: # mitigation is not needed, continue
           continue
-        g = lambda m: mix_opinion_structure(m, r2)
+        g = create_mixer(r2)
       x = (
           f'scenario_i{len(params_arr):04}_dr{i_dr}_{g_name}_sim{i_sim}',
           r,

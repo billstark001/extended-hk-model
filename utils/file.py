@@ -12,7 +12,8 @@ def find_and_rename(folder_path: str, suffix: str, rename: str):
     if filename.endswith(suffix):
       old_path = os.path.join(folder_path, filename)
       new_path = os.path.join(folder_path, rename)
-
+      if old_path == new_path:
+        continue
       try:
         os.rename(old_path, new_path)
         print(f"File renamed from {filename} to {rename}")

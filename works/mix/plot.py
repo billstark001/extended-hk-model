@@ -38,8 +38,9 @@ for grp, recsys in (
   for p in pi:
     data = grp[grp['params_index'] == p]
     data_c = data[data['p_last'] < consensus_threshold]
-    mean = np.mean(data_c['grad_index'])
-    std = np.std(data_c['grad_index'])
+    d = data_c['event_step_mean'] / data_c['active_step']
+    mean = np.mean(d)
+    std = np.std(d)
     res_raw.append((p, mean, std))
   res = np.array(res_raw).T
   
