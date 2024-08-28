@@ -40,6 +40,7 @@ class HKModel(Model):
 
     self.event_logger = event_logger
 
+    self.cur_step = 0
     self.grid = NetworkGrid(self.graph)
     self.schedule = RandomActivation(self)
     for node in self.graph.nodes():
@@ -82,6 +83,7 @@ class HKModel(Model):
     if self.recsys:
       self.recsys.post_step(changed)
 
+    self.cur_step += 1
     return changed_count, changed_opinion_max
 
   def get_recommendation(self, agent: HKAgent, neighbors: Optional[List[HKAgent]] = None) -> List[HKAgent]:
