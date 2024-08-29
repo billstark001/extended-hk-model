@@ -135,7 +135,7 @@ n_gens = [
 n_gen_names = ['op', 'st', 'mx']
 
 
-n_sims = 20
+n_sims = 50
 
 # all parameters
 

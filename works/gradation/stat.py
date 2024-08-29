@@ -121,15 +121,17 @@ if __name__ == '__main__':
         triads=c.n_triads,
         
         bc_hom_last=bc_hom_last,
+        bc_hom_smpl=c.bc_hom_smpl,
         mean_vars_smpl=c.mean_vars_smpl,
-
-        in_degree=c.in_degree,
+        
         opinion_diff=opinion_last_diff if np.isfinite(
             opinion_last_diff) else -1,
 
-        smpl_pearson_rel=c.smpl_pearson_rel,
-        smpl_rec_dis_network=c.smpl_rec_dis_network,
-        smpl_rec_concordant_n=c.smpl_rec_concordant_n,
+        # in_degree=c.in_degree,
+
+        # smpl_pearson_rel=c.smpl_pearson_rel,
+        # smpl_rec_dis_network=c.smpl_rec_dis_network,
+        # smpl_rec_concordant_n=c.smpl_rec_concordant_n,
     )
 
     pat_stats_set.append(pat_stats)
