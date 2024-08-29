@@ -206,7 +206,7 @@ os.makedirs(BASE_PATH, exist_ok=True)
 
 
 def plt_save_and_close(path: str):
-  plt.savefig(path + '.eps', dpi=300, bbox_inches='tight')
+  plt.savefig(path + '.pdf', dpi=300, bbox_inches='tight')
   plt.savefig(path + '.png', dpi=300, bbox_inches='tight')
   return plt.close()
 
