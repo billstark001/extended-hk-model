@@ -1,4 +1,4 @@
-from typing import cast, List, Iterable, Union
+from typing import cast, List, Iterable, Union, Tuple
 from numpy.typing import NDArray
 
 import os
@@ -15,6 +15,8 @@ import seaborn as sns
 
 from scipy.optimize import curve_fit
 from scipy.stats import gaussian_kde
+from scipy import ndimage
+
 
 from utils.file import read_records
 from utils.stat import adaptive_moving_stats
@@ -45,6 +47,39 @@ def plot_line(
   x_line = np.array([min_x, max_x])
   ax.plot(x_line, a * x_line + b)
   return a, b
+
+
+def scale_array(
+    arr: NDArray,
+    range_from: Tuple[float, float],
+    range_to: Tuple[float, float],
+):
+  a, b = range_from
+  c, d = range_to
+  return c + ((d-c) / (b-a)) * (arr-a)
+
+
+def transform_kde(
+        data: NDArray,
+        lower: float | None = None,
+        upper: float | None = None):
+    if lower is None:
+      lower = data.min()
+    if upper is None:
+      upper = data.max()
+
+    scaled_data = scale_array(data, (lower, upper), (-1, 1))
+    transformed_data = np.arctanh(scaled_data)
+    kde = gaussian_kde(transformed_data)
+
+    def density(x):
+        scaled_x = scale_array(x, (lower, upper), (-1, 1))
+        transformed_x = np.arctanh(scaled_x)
+        trsf_density_inv = 1 - np.tanh(scaled_x) ** 2
+        return kde(transformed_x) * np.abs(2 / (upper - lower) *
+                                           (1 / trsf_density_inv))
+
+    return density
 
 
 def draw_adaptive_moving_stats(
@@ -95,57 +130,109 @@ def scatter_data(
 
   return np.array([[np.mean(z[_i]) for _i in [_1, _2, _3, _4]] for z in [x, y]])
 
+
 bool_cmap = LinearSegmentedColormap.from_list("bool", ["tab:red", "tab:blue"])
+density_cmap = LinearSegmentedColormap.from_list("bool", ["white", "gray"])
+
 
 def scatter_heatmap(
     ax: Axes,
     x: NDArray, y: NDArray,
     c: NDArray, nc: NDArray,
     d: NDArray = None, nd: NDArray = None,
-    s=4, lw=.8, h0=.1,
-    res=100, res_contour=20,
+    s=4, lw=.4, h0=.1,
+    res=100, res_contour=15,
     xmin=0.4, xmax=1,
     ymin=None, ymax=None,
+    pat_part=0.8,
     legend=False,
+    scale=True
 ):
   if ymin is None:
     ymin = y.min()
   if ymax is None:
     ymax = y.max()
+
+  xi, yi = np.mgrid[xmin:xmax:res*1j, ymin:ymax:res*1j]
+
+  if scale:
+    y_scaled = scale_array(y, (ymin, ymax), (xmin, xmax))
+    ymin_scaled, ymax_scaled = (xmin, xmax)
+    yi_scaled = scale_array(yi, (ymin, ymax), (xmin, xmax))
+  else:
+    y_scaled = y
+    ymin_scaled, ymax_scaled = (ymin, ymax)
+    yi_scaled = yi
+
   # only consider c & nc
-  xi, yi = np.mgrid[ymin:ymax:res*1j, ymin:ymax:res*1j]
-  positions = np.vstack([xi.ravel(), yi.ravel()])
-  d_c = gaussian_kde([x[c], y[c]])(positions).reshape(xi.shape)
-  d_nc = gaussian_kde([x[nc], y[nc]])(positions).reshape(xi.shape)
-  
+
+  positions = np.vstack([xi.ravel(), yi_scaled.ravel()])
+  d_c = gaussian_kde(np.array([x[c], y_scaled[c]]))(
+      positions).reshape(xi.shape)
+  d_nc = gaussian_kde(np.array([x[nc], y_scaled[nc]]))(
+      positions).reshape(xi.shape)
+
   s1 = np.sum(c)
   s2 = np.sum(nc)
   d_gross = (d_c * s1 + d_nc * s2) / (s1 + s2)
-  d_ratio = d_c / (d_c + d_nc) # 0: nc(polarized), 1: c(consented)
-  
+  d_ratio = d_c / (d_c + d_nc)  # 0: nc(polarized), 1: c(consented)
+
   # create heatmap
   d_draw = bool_cmap(d_ratio.T)
   d_draw[..., 3] = d_gross.T / d_gross.max()
-  
+
+  # find maxima
+  max_filtered = ndimage.maximum_filter(d_gross, size=10)
+  maxima = (d_gross == max_filtered) & (d_gross > np.mean(d_gross))
+  max_coords = np.column_stack(np.where(maxima))
+
   # draw density plot
   density_plot = ax.imshow(
-    d_draw, interpolation='bilinear',
-    aspect='auto',
-    extent=[xmin, xmax, ymin, ymax,], 
-    origin='lower', 
+      d_draw, interpolation='bilinear',
+      aspect='auto',
+      extent=[xmin, xmax, ymin, ymax,],
+      origin='lower',
   )
+
   
-  print([xmin, xmax, ymin, ymax,])
-  # contour = ax.contour(
-  #   xi, yi, d_gross, 
-  #   levels=np.linspace(d_gross.min(), d_gross.max(), res_contour), 
-  #   colors='k', linewidths=0.5, alpha=0.7
-  # )
-  
-  # TODO legend
-  
+
+  contour = ax.contour(
+      xi, yi, d_gross,
+      levels=np.linspace(d_gross.min(), d_gross.max(), res_contour),
+      colors='k', linewidths=lw, alpha=0.7
+  )
+
+  # annotate
+  for coord in max_coords:
+    y, x = coord
+    xc, yc = (xi[y, x], yi[y, x])
+    ax.plot(xc, yc, '+', markersize=10, color='black')
+    ax.annotate(
+        f'({xc:.2f}, {yc:.2f})',
+        (xc, yc),
+        xytext=(-42, -18) if xc < pat_part else (-90, -10),
+        textcoords='offset points',
+    )
+
   return d_c, d_nc
+
+
+def add_colorbar_legend(fig: Figure, density_vmax=1.):
+  fig.subplots_adjust(right=0.85)
+  cbar_ax = fig.add_axes([0.88, 0.1, 0.02, 0.8])
+  # cbar_ax = fig.add_axes([0.93, 0.1, 0.01, 0.8])
   
+  # sm = plt.cm.ScalarMappable(cmap=density_cmap, norm=plt.Normalize(vmin=0, vmax=density_vmax))
+  # sm.set_array([])
+  # cbar_density = plt.colorbar(sm, cax=cbar_ax)
+  # cbar_density.set_label('Density')
+  
+  sm = plt.cm.ScalarMappable(cmap=bool_cmap, norm=plt.Normalize(vmin=0, vmax=100))
+  sm.set_array([])
+  cbar_density = fig.colorbar(sm, cax=cbar_ax)
+  cbar_density.set_label('% consented cases')
+
+
 
 def heatmap_diff(
     fig: Figure,
@@ -189,17 +276,14 @@ def heatmap_diff(
   cmap_setter4()
   cmap_setter5()
 
-import matplotlib.pyplot as plt
-import numpy as np
-
 
 def draw_bar_plot(
-  ax: Axes,
-  labels: List,
-  means: NDArray,
-  std_devs: NDArray,
-  bar_width = 0.5,
-  capsize = 5,
+    ax: Axes,
+    labels: List,
+    means: NDArray,
+    std_devs: NDArray,
+    bar_width=0.5,
+    capsize=5,
 ):
 
   bars = ax.bar(labels, means, bar_width, yerr=std_devs, capsize=capsize)
@@ -208,34 +292,36 @@ def draw_bar_plot(
       height = bar.get_height()
       ax.text(bar.get_x() + bar.get_width()/2., height,
               f'{height:.3f}', ha='center', va='bottom')
-  
+
   return bars
 
+
 cat_labels = [
-  'P;P', 'P;C', 'H;P', 'H;C'
+    'P;P', 'P;C', 'H;P', 'H;C'
 ]
 
+
 def partition_data(
-  grad: NDArray, y: NDArray, consented: NDArray, 
-  threshold = 0.8,
+    grad: NDArray, y: NDArray, consented: NDArray,
+    threshold=0.8,
 ):
   p2_mask = grad < threshold
   p1_mask = grad >= threshold
-  
+
   polarized = np.logical_not(consented)
-  
+
   d_p2_p = y[np.logical_and(p2_mask, polarized)]
   d_p2_c = y[np.logical_and(p2_mask, consented)]
   d_p1_p = y[np.logical_and(p1_mask, polarized)]
   d_p1_c = y[np.logical_and(p1_mask, consented)]
-  
+
   d = [d_p2_p, d_p2_c, d_p1_p, d_p1_c]
   means = np.array([np.mean(dd) for dd in d])
   std_devs = np.array([np.std(dd) for dd in d])
   return means, std_devs
-  
 
-### load data
+
+# load data
 
 # parameters
 plot_path = './fig2'
@@ -483,8 +569,8 @@ fig, (ax1, ax2) = plt_figure(n_col=2, total_width=12)
 scatter_heatmap(
     ax1,
     np.array(vals_grad_index),
-    np.array(vals_0d['event_count'], dtype=float) / 1000,
-    is_consensus, is_not_consensus, # is_near_diag, is_not_near_diag
+    np.array(vals_0d['event_count'], dtype=float),
+    is_consensus, is_not_consensus, is_near_diag, is_not_near_diag
 )
 
 y = np.array(vals_0d['event_step_mean'] / vals_0d['active_step'])
@@ -492,9 +578,10 @@ y[y > 0.6] = 0.6
 scatter_heatmap(
     ax2,
     np.array(vals_grad_index), y,
-    is_consensus, is_not_consensus, # is_near_diag, is_not_near_diag,
+    is_consensus, is_not_consensus, is_near_diag, is_not_near_diag,
     legend=True
 )
+add_colorbar_legend(fig)
 
 for _ in (ax1, ax2):
   _.set_xlabel('gradation index')
@@ -503,9 +590,6 @@ ax2.set_ylabel('time')
 ax1.set_title('(a) total follow event', loc='left')
 ax2.set_title('(b) avg. normalized event time', loc='left')
 
-plt.show()
-assert False
-
 show_fig('scatter_event_count_step')
 
 
@@ -513,27 +597,25 @@ show_fig('scatter_event_count_step')
 # subj. dist.
 
 fig, (ax1, ax2) = plt_figure(n_col=2, total_width=12)
-scatter_data(
+scatter_heatmap(
     ax1,
     np.array(vals_grad_index),
     np.array(vals_0d['bc_hom_smpl']),
     is_consensus, is_not_consensus, is_near_diag, is_not_near_diag
 )
-
-y = np.array(vals_0d['event_step_mean'] / vals_0d['active_step'])
-y[y > 0.6] = 0.6
-scatter_data(
+scatter_heatmap(
     ax2,
     np.array(vals_grad_index),
     np.array(vals_0d['g_index_mean_active']),
     is_consensus, is_not_consensus, is_near_diag, is_not_near_diag,
-    legend=True
+    legend=True,
 )
+add_colorbar_legend(fig)
 
 for _ in (ax1, ax2):
   _.set_xlabel('gradation index')
 ax1.set_ylabel('BC_{hom}')
-ax2.set_ylabel('time')
+ax2.set_ylabel('distance')
 ax1.set_title('(a) bimodality coefficient', loc='left')
 ax2.set_title('(b) avg. subj. opinion distance', loc='left')
 
@@ -571,11 +653,8 @@ axfreq.plot(metrics, kde_cl_st, label='structure')
 axfreq.plot(metrics, kde_cl_op, label='opinion')
 axfreq.legend()
 
-tr_st_stat = scatter_data(axst2, g_st, tr_st, c_st, nc_st, d_st, nd_st)
-tr_op_stat = scatter_data(axop2, g_op, tr_op, c_op,
-                          nc_op, d_op, nd_op, legend=True)
-
-tr_stat_diff = tr_op_stat - tr_st_stat
+scatter_heatmap(axst2, g_st, tr_st, c_st, nc_st, d_st, nd_st)
+scatter_heatmap(axop2, g_op, tr_op, c_op, nc_op, d_op, nd_op, legend=True)
 
 axfreq.set_title('(a) PDF of #C. T.', loc='left')
 axst2.set_title('(b) structure', loc='left')
@@ -589,7 +668,8 @@ for _ in (axst2, axop2):
   _.set_xlabel('gradation index')
   # _.set_ylim(2000, 40000)
 
-plt.tight_layout()
+fig.tight_layout()
+add_colorbar_legend(fig)
 show_fig('scatter_closed_triads')
 
 
@@ -598,11 +678,12 @@ show_fig('scatter_closed_triads')
 fig, (ax_var, ax_scat) = plt_figure(n_col=2, total_width=12)
 
 y = np.array(vals_0d['mean_vars_smpl'])
-scatter_data(
-  ax_scat, vals_grad_index, y,
-  is_consensus, is_not_consensus, is_near_diag, is_not_near_diag,
-  legend=True,
+scatter_heatmap(
+    ax_scat, vals_grad_index, y,
+    is_consensus, is_not_consensus, is_near_diag, is_not_near_diag,
+    legend=True,
 )
+add_colorbar_legend(fig)
 
 d_means, d_std = partition_data(vals_grad_index, y, is_consensus)
 
