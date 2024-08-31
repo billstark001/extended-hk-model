@@ -131,7 +131,7 @@ def scatter_data(
   return np.array([[np.mean(z[_i]) for _i in [_1, _2, _3, _4]] for z in [x, y]])
 
 
-bool_cmap = LinearSegmentedColormap.from_list("bool", ["tab:red", "tab:blue"])
+bool_cmap = LinearSegmentedColormap.from_list("bool", ["tab:red", 'tab:purple', "tab:blue"])
 density_cmap = LinearSegmentedColormap.from_list("bool", ["white", "gray"])
 
 
@@ -175,7 +175,7 @@ def scatter_heatmap(
   s1 = np.sum(c)
   s2 = np.sum(nc)
   d_gross = (d_c * s1 + d_nc * s2) / (s1 + s2)
-  d_ratio = d_c / (d_c + d_nc)  # 0: nc(polarized), 1: c(consented)
+  d_ratio = d_c * (s1 / (s1 + s2)) / d_gross  # 0: nc(polarized), 1: c(consensual)
 
   # create heatmap
   d_draw = bool_cmap(d_ratio.T)
@@ -230,7 +230,7 @@ def add_colorbar_legend(fig: Figure, density_vmax=1.):
   sm = plt.cm.ScalarMappable(cmap=bool_cmap, norm=plt.Normalize(vmin=0, vmax=100))
   sm.set_array([])
   cbar_density = fig.colorbar(sm, cax=cbar_ax)
-  cbar_density.set_label('% consented cases')
+  cbar_density.set_label('% consensual cases')
 
 
 
@@ -302,18 +302,18 @@ cat_labels = [
 
 
 def partition_data(
-    grad: NDArray, y: NDArray, consented: NDArray,
+    grad: NDArray, y: NDArray, consensual: NDArray,
     threshold=0.8,
 ):
   p2_mask = grad < threshold
   p1_mask = grad >= threshold
 
-  polarized = np.logical_not(consented)
+  polarized = np.logical_not(consensual)
 
   d_p2_p = y[np.logical_and(p2_mask, polarized)]
-  d_p2_c = y[np.logical_and(p2_mask, consented)]
+  d_p2_c = y[np.logical_and(p2_mask, consensual)]
   d_p1_p = y[np.logical_and(p1_mask, polarized)]
-  d_p1_c = y[np.logical_and(p1_mask, consented)]
+  d_p1_c = y[np.logical_and(p1_mask, consensual)]
 
   d = [d_p2_p, d_p2_c, d_p1_p, d_p1_c]
   means = np.array([np.mean(dd) for dd in d])
@@ -541,14 +541,14 @@ kde_ratio_c = kde_c / kde_all
 fig, (ax_grad, ax_ratio) = plt_figure(n_col=2, total_width=11)
 
 ax_grad.plot(metrics, kde_nc, label='polarized', color='tab:red')
-ax_grad.plot(metrics, kde_c, label='consented', color='tab:green')
+ax_grad.plot(metrics, kde_c, label='consensual', color='tab:green')
 ax_grad.plot(metrics, kde_all, label='all', color='tab:blue')
 ax_grad.legend()
 
 ax_ratio.plot(metrics, kde_ratio_c)
 
 ax_grad.set_title('(a) dist. of gradation index', loc='left')
-ax_ratio.set_title('(c) %consented cases', loc='left')
+ax_ratio.set_title('(c) %consensual cases', loc='left')
 
 ax_grad.set_yticks(np.array([0, 1, 2, 4, 7, 12]))
 for _ in (ax_grad, ax_ratio):
