@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 import seaborn as sns
 
 from scipy.optimize import curve_fit
@@ -87,7 +88,6 @@ def scatter_data(
   if legend:
     ax.legend(bbox_to_anchor=(1.05, 1))
 
-  points1 = mean1 = var1 = points2 = mean2 = var2 = None
   if x[nc].size:
     draw_adaptive_moving_stats(ax, x[nc], y[nc], h0)
   if x[c].size:
@@ -95,6 +95,57 @@ def scatter_data(
 
   return np.array([[np.mean(z[_i]) for _i in [_1, _2, _3, _4]] for z in [x, y]])
 
+bool_cmap = LinearSegmentedColormap.from_list("bool", ["tab:red", "tab:blue"])
+
+def scatter_heatmap(
+    ax: Axes,
+    x: NDArray, y: NDArray,
+    c: NDArray, nc: NDArray,
+    d: NDArray = None, nd: NDArray = None,
+    s=4, lw=.8, h0=.1,
+    res=100, res_contour=20,
+    xmin=0.4, xmax=1,
+    ymin=None, ymax=None,
+    legend=False,
+):
+  if ymin is None:
+    ymin = y.min()
+  if ymax is None:
+    ymax = y.max()
+  # only consider c & nc
+  xi, yi = np.mgrid[ymin:ymax:res*1j, ymin:ymax:res*1j]
+  positions = np.vstack([xi.ravel(), yi.ravel()])
+  d_c = gaussian_kde([x[c], y[c]])(positions).reshape(xi.shape)
+  d_nc = gaussian_kde([x[nc], y[nc]])(positions).reshape(xi.shape)
+  
+  s1 = np.sum(c)
+  s2 = np.sum(nc)
+  d_gross = (d_c * s1 + d_nc * s2) / (s1 + s2)
+  d_ratio = d_c / (d_c + d_nc) # 0: nc(polarized), 1: c(consented)
+  
+  # create heatmap
+  d_draw = bool_cmap(d_ratio.T)
+  d_draw[..., 3] = d_gross.T / d_gross.max()
+  
+  # draw density plot
+  density_plot = ax.imshow(
+    d_draw, interpolation='bilinear',
+    aspect='auto',
+    extent=[xmin, xmax, ymin, ymax,], 
+    origin='lower', 
+  )
+  
+  print([xmin, xmax, ymin, ymax,])
+  # contour = ax.contour(
+  #   xi, yi, d_gross, 
+  #   levels=np.linspace(d_gross.min(), d_gross.max(), res_contour), 
+  #   colors='k', linewidths=0.5, alpha=0.7
+  # )
+  
+  # TODO legend
+  
+  return d_c, d_nc
+  
 
 def heatmap_diff(
     fig: Figure,
@@ -429,19 +480,19 @@ show_fig('dist_grad_consensus')
 # event step
 
 fig, (ax1, ax2) = plt_figure(n_col=2, total_width=12)
-scatter_data(
+scatter_heatmap(
     ax1,
     np.array(vals_grad_index),
-    np.array(vals_0d['event_count']),
-    is_consensus, is_not_consensus, is_near_diag, is_not_near_diag
+    np.array(vals_0d['event_count'], dtype=float) / 1000,
+    is_consensus, is_not_consensus, # is_near_diag, is_not_near_diag
 )
 
 y = np.array(vals_0d['event_step_mean'] / vals_0d['active_step'])
 y[y > 0.6] = 0.6
-scatter_data(
+scatter_heatmap(
     ax2,
     np.array(vals_grad_index), y,
-    is_consensus, is_not_consensus, is_near_diag, is_not_near_diag,
+    is_consensus, is_not_consensus, # is_near_diag, is_not_near_diag,
     legend=True
 )
 
@@ -451,6 +502,9 @@ ax1.set_ylabel('#follow event')
 ax2.set_ylabel('time')
 ax1.set_title('(a) total follow event', loc='left')
 ax2.set_title('(b) avg. normalized event time', loc='left')
+
+plt.show()
+assert False
 
 show_fig('scatter_event_count_step')
 
