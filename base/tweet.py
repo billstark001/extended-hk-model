@@ -6,10 +6,10 @@ TweetRecord: TypeAlias = Tuple[int, int, float]
 
 @dataclasses.dataclass
 class Tweet:
-  uid: int
+  user: int
   step: int
   opinion: float
   
   def to_record(self) -> TweetRecord:
-    return (self.uid, self.step, self.opinion)
+    return (self.user, self.step, self.opinion)
   
