@@ -7,7 +7,7 @@ type HKModelDumpData struct {
 	Graph          utils.NetworkXGraph
 	Opinions       []float64
 	Tweets         map[int64][]TweetRecord
-	RecsysDumpData any
+	RecsysDumpData any // no pointer
 }
 
 func (m *HKModel) Dump() *HKModelDumpData {
@@ -52,6 +52,7 @@ func (d *HKModelDumpData) Load(
 
 	// recover dump data
 	if model.Recsys != nil {
+		// pointer is passed
 		model.Recsys.PostInit(&d.RecsysDumpData)
 	}
 

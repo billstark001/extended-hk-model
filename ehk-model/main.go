@@ -9,8 +9,10 @@ import (
 	"gonum.org/v1/gonum/graph/simple"
 
 	ehk "ehk-model/model"
-	"ehk-model/recsys"
+	recsys "ehk-model/recsys"
 	"ehk-model/utils"
+	"net/http"
+	_ "net/http/pprof" // 只需导入即可激活
 )
 
 func eventHandler(event *ehk.EventRecord) {
@@ -120,8 +122,10 @@ func printSimulationResults(opinionHistory map[int64][]float64, tweetHistory [][
 }
 
 func main() {
-	// 设置随机种子
-	rand.Seed(time.Now().UnixNano())
+	// profiler
+	go func() {
+		http.ListenAndServe(":3005", nil)
+	}()
 
 	// 仿真参数
 	nodeCount := 500
@@ -166,7 +170,15 @@ func main() {
 	modelParams.RecsysCount = 10
 	modelParams.RecsysFactory = func(model *ehk.HKModel) ehk.HKModelRecommendationSystem {
 		// return &ehk.BaseRecommendationSystem{}
-		return recsys.NewRandom(model)
+		// return recsys.NewRandom(model)
+		// return recsys.NewOpinion(model, 0.1)
+		// return recsys.NewOpinionRandom(model, 0.4, 1, 2, 0)
+		// return recsys.NewStructure(model, 0.1, true, func(s string) {
+		// 	fmt.Println(s)
+		// })
+		return recsys.NewStructureRandom(model, 1, 0.1, 0, true, func(s string) {
+			fmt.Println(s)
+		})
 	}
 
 	// 设置收集项
@@ -193,6 +205,9 @@ func main() {
 		logEvent,
 	)
 	model.SetAgentCurTweets()
+	if model.Recsys != nil {
+		model.Recsys.PostInit(nil)
+	}
 
 	// 准备数据收集结构
 	opinionHistory := make(map[int64][]float64)
@@ -201,23 +216,21 @@ func main() {
 
 	// 运行仿真
 	fmt.Println("Running simulation...")
+	tstart := time.Now()
 	for i := range simulationSteps {
 		// 模型步进
 		changedCount, maxOpinionChange := model.Step()
 
 		// 进度报告
-		fmt.Printf("Step %d/%d: %d agents changed connections, max opinion change: %.4f\n",
-			i+1, simulationSteps, changedCount, maxOpinionChange)
+		if i%10 == 9 {
+			fmt.Printf("Step %d/%d: %d agents changed connections, max opinion change: %.4f\n",
+				i+1, simulationSteps, changedCount, maxOpinionChange)
+		}
 	}
 
 	// 打印结果
 	printSimulationResults(opinionHistory, tweetHistory, graphHistory)
 
-	// 打印推荐系统数据（如果适用）
-	if model.Recsys != nil {
-		fmt.Println("\n=== Recommendation System Data ===")
-		fmt.Printf("%v\n", model.Dump())
-	}
-
-	fmt.Println("\nSimulation complete! Events saved to simulation_events.msgpack")
+	tend := time.Now()
+	fmt.Printf("\nSimulation complete! (costs %v)\n", tend.Sub(tstart))
 }
