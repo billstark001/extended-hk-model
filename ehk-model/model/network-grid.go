@@ -10,7 +10,7 @@ import (
 type NetworkGrid struct {
 	Graph    *simple.DirectedGraph
 	AgentMap map[int64]*HKAgent
-	TweetMap map[int64][]TweetRecord
+	TweetMap map[int64][]*TweetRecord
 	mu       sync.RWMutex
 }
 
@@ -19,7 +19,7 @@ func NewNetworkGrid(g *simple.DirectedGraph) *NetworkGrid {
 	return &NetworkGrid{
 		Graph:    g,
 		AgentMap: make(map[int64]*HKAgent),
-		TweetMap: make(map[int64][]TweetRecord),
+		TweetMap: make(map[int64][]*TweetRecord),
 	}
 }
 
@@ -38,7 +38,7 @@ func (ng *NetworkGrid) GetAgent(nodeID int64) *HKAgent {
 }
 
 // AddTweet adds a tweet to the specified node
-func (ng *NetworkGrid) AddTweet(nodeID int64, tweet TweetRecord, maxTweets int) {
+func (ng *NetworkGrid) AddTweet(nodeID int64, tweet *TweetRecord, maxTweets int) {
 	ng.mu.Lock()
 	defer ng.mu.Unlock()
 	tweets := ng.TweetMap[nodeID]
@@ -54,27 +54,23 @@ func (ng *NetworkGrid) AddTweet(nodeID int64, tweet TweetRecord, maxTweets int) 
 	ng.TweetMap[nodeID] = tweets
 }
 
-// GetNeighbors returns the tweets from the neighbors of a node
-func (ng *NetworkGrid) GetNeighbors(nodeID int, includeCenter bool) []TweetRecord {
+// GetNeighbors returns the agents from the neighbors of a node
+func (ng *NetworkGrid) GetNeighbors(nodeID int64, includeCenter bool) []*HKAgent {
 	ng.mu.RLock()
 	defer ng.mu.RUnlock()
 
-	var result []TweetRecord
+	var result []*HKAgent
 
 	// Get neighbor nodes
-	neighbors := ng.Graph.From(int64(nodeID))
+	neighbors := ng.Graph.From(nodeID)
 	for neighbors.Next() {
 		neighborID := neighbors.Node().ID()
-		if tweets, ok := ng.TweetMap[neighborID]; ok {
-			result = append(result, tweets...)
-		}
+		result = append(result, ng.AgentMap[neighborID])
 	}
 
 	// Include center node's tweets if requested
 	if includeCenter {
-		if tweets, ok := ng.TweetMap[int64(nodeID)]; ok {
-			result = append(result, tweets...)
-		}
+		result = append(result, ng.AgentMap[nodeID])
 	}
 
 	return result

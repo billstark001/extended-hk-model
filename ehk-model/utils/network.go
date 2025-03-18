@@ -6,17 +6,20 @@ import (
 	"gonum.org/v1/gonum/graph/simple"
 )
 
+// n, p graph
+//
+// p = m / (n - 1),
 func CreateRandomNetwork(nodeCount int, edgeProbability float64) *simple.DirectedGraph {
 	g := simple.NewDirectedGraph()
 
-	for i := 0; i < nodeCount; i++ {
-		g.AddNode(simple.Node(int64(i)))
+	for i := range nodeCount {
+		g.AddNode(simple.Node(i))
 	}
 
-	for i := 0; i < nodeCount; i++ {
-		for j := 0; j < nodeCount; j++ {
+	for i := range nodeCount {
+		for j := range nodeCount {
 			if i != j && rand.Float64() < edgeProbability {
-				g.SetEdge(g.NewEdge(simple.Node(int64(i)), simple.Node(int64(j))))
+				g.SetEdge(g.NewEdge(simple.Node(i), simple.Node(j)))
 			}
 		}
 	}
@@ -28,7 +31,7 @@ func CreateSmallWorldNetwork(nodeCount int, k int, rewireProbability float64) *s
 	g := simple.NewDirectedGraph()
 
 	for i := range nodeCount {
-		g.AddNode(simple.Node(int64(i)))
+		g.AddNode(simple.Node(i))
 	}
 
 	for i := range nodeCount {
@@ -36,8 +39,8 @@ func CreateSmallWorldNetwork(nodeCount int, k int, rewireProbability float64) *s
 			rightNeighbor := (i + j) % nodeCount
 			leftNeighbor := (i - j + nodeCount) % nodeCount
 
-			g.SetEdge(g.NewEdge(simple.Node(int64(i)), simple.Node(int64(rightNeighbor))))
-			g.SetEdge(g.NewEdge(simple.Node(int64(i)), simple.Node(int64(leftNeighbor))))
+			g.SetEdge(g.NewEdge(simple.Node(i), simple.Node(rightNeighbor)))
+			g.SetEdge(g.NewEdge(simple.Node(i), simple.Node(leftNeighbor)))
 		}
 	}
 
@@ -59,7 +62,7 @@ func CreateSmallWorldNetwork(nodeCount int, k int, rewireProbability float64) *s
 
 				// rewire
 				g.RemoveEdge(int64(i), int64(oldTarget))
-				g.SetEdge(g.NewEdge(simple.Node(int64(i)), simple.Node(int64(newTarget))))
+				g.SetEdge(g.NewEdge(simple.Node(i), simple.Node(newTarget)))
 			}
 		}
 	}

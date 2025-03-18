@@ -2,132 +2,126 @@ package model
 
 import (
 	"math"
-	"math/rand"
 
 	"gonum.org/v1/gonum/graph/simple"
 )
 
-// HKModelParams contains configuration parameters for the HK model
 type HKModelParams struct {
-	Tolerance        float64
-	Decay            float64
-	RewiringRate     float64
-	RetweetRate      float64
 	RecsysCount      int
 	TweetRetainCount int
 	RecsysFactory    func(*HKModel) HKModelRecommendationSystem
 }
 
-// DefaultHKModelParams creates a new parameters struct with default values
+type CollectItemOptions struct {
+	AgentNumber     bool
+	OpinionSum      bool
+	RewiringEvent   bool
+	ViewTweetsEvent bool
+	TweetEvent      bool
+}
+
 func DefaultHKModelParams() *HKModelParams {
 	return &HKModelParams{
-		Tolerance:        0.25,
-		Decay:            1.0,
-		RewiringRate:     0.1,
-		RetweetRate:      0.3,
 		RecsysCount:      10,
 		TweetRetainCount: 3,
 	}
 }
 
-// ToMap converts the parameters to a map
-func (p *HKModelParams) ToMap() map[string]any {
-	return map[string]any{
-		"tolerance":          p.Tolerance,
-		"decay":              p.Decay,
-		"rewiring_rate":      p.RewiringRate,
-		"retweet_rate":       p.RetweetRate,
-		"recsys_count":       p.RecsysCount,
-		"tweet_retain_count": p.TweetRetainCount,
-	}
-}
-
 // HKModel represents the Hegselmann-Krause model
 type HKModel struct {
-	Graph        *simple.DirectedGraph
-	Params       *HKModelParams
-	Recsys       HKModelRecommendationSystem
-	CollectItems map[string]bool
-	EventLogger  func(map[string]any)
-	CurStep      int
-	Grid         *NetworkGrid
-	Schedule     *RandomActivation
+	// params
+	AgentParams  *HKAgentParams
+	ModelParams  *HKModelParams
+	CollectItems *CollectItemOptions
+	// state
+	Graph   *simple.DirectedGraph
+	Grid    *NetworkGrid
+	CurStep int
+	// utils(?)
+	Recsys      HKModelRecommendationSystem
+	Schedule    *RandomActivation
+	EventLogger func(*EventRecord)
 }
 
 // NewHKModel creates a new HK model
 func NewHKModel(
-	g *simple.DirectedGraph,
-	opinions []float64,
-	params *HKModelParams,
-	collectItems []string,
-	eventLogger func(map[string]any),
-	dumpData any,
+	graph *simple.DirectedGraph,
+	opinions *[]float64,
+	modelParams *HKModelParams,
+	agentParams *HKAgentParams,
+	collectItems *CollectItemOptions,
+	eventLogger func(*EventRecord),
 ) *HKModel {
 	// Use default params if none provided
-	if params == nil {
-		params = DefaultHKModelParams()
+	if modelParams == nil {
+		modelParams = DefaultHKModelParams()
+	}
+	if agentParams == nil {
+		agentParams = DefaultHKAgentParams()
 	}
 
-	// Initialize collection items
-	collectMap := make(map[string]bool)
-	for _, item := range collectItems {
-		collectMap[item] = true
-	}
-
+	// Initialize struct
 	model := &HKModel{
-		Graph:        g,
-		Params:       params,
-		CollectItems: collectMap,
+		Graph:        graph,
+		ModelParams:  modelParams,
+		AgentParams:  agentParams,
+		CollectItems: collectItems,
 		EventLogger:  eventLogger,
 		CurStep:      0,
 	}
 
 	// Initialize grid and scheduler
-	model.Grid = NewNetworkGrid(g)
+	model.Grid = NewNetworkGrid(graph)
 	model.Schedule = NewRandomActivation(model)
 
 	// Initialize recommendation system if factory is provided
-	if params.RecsysFactory != nil {
-		model.Recsys = params.RecsysFactory(model)
+	if modelParams.RecsysFactory != nil {
+		model.Recsys = modelParams.RecsysFactory(model)
 	}
 
 	// Initialize agents
-	nodes := g.Nodes()
+	nodes := graph.Nodes()
+	opinionsVal := make([]float64, 0)
+	if opinions != nil {
+		opinionsVal = *opinions
+	}
 	i := 0
 	for nodes.Next() {
 		nodeID := nodes.Node().ID()
-		var opinion float64
-		if i < len(opinions) {
-			opinion = opinions[i]
-		} else {
-			opinion = rand.Float64()*2 - 1 // Random between -1 and 1
+
+		var opinion *float64
+		if i < len(opinionsVal) {
+			i2 := opinionsVal[int64(i)]
+			opinion = &i2
 		}
 
-		agent := NewHKAgent(int(nodeID), model, &opinion)
+		agent := NewHKAgent(nodeID, model, opinion)
 		model.Grid.PlaceAgent(agent, nodeID)
 		model.Schedule.AddAgent(agent)
 		i++
 	}
 
 	// Post-initialization for recommendation system
-	if model.Recsys != nil {
-		model.Recsys.PostInit(dumpData)
-	}
-
 	return model
 }
 
-// Dump returns data from the recommendation system
-func (m *HKModel) Dump() any {
-	if m.Recsys != nil {
-		return m.Recsys.Dump()
+func (m *HKModel) SetAgentCurTweets() {
+	for aid, a := range m.Grid.AgentMap {
+		if a.CurTweet == nil {
+			l := len(m.Grid.TweetMap[aid])
+			if l == 0 {
+				// if no existent tweets, create one
+				m.Grid.AddTweet(aid, &TweetRecord{
+					AgentID: aid,
+					Opinion: a.CurOpinion,
+					Step:    -1,
+				}, m.ModelParams.TweetRetainCount)
+				l = 1
+			}
+			// apply the latest one
+			a.CurTweet = m.Grid.TweetMap[aid][l-1]
+		}
 	}
-	return nil
-}
-
-// HasCollectionItem checks if an item is in the collection list
-func (m *HKModel) HasCollectionItem(item string) bool {
-	return m.CollectItems[item]
 }
 
 // Step advances the model by one time step
@@ -146,35 +140,31 @@ func (m *HKModel) Step() (int, float64) {
 	}
 
 	// Collect changed nodes
-	changed := make([]int, 0)
+	changed := make([]*RewiringEventBody, 0)
 	changedCount := 0
 	changedOpinionMax := 0.0
 
 	// Apply changes from agents
-	for _, agent := range m.Schedule.Agents {
+	for _, a := range m.Schedule.Agents {
 		// Opinion change
-		changedOpinion := agent.NextOpinion - agent.CurOpinion
-		agent.CurOpinion = agent.NextOpinion
+		changedOpinion := a.NextOpinion - a.CurOpinion
+		a.CurOpinion = a.NextOpinion
 		changedOpinionMax = math.Max(changedOpinionMax, math.Abs(changedOpinion))
 
 		// Add tweet if there is one
-		if agent.NextTweet != nil {
-			m.Grid.AddTweet(int64(agent.UniqueID), *agent.NextTweet, m.Params.TweetRetainCount)
-			agent.CurTweet = agent.NextTweet
+		if a.NextTweet != nil {
+			m.Grid.AddTweet(a.ID, a.NextTweet, m.ModelParams.TweetRetainCount)
+			a.CurTweet = a.NextTweet
 		}
 
 		// Rewiring
-		if agent.NextFollow != nil {
-			m.Graph.RemoveEdge(int64(agent.UniqueID), int64(agent.NextFollow.Unfollow))
+		if a.NextFollow != nil {
+			m.Graph.RemoveEdge(a.ID, a.NextFollow.Unfollow)
 			m.Graph.SetEdge(m.Graph.NewEdge(
-				m.Graph.Node(int64(agent.UniqueID)),
-				m.Graph.Node(int64(agent.NextFollow.Follow)),
+				m.Graph.Node(a.ID),
+				m.Graph.Node(a.NextFollow.Follow),
 			))
-			changed = append(changed,
-				agent.UniqueID,
-				agent.NextFollow.Unfollow,
-				agent.NextFollow.Follow,
-			)
+			changed = append(changed, a.NextFollow)
 			changedCount++
 		}
 	}
@@ -191,35 +181,31 @@ func (m *HKModel) Step() (int, float64) {
 }
 
 // GetRecommendation gets recommendations for an agent
-func (m *HKModel) GetRecommendation(agent *HKAgent, neighbors []TweetRecord) []TweetRecord {
+func (m *HKModel) GetRecommendation(agent *HKAgent, neighbors []*HKAgent) []*TweetRecord {
 	if m.Recsys == nil {
-		return []TweetRecord{}
+		return []*TweetRecord{}
 	}
 
-	return m.Recsys.Recommend(agent, neighbors, m.Params.RecsysCount)
+	return m.Recsys.Recommend(agent, neighbors, m.ModelParams.RecsysCount)
 }
 
 // CollectOpinions collects all agent opinions
-func (m *HKModel) CollectOpinions() map[int]float64 {
-	opinions := make(map[int]float64)
+func (m *HKModel) CollectOpinions() []float64 {
+	opinions := make([]float64, len(m.Schedule.Agents))
 	for _, agent := range m.Schedule.Agents {
-		opinions[agent.UniqueID] = agent.CurOpinion
+		opinions[agent.ID] = agent.CurOpinion
 	}
 	return opinions
 }
 
 // CollectTweets collects all current tweets
-func (m *HKModel) CollectTweets() []TweetRecord {
-	var tweets []TweetRecord
-	for _, agent := range m.Schedule.Agents {
-		if agent.CurTweet != nil {
-			tweets = append(tweets, *agent.CurTweet)
+func (m *HKModel) CollectTweets() map[int64][]TweetRecord {
+	tweets := make(map[int64][]TweetRecord)
+	for agent, value := range m.Grid.TweetMap {
+		tweets[agent] = []TweetRecord{}
+		for _, ptr := range value {
+			tweets[agent] = append(tweets[agent], *ptr)
 		}
 	}
 	return tweets
-}
-
-// CollectGraph collects the current graph structure
-func (m *HKModel) CollectGraph() *simple.DirectedGraph {
-	return m.Graph
 }

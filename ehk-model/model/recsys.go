@@ -3,6 +3,7 @@ package model
 // HKModelRecommendationSystem defines the interface for recommendation systems
 type HKModelRecommendationSystem interface {
 	// PostInit is called after the model is initialized
+	// dumpData is passed as pointer
 	PostInit(dumpData any)
 
 	// PreStep is called before each model step
@@ -12,57 +13,40 @@ type HKModelRecommendationSystem interface {
 	PreCommit()
 
 	// PostStep is called after each model step
-	PostStep(changed []int)
+	PostStep(changed []*RewiringEventBody)
 
 	// Recommend returns recommendations for an agent
-	Recommend(agent *HKAgent, neighbors []TweetRecord, count int) []TweetRecord
+	Recommend(agent *HKAgent, neighbors []*HKAgent, count int) []*TweetRecord
 
 	// Dump returns internal data for debugging/analysis
 	Dump() any
 }
 
-// SimpleRandomRecommendationSystem implements a basic recommendation system
-type SimpleRandomRecommendationSystem struct {
-	Model *HKModel
+type BaseRecommendationSystem struct {
+	// do nothing, provide default empty methods
 }
 
-// NewSimpleRandomRecommendationSystem creates a new simple recommendation system
-func NewSimpleRandomRecommendationSystem(model *HKModel) HKModelRecommendationSystem {
-	return &SimpleRandomRecommendationSystem{
-		Model: model,
-	}
+// for type check
+func _() HKModelRecommendationSystem {
+	return &BaseRecommendationSystem{}
 }
 
-// PostInit implements HKModelRecommendationSystem
-func (rs *SimpleRandomRecommendationSystem) PostInit(dumpData any) {
-	// Nothing to do for simple random recommender
+func (rs *BaseRecommendationSystem) PostInit(dumpData any) {
 }
 
-// PreStep implements HKModelRecommendationSystem
-func (rs *SimpleRandomRecommendationSystem) PreStep() {
-	// Nothing to do
+func (rs *BaseRecommendationSystem) PreStep() {
 }
 
-// PreCommit implements HKModelRecommendationSystem
-func (rs *SimpleRandomRecommendationSystem) PreCommit() {
-	// Nothing to do
+func (rs *BaseRecommendationSystem) PreCommit() {
 }
 
-// PostStep implements HKModelRecommendationSystem
-func (rs *SimpleRandomRecommendationSystem) PostStep(changed []int) {
-	// Nothing to do
+func (rs *BaseRecommendationSystem) PostStep(changed []*RewiringEventBody) {
 }
 
-// Recommend implements HKModelRecommendationSystem
-func (rs *SimpleRandomRecommendationSystem) Recommend(agent *HKAgent, neighbors []TweetRecord, count int) []TweetRecord {
-	// This is a placeholder for more sophisticated recommendation systems
-	// In a real system, you would implement recommendation algorithms here
-	return []TweetRecord{}
+func (rs *BaseRecommendationSystem) Recommend(agent *HKAgent, neighbors []*HKAgent, count int) []*TweetRecord {
+	return []*TweetRecord{}
 }
 
-// Dump implements HKModelRecommendationSystem
-func (rs *SimpleRandomRecommendationSystem) Dump() any {
-	return map[string]string{
-		"type": "SimpleRandomRecommendationSystem",
-	}
+func (rs *BaseRecommendationSystem) Dump() any {
+	return nil
 }

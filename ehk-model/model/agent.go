@@ -5,94 +5,132 @@ import (
 	"math/rand"
 )
 
-// FollowEventRecord represents an unfollow and follow event
-type FollowEventRecord struct {
-	Unfollow int
-	Follow   int
+// events & records
+
+type EventRecord struct {
+	Type    string
+	AgentID int64
+	Step    int
+	Body    any
 }
+
+type RewiringEventBody struct {
+	Unfollow int64
+	Follow   int64
+}
+
+type TweetEventBody struct {
+	Record    *TweetRecord
+	IsRetweet bool
+	// RetweetFrom *int64
+}
+
+type ViewTweetsEventBody struct {
+	NeighborConcordant    []*TweetRecord
+	NeighborDiscordant    []*TweetRecord
+	RecommendedConcordant []*TweetRecord
+	RecommendedDiscordant []*TweetRecord
+}
+
+type AgentNumberRecord = [4]int
+type AgentOpinionSumRecord = [4]float64
+
+// agent params
+
+type HKAgentParams struct {
+	Tolerance    float64
+	Decay        float64
+	RewiringRate float64
+	RetweetRate  float64
+}
+
+func DefaultHKAgentParams() *HKAgentParams {
+	return &HKAgentParams{
+		Tolerance:    0.25,
+		Decay:        1.0,
+		RewiringRate: 0.1,
+		RetweetRate:  0.3,
+	}
+}
+
+// sim options
 
 // HKAgent represents an agent in the Hegselmann-Krause model
 type HKAgent struct {
-	UniqueID    int
-	Model       *HKModel
-	CurOpinion  float64
-	CurTweet    *TweetRecord
+	ID int64 // to align with gonum/graph
+
+	Model          *HKModel
+	hasEventLogger bool
+	Params         *HKAgentParams
+	CollectOptions *CollectItemOptions
+
+	CurOpinion float64
+	CurTweet   *TweetRecord
+
 	NextOpinion float64
 	NextTweet   *TweetRecord
-	NextFollow  *FollowEventRecord
-	NrAgents    [4]int
-	OpSumAgents [4]float64
-	StepDict    map[string]any
+	NextFollow  *RewiringEventBody
+
+	AgentNumber AgentNumberRecord
+	OpinionSum  AgentOpinionSumRecord
 }
 
 // NewHKAgent creates a new HKAgent
-func NewHKAgent(uniqueID int, model *HKModel, opinion *float64) *HKAgent {
+func NewHKAgent(uniqueID int64, model *HKModel, opinion *float64) *HKAgent {
 	// Initialize opinion if not provided
-	curOpinion := rand.Float64()*2 - 1 // Random between -1 and 1
+	var curOpinion float64
 	if opinion != nil {
 		curOpinion = *opinion
+	} else {
+		curOpinion = rand.Float64()*2 - 1 // Random between -1 and 1
 	}
 
 	agent := &HKAgent{
-		UniqueID:    uniqueID,
+		ID:          uniqueID,
 		Model:       model,
 		CurOpinion:  curOpinion,
 		NextOpinion: curOpinion,
 	}
 
-	// Setup reporting flags
-	hasEventLogger := model.EventLogger != nil
-	reportViewTweets := hasEventLogger && model.HasCollectionItem("e:view_tweets")
-	reportRewiring := hasEventLogger && model.HasCollectionItem("e:rewiring")
-	reportRetweet := hasEventLogger && model.HasCollectionItem("e:retweet")
-
-	// Initialize step configuration
-	agent.StepDict = map[string]any{
-		"decay":                 model.Params.Decay,
-		"gamma":                 model.Params.RewiringRate,
-		"tolerance":             model.Params.Tolerance,
-		"r_retweet":             model.Params.RetweetRate,
-		"collect_nr_agents":     model.HasCollectionItem("nr_agents"),
-		"collect_op_sum_agents": model.HasCollectionItem("op_sum_agents"),
-		"report_view_tweets":    reportViewTweets,
-		"report_retweet":        reportRetweet,
-		"report_rewiring":       reportRewiring,
-	}
+	// Setup parameters
+	agent.hasEventLogger = model.EventLogger != nil
+	agent.Params = model.AgentParams
+	agent.CollectOptions = model.CollectItems
 
 	return agent
+}
+
+type PartitionTweetsReturn struct {
+	concordantNeighbor    []*TweetRecord
+	concordantRecommended []*TweetRecord
+	discordantNeighbor    []*TweetRecord
+	discordantRecommended []*TweetRecord
+	sumN                  float64
+	sumR                  float64
+	sumND                 float64
+	sumRD                 float64
 }
 
 // PartitionTweets divides tweets into concordant and discordant groups
 func PartitionTweets(
 	opinion float64,
-	neighbors []TweetRecord,
-	recommended []TweetRecord,
+	neighbors []*TweetRecord,
+	recommended []*TweetRecord,
 	epsilon float64,
-) (
-	concordantNeighbor []TweetRecord,
-	concordantRecommended []TweetRecord,
-	discordantNeighbor []TweetRecord,
-	discordantRecommended []TweetRecord,
-	sumN float64,
-	sumR float64,
-	sumND float64,
-	sumRD float64,
-) {
-	// Prepare return values
-	concordantNeighbor = []TweetRecord{}
-	concordantRecommended = []TweetRecord{}
-	discordantNeighbor = []TweetRecord{}
-	discordantRecommended = []TweetRecord{}
+) PartitionTweetsReturn {
+
+	// return value
+	r := PartitionTweetsReturn{}
 
 	// Process neighbors
 	for _, a := range neighbors {
 		o := a.Opinion
 		if math.Abs(opinion-o) <= epsilon {
-			concordantNeighbor = append(concordantNeighbor, a)
-			sumN += o - opinion
+			r.concordantNeighbor = append(r.concordantNeighbor, a)
+			r.sumN += o - opinion
 		} else {
-			discordantNeighbor = append(discordantNeighbor, a)
-			sumND += o - opinion
+			r.discordantNeighbor = append(r.discordantNeighbor, a)
+			r.sumND += o - opinion
 		}
 	}
 	if neighbors != nil {
@@ -102,89 +140,83 @@ func PartitionTweets(
 	for _, a := range recommended {
 		o := a.Opinion
 		if math.Abs(opinion-o) <= epsilon {
-			concordantRecommended = append(concordantRecommended, a)
-			sumR += o - opinion
+			r.concordantRecommended = append(r.concordantRecommended, a)
+			r.sumR += o - opinion
 		} else {
-			discordantRecommended = append(discordantRecommended, a)
-			sumRD += o - opinion
+			r.discordantRecommended = append(r.discordantRecommended, a)
+			r.sumRD += o - opinion
 		}
 	}
 
-	return
+	return r
 }
 
 // HKAgentStep implements the agent's step function
 func HKAgentStep(
-	uid int,
-	opinion float64,
+	agentID int64,
+	curOpinion float64,
 	curStep int,
-	decay float64,
-	gamma float64,
-	tolerance float64,
-	rRetweet float64,
-	neighbors []TweetRecord,
-	recommended []TweetRecord,
-	collectNrAgents bool,
-	collectOpSumAgents bool,
-	reportViewTweets bool,
-	reportRetweet bool,
-	reportRewiring bool,
+	neighbors []*TweetRecord,
+	recommended []*TweetRecord,
+	params *HKAgentParams,
+	options *CollectItemOptions,
 ) (
 	nextOpinion float64,
 	nextTweet *TweetRecord,
-	nextFollow *FollowEventRecord,
-	nrAgents [4]int,
-	opSumAgents [4]float64,
-	eViewTweets [][]TweetRecord,
-	eRetweet *TweetRecord,
-	eRewiring *FollowEventRecord,
+	nextFollow *RewiringEventBody,
+
+	nrAgents AgentNumberRecord,
+	opSumAgents AgentOpinionSumRecord,
+
+	eViewTweets *ViewTweetsEventBody,
+	eRetweet *TweetEventBody,
+	eRewiring *RewiringEventBody,
+
 ) {
 	// Default return values
-	nextOpinion = opinion
+	nextOpinion = curOpinion
 	var zeroAgents [4]int
 	var zeroOpSum [4]float64
 	nrAgents = zeroAgents
 	opSumAgents = zeroOpSum
 
 	// Calculate tweet sets
-	concordantNeighbor, concordantRecommended,
-		discordantNeighbor, discordantRecommended,
-		sumN, sumR, sumND, sumRD := PartitionTweets(
-		opinion, neighbors, recommended, tolerance,
+	t := PartitionTweets(
+		curOpinion, neighbors, recommended, params.Tolerance,
 	)
 
-	nNeighbor := len(concordantNeighbor)
-	nRecommended := len(concordantRecommended)
+	nNeighbor := len(t.concordantNeighbor)
+	nRecommended := len(t.concordantRecommended)
 	nConcordant := nNeighbor + nRecommended
 
 	// Collect agent counts if requested
-	if collectNrAgents {
+	if options.AgentNumber {
 		nrAgents = [4]int{
 			nNeighbor,
 			nRecommended,
-			len(discordantNeighbor),
-			len(discordantRecommended),
+			len(t.discordantNeighbor),
+			len(t.discordantRecommended),
 		}
 	}
 
 	// Record viewed tweets if requested
-	if reportViewTweets {
-		eViewTweets = [][]TweetRecord{
-			concordantNeighbor,
-			concordantRecommended,
-			discordantNeighbor,
-			discordantRecommended,
+	if options.ViewTweetsEvent {
+		eViewTweets = &ViewTweetsEventBody{
+			NeighborConcordant:    t.concordantNeighbor,
+			NeighborDiscordant:    t.discordantNeighbor,
+			RecommendedConcordant: t.concordantRecommended,
+			RecommendedDiscordant: t.discordantRecommended,
 		}
 	}
 
 	// Calculate influence
 	if nConcordant > 0 {
-		nextOpinion += ((sumR + sumN) / float64(nConcordant)) * decay
+		nextOpinion += ((t.sumR + t.sumN) / float64(nConcordant)) * params.Decay
 	}
 
 	// Collect opinion sums if requested
-	if collectOpSumAgents {
-		opSumAgents = [4]float64{sumN, sumR, sumND, sumRD}
+	if options.OpinionSum {
+		opSumAgents = [4]float64{t.sumN, t.sumR, t.sumND, t.sumRD}
 	}
 
 	// Generate random numbers for retweet and rewiring decisions
@@ -192,39 +224,54 @@ func HKAgentStep(
 	rndRewiring := rand.Float64()
 
 	// Handle tweet or retweet
-	if nNeighbor > 0 && rndRetweet < rRetweet { // Retweet
+	rRetweet := params.RetweetRate
+	if nNeighbor > 0 && rndRetweet < rRetweet {
+		// Retweet
 		retweetIndex := int(float64(nConcordant)*rndRetweet/rRetweet) % nConcordant
-		var retweetRecord TweetRecord
+		var retweetRecord *TweetRecord
 		if retweetIndex < nNeighbor {
-			retweetRecord = concordantNeighbor[retweetIndex]
+			retweetRecord = t.concordantNeighbor[retweetIndex]
 		} else {
-			retweetRecord = concordantRecommended[retweetIndex-nNeighbor]
+			retweetRecord = t.concordantRecommended[retweetIndex-nNeighbor]
 		}
-		nextTweet = &retweetRecord
+		nextTweet = retweetRecord
 
-		if reportRetweet {
-			eRetweet = nextTweet
+		// report event
+		if options.TweetEvent {
+			eRetweet = &TweetEventBody{
+				Record:    nextTweet,
+				IsRetweet: true,
+			}
 		}
 	} else { // Post new tweet
-		tweetRecord := TweetRecord{uid, curStep, nextOpinion}
+		tweetRecord := TweetRecord{agentID, curStep, nextOpinion}
 		nextTweet = &tweetRecord
+
+		if options.TweetEvent {
+			eRetweet = &TweetEventBody{
+				Record:    nextTweet,
+				IsRetweet: false,
+			}
+		}
 	}
 
 	// Handle rewiring
+	gamma := params.RewiringRate
 	if gamma > 0 &&
-		len(discordantNeighbor) > 0 && len(concordantRecommended) > 0 &&
+		len(t.discordantNeighbor) > 0 && len(t.concordantRecommended) > 0 &&
 		rndRewiring < gamma {
-		idx1 := rand.Intn(len(concordantRecommended))
-		idx2 := rand.Intn(len(discordantNeighbor))
-		follow := concordantRecommended[idx1].UserID
-		unfollow := discordantNeighbor[idx2].UserID
+		idx1 := rand.Intn(len(t.concordantRecommended))
+		idx2 := rand.Intn(len(t.discordantNeighbor))
+		follow := t.concordantRecommended[idx1].AgentID
+		unfollow := t.discordantNeighbor[idx2].AgentID
 
-		nextFollow = &FollowEventRecord{
+		nextFollow = &RewiringEventBody{
 			Unfollow: unfollow,
 			Follow:   follow,
 		}
 
-		if reportRewiring {
+		// report event
+		if options.RewiringEvent {
 			eRewiring = nextFollow
 		}
 	}
@@ -235,59 +282,62 @@ func HKAgentStep(
 // Step performs a single step for this agent
 func (a *HKAgent) Step() {
 	// Get the neighbors
-	neighbors := a.Model.Grid.GetNeighbors(a.UniqueID, false)
+	neighbors := a.Model.Grid.GetNeighbors(a.ID, false)
+
+	// latest 1 tweet
+	neighbor_tweets := make([]*TweetRecord, 0)
+	for _, a := range neighbors {
+		t := a.CurTweet
+		if t != nil {
+			neighbor_tweets = append(neighbor_tweets, t)
+		}
+	}
+
 	recommended := a.Model.GetRecommendation(a, neighbors)
 
 	// Call agent step function
 	nextOpinion, nextTweet, nextFollow, nrAgents, opSumAgents,
 		eViewTweets, eRetweet, eRewiring := HKAgentStep(
-		a.UniqueID,
+		a.ID,
 		a.CurOpinion,
 		a.Model.CurStep,
-		a.StepDict["decay"].(float64),
-		a.StepDict["gamma"].(float64),
-		a.StepDict["tolerance"].(float64),
-		a.StepDict["r_retweet"].(float64),
-		neighbors,
+		neighbor_tweets,
 		recommended,
-		a.StepDict["collect_nr_agents"].(bool),
-		a.StepDict["collect_op_sum_agents"].(bool),
-		a.StepDict["report_view_tweets"].(bool),
-		a.StepDict["report_retweet"].(bool),
-		a.StepDict["report_rewiring"].(bool),
+		a.Params,
+		a.CollectOptions,
 	)
 
 	// Update agent state
 	a.NextOpinion = nextOpinion
 	a.NextTweet = nextTweet
 	a.NextFollow = nextFollow
-	a.NrAgents = nrAgents
-	a.OpSumAgents = opSumAgents
+	a.AgentNumber = nrAgents
+	a.OpinionSum = opSumAgents
 
 	// Report events if required
 	if a.Model.EventLogger != nil {
 		if eViewTweets != nil {
-			a.Model.EventLogger(map[string]any{
-				"name": "view_tweets",
-				"uid":  a.UniqueID,
-				"step": a.Model.CurStep,
-				"body": eViewTweets,
+			a.Model.EventLogger(&EventRecord{
+				Type:    "ViewTweets",
+				AgentID: a.ID,
+				Step:    a.Model.CurStep,
+				Body:    *eViewTweets,
 			})
 		}
 		if eRetweet != nil {
-			a.Model.EventLogger(map[string]any{
-				"name": "retweet",
-				"uid":  a.UniqueID,
-				"step": a.Model.CurStep,
-				"body": eRetweet,
+			a.Model.EventLogger(&EventRecord{
+				Type:    "Tweet",
+				AgentID: a.ID,
+				Step:    a.Model.CurStep,
+				Body:    *eRetweet,
 			})
 		}
 		if eRewiring != nil {
-			a.Model.EventLogger(map[string]any{
-				"name": "rewiring",
-				"uid":  a.UniqueID,
-				"step": a.Model.CurStep,
-				"body": eRewiring,
+			a.Model.EventLogger(&EventRecord{
+				Type:    "Rewiring",
+				AgentID: a.ID,
+				Step:    a.Model.CurStep,
+				Body:    *eRewiring,
 			})
 		}
 	}
