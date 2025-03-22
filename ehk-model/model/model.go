@@ -6,10 +6,16 @@ import (
 	"gonum.org/v1/gonum/graph/simple"
 )
 
-type HKModelParams struct {
+type HKModelPureParams struct {
 	RecsysCount      int
 	TweetRetainCount int
-	RecsysFactory    func(*HKModel) HKModelRecommendationSystem
+}
+
+type RecsysFactory func(*HKModel) HKModelRecommendationSystem
+
+type HKModelParams struct {
+	HKModelPureParams
+	RecsysFactory RecsysFactory
 }
 
 type CollectItemOptions struct {
@@ -21,10 +27,15 @@ type CollectItemOptions struct {
 }
 
 func DefaultHKModelParams() *HKModelParams {
-	return &HKModelParams{
-		RecsysCount:      10,
-		TweetRetainCount: 3,
+	ret := &HKModelParams{
+		HKModelPureParams: HKModelPureParams{
+			RecsysCount:      10,
+			TweetRetainCount: 3,
+		},
 	}
+	ret.RecsysCount = 10
+	ret.TweetRetainCount = 3
+	return ret
 }
 
 // HKModel represents the Hegselmann-Krause model
@@ -34,9 +45,14 @@ type HKModel struct {
 	ModelParams  *HKModelParams
 	CollectItems *CollectItemOptions
 	// state
-	Graph   *simple.DirectedGraph
-	Grid    *NetworkGrid
+	Graph *simple.DirectedGraph
+	Grid  *NetworkGrid
+
+	// will be incremented after the simulation step ends
+	// starts from 0
+	// guaranteed to be the current step during step
 	CurStep int
+
 	// utils(?)
 	Recsys      HKModelRecommendationSystem
 	Schedule    *RandomActivation
@@ -174,7 +190,7 @@ func (m *HKModel) Step() (int, float64) {
 		m.Recsys.PostStep(changed)
 	}
 
-	// Increment step counter
+	// lastly, increment step counter
 	m.CurStep++
 
 	return changedCount, changedOpinionMax
@@ -189,13 +205,28 @@ func (m *HKModel) GetRecommendation(agent *HKAgent, neighbors []*HKAgent) []*Twe
 	return m.Recsys.Recommend(agent, neighbors, m.ModelParams.RecsysCount)
 }
 
-// CollectOpinions collects all agent opinions
 func (m *HKModel) CollectOpinions() []float64 {
-	opinions := make([]float64, len(m.Schedule.Agents))
+	ret := make([]float64, len(m.Schedule.Agents))
 	for _, agent := range m.Schedule.Agents {
-		opinions[agent.ID] = agent.CurOpinion
+		ret[agent.ID] = agent.CurOpinion
 	}
-	return opinions
+	return ret
+}
+
+func (m *HKModel) CollectAgentNumbers() []AgentNumberRecord {
+	ret := make([]AgentNumberRecord, len(m.Schedule.Agents))
+	for _, agent := range m.Schedule.Agents {
+		ret[agent.ID] = agent.AgentNumber
+	}
+	return ret
+}
+
+func (m *HKModel) CollectAgentOpinions() []AgentOpinionSumRecord {
+	ret := make([]AgentOpinionSumRecord, len(m.Schedule.Agents))
+	for _, agent := range m.Schedule.Agents {
+		ret[agent.ID] = agent.OpinionSum
+	}
+	return ret
 }
 
 // CollectTweets collects all current tweets
