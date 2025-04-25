@@ -17,13 +17,13 @@ stat_collectors = {
 }
 
 s_params = RandomNetworkProvider(
-    agent_count=400,
+    agent_count=500,
     agent_follow=15,
 )
 sim_p_standard = SimulationParams(
-    max_total_step=500,
+    max_total_step=5000,
     model_stat_interval=15,
-    model_stat_collectors=stat_collectors,
+    model_stat_collectors={}, # stat_collectors,
     agent_stat_keys=['cur_opinion', 'nr_agents', 'op_sum_agents', 'follow_event'],
 )
 
@@ -32,7 +32,7 @@ params = HKModelParams(
     decay=0.1,
     rewiring_rate=0.03,
     recsys_count=10,
-    recsys_factory=lambda m: Structure(m, steepness=None),
+    recsys_factory=lambda m: Random(m), # Structure(m, steepness=None),
 )
 
 S = Scenario(s_params, params, sim_p_standard)

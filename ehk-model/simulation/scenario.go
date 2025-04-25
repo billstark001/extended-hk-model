@@ -167,6 +167,11 @@ func (s *Scenario) Step() (int, float64) {
 	return changedCount, maxOpinionChange
 }
 
+func (s *Scenario) IsFinished() bool {
+	finished, _ := s.serializer.IsFinished()
+	return finished
+}
+
 const MAX_SIM_COUNT = 15000
 const NETWORK_CHANGE_THRESHOLD = 1
 const OPINION_CHANGE_THRESHOLD = 1e-7
@@ -174,6 +179,12 @@ const STOP_SIM_STEPS = 60
 const SAVE_INTERVAL = 300 // seconds
 
 func (s *Scenario) StepTillEnd() {
+
+	// if finished, jump this simulation
+	if s.IsFinished() {
+		return
+	}
+
 	bar := progressbar.Default(MAX_SIM_COUNT)
 	bar.Set(s.model.CurStep)
 
@@ -209,6 +220,7 @@ func (s *Scenario) StepTillEnd() {
 
 	// finally save everything
 	s.Dump()
+	s.serializer.MarkFinished()
 	s.serializer.SaveGraph(utils.SerializeGraph(s.model.Graph), s.model.CurStep)
 }
 

@@ -13,6 +13,7 @@ require (
 
 require (
 	github.com/mattn/go-sqlite3 v1.14.24
+	github.com/pierrec/lz4/v4 v4.1.22
 	github.com/schollz/progressbar/v3 v3.18.0
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	gonum.org/v1/gonum v0.15.1

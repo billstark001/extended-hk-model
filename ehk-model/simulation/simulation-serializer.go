@@ -53,7 +53,7 @@ func (s *SimulationSerializer) ensureSimulationDir() error {
 
 // #region serialize
 
-func (s *SimulationSerializer) _list(fileType string) ([]string, error) {
+func (s *SimulationSerializer) _list(fileType string, suffixName string) ([]string, error) {
 	dir := s.getSimulationDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -62,7 +62,7 @@ func (s *SimulationSerializer) _list(fileType string) ([]string, error) {
 
 	var snapshotFiles []string
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasPrefix(entry.Name(), fileType+"-") && strings.HasSuffix(entry.Name(), ".msgpack") {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), fileType+"-") && strings.HasSuffix(entry.Name(), suffixName) {
 			snapshotFiles = append(snapshotFiles, filepath.Join(dir, entry.Name()))
 		}
 	}
@@ -89,38 +89,42 @@ func (s *SimulationSerializer) _read(filePath string, snapshot any) (anyPtr, err
 	return snapshot, nil
 }
 
+func (s *SimulationSerializer) _getFilePath(fileType string, suffixName string) string {
+	timestamp := time.Now().UTC().Format(time.RFC3339)
+	timestamp = strings.ReplaceAll(timestamp, ":", "") // change to ISO 8601 format
+	filename := fmt.Sprintf("%s-%s%s", fileType, timestamp, suffixName)
+	filePath := filepath.Join(s.getSimulationDir(), filename)
+	return filePath
+}
+
 func (s *SimulationSerializer) _write(fileType string, snapshot anyPtr) error {
 	if err := s.ensureSimulationDir(); err != nil {
 		return err
 	}
 
-	// 创建快照文件名
-	timestamp := time.Now().UTC().Format(time.RFC3339)
-	timestamp = strings.ReplaceAll(timestamp, ":", "") // change to ISO 8601 format
-	filename := fmt.Sprintf("%s-%s.msgpack", fileType, timestamp)
-	filePath := filepath.Join(s.getSimulationDir(), filename)
-
-	// 序列化并保存快照
+	// serialize
 	data, err := msgpack.Marshal(snapshot)
 	if err != nil {
 		return err
 	}
 
+	// save
+	filePath := s._getFilePath(fileType, ".msgpack")
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return err
 	}
 
-	// 如果需要，删除旧快照
-	return s._clean(fileType, false)
+	// clean old ones
+	return s._clean(fileType, false, ".msgpack")
 }
 
 // 清理旧的快照文件
-func (s *SimulationSerializer) _clean(fileType string, all bool) error {
+func (s *SimulationSerializer) _clean(fileType string, all bool, suffixName string) error {
 	if !all && s.maxSnapshotCount <= 0 {
 		return nil // 不限制快照数量
 	}
 
-	files, err := s._list(fileType)
+	files, err := s._list(fileType, suffixName)
 	if err != nil {
 		return err
 	}
@@ -153,7 +157,7 @@ func (s *SimulationSerializer) GetLatestSnapshot() (*model.HKModelDumpData, erro
 	if !s.Exists() {
 		return nil, nil
 	}
-	files, err := s._list("snapshot")
+	files, err := s._list("snapshot", ".msgpack")
 	if err != nil {
 		return nil, err
 	}
@@ -172,13 +176,33 @@ func (s *SimulationSerializer) SaveSnapshot(snapshot *model.HKModelDumpData) err
 
 // #endregion
 
+// #region finished mark
+
+type FinishMark struct {
+}
+
+func (s *SimulationSerializer) MarkFinished() error {
+	return s._write("finished", &FinishMark{})
+}
+
+func (s *SimulationSerializer) IsFinished() (bool, error) {
+	files, err := s._list("finished", ".msgpack")
+	if err != nil {
+		return false, err
+	}
+	finished := len(files) > 0
+	return finished, nil
+}
+
+// #endregion
+
 // #region acc-state
 
 func (s *SimulationSerializer) GetLatestAccumulativeState() (*AccumulativeModelState, error) {
 	if !s.Exists() {
 		return nil, nil
 	}
-	files, err := s._list("acc-state")
+	files, err := s._list("acc-state", ".lz4")
 	if err != nil {
 		return nil, err
 	}
@@ -187,12 +211,24 @@ func (s *SimulationSerializer) GetLatestAccumulativeState() (*AccumulativeModelS
 	}
 
 	latestFile := files[len(files)-1]
-	ret, err := s._read(latestFile, &AccumulativeModelState{})
-	return ret.(*AccumulativeModelState), err
+	ret, err := LoadAccumulativeModelState(latestFile)
+	return ret, err
 }
 
 func (s *SimulationSerializer) SaveAccumulativeState(snapshot *AccumulativeModelState) error {
-	return s._write("acc-state", snapshot)
+
+	// declare
+	fileType := "acc-state"
+	filePath := s._getFilePath(fileType, ".lz4")
+
+	// save
+	err := SaveAccumulativeModelState(filePath, snapshot)
+	if err != nil {
+		return err
+	}
+
+	// clean old ones
+	return s._clean(fileType, false, ".lz4")
 }
 
 // #endregion
