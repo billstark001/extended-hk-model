@@ -77,7 +77,7 @@ func DeserializeGraph(nxGraph *NetworkXGraph) *simple.DirectedGraph {
 	for fromID, targets := range nxGraph.Adjacency {
 		for toID, edgeAttr := range targets {
 			// ensure node
-			if g.Node(toID) != nil {
+			if g.Node(toID) == nil {
 				g.AddNode(simple.Node(toID))
 			}
 

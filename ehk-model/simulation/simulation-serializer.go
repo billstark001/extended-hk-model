@@ -75,19 +75,18 @@ func (s *SimulationSerializer) _list(fileType string) ([]string, error) {
 type anyPtr interface{}
 
 // 读取快照文件
-func (s *SimulationSerializer) _read(filePath string) (anyPtr, error) {
+func (s *SimulationSerializer) _read(filePath string, snapshot any) (anyPtr, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, err
 	}
 
-	var snapshot any
 	err = msgpack.Unmarshal(data, &snapshot)
 	if err != nil {
 		return nil, err
 	}
 
-	return &snapshot, nil
+	return snapshot, nil
 }
 
 func (s *SimulationSerializer) _write(fileType string, snapshot anyPtr) error {
@@ -97,6 +96,7 @@ func (s *SimulationSerializer) _write(fileType string, snapshot anyPtr) error {
 
 	// 创建快照文件名
 	timestamp := time.Now().UTC().Format(time.RFC3339)
+	timestamp = strings.ReplaceAll(timestamp, ":", "") // change to ISO 8601 format
 	filename := fmt.Sprintf("%s-%s.msgpack", fileType, timestamp)
 	filePath := filepath.Join(s.getSimulationDir(), filename)
 
@@ -162,7 +162,7 @@ func (s *SimulationSerializer) GetLatestSnapshot() (*model.HKModelDumpData, erro
 	}
 
 	latestFile := files[len(files)-1]
-	ret, err := s._read(latestFile)
+	ret, err := s._read(latestFile, &model.HKModelDumpData{})
 	return ret.(*model.HKModelDumpData), err
 }
 
@@ -187,7 +187,7 @@ func (s *SimulationSerializer) GetLatestAccumulativeState() (*AccumulativeModelS
 	}
 
 	latestFile := files[len(files)-1]
-	ret, err := s._read(latestFile)
+	ret, err := s._read(latestFile, &AccumulativeModelState{})
 	return ret.(*AccumulativeModelState), err
 }
 

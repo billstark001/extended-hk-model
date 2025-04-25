@@ -5,6 +5,7 @@ import (
 	"ehk-model/utils"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -64,6 +65,15 @@ func (s *Scenario) Init() {
 
 	s.model = m
 
+	// create model record dump
+	err := os.MkdirAll(
+		filepath.Join(s.dir, s.metadata.UniqueName),
+		0755,
+	)
+	if err != nil {
+		log.Fatalf("Failed to create scenario dump folder: %v", err)
+	}
+
 	// initialize accumulative record
 
 	s.acc = NewAccumulativeModelState()
@@ -85,7 +95,8 @@ func (s *Scenario) Load() bool {
 
 	db, err := OpenEventDB(filepath.Join(s.dir, s.metadata.UniqueName, "events.db"))
 	if err != nil {
-		log.Fatalf("Failed to create event db logger: %v", err)
+		log.Printf("Failed to create event db logger: %v", err)
+		return false
 	}
 
 	s.db = db
@@ -94,7 +105,7 @@ func (s *Scenario) Load() bool {
 
 	modelDump, err := s.serializer.GetLatestSnapshot()
 	if err != nil {
-		log.Fatalf("Failed to load model dump: %v", err)
+		log.Printf("Failed to load model dump: %v", err)
 		return false
 	}
 
@@ -118,12 +129,12 @@ func (s *Scenario) Load() bool {
 
 	acc, err := s.serializer.GetLatestAccumulativeState()
 	if err != nil {
-		log.Fatalf("Failed to load accumulative state: %v", err)
+		log.Printf("Failed to load accumulative state: %v", err)
 		return false
 	} else {
 		validated := acc.validate((*s.model))
 		if !validated {
-			log.Fatalf("Accumulative state validation failed")
+			log.Printf("Accumulative state validation failed")
 			return false
 		}
 	}
@@ -158,7 +169,7 @@ func (s *Scenario) Step() (int, float64) {
 
 const MAX_SIM_COUNT = 15000
 const NETWORK_CHANGE_THRESHOLD = 1
-const OPINION_CHANGE_THRESHOLD = 1e-6
+const OPINION_CHANGE_THRESHOLD = 1e-7
 const STOP_SIM_STEPS = 60
 const SAVE_INTERVAL = 300 // seconds
 

@@ -6,27 +6,66 @@ import (
 
 type AccumulativeModelState struct {
 	// (step, agent)
-	Opinions [][]float64
+	Opinions [][]float32
 	// (step, agent, type)
-	AgentNumbers [][][4]int
+	AgentNumbers [][][4]int16
 	// (step, agent, type)
-	AgentOpinionSums [][][4]float64
+	AgentOpinionSums [][][4]float32
 
 	UnsafeTweetEvent int
 }
 
 func NewAccumulativeModelState() *AccumulativeModelState {
 	return &AccumulativeModelState{
-		Opinions:         make([][]float64, 0),
-		AgentNumbers:     make([][][4]int, 0),
-		AgentOpinionSums: make([][][4]float64, 0),
+		Opinions:         make([][]float32, 0),
+		AgentNumbers:     make([][][4]int16, 0),
+		AgentOpinionSums: make([][][4]float32, 0),
 	}
 }
 
+func float64sToFloat32s(src []float64) []float32 {
+	dst := make([]float32, len(src))
+	for i, v := range src {
+		dst[i] = float32(v)
+	}
+	return dst
+}
+
+func int32sToInt16s4(src [][4]int) [][4]int16 {
+	dst := make([][4]int16, len(src))
+	for i, v := range src {
+		dst[i][0] = int16(v[0])
+		dst[i][1] = int16(v[1])
+		dst[i][2] = int16(v[2])
+		dst[i][3] = int16(v[3])
+	}
+	return dst
+}
+
+func float64sToFloat32s4(src [][4]float64) [][4]float32 {
+	dst := make([][4]float32, len(src))
+	for i, v := range src {
+		dst[i][0] = float32(v[0])
+		dst[i][1] = float32(v[1])
+		dst[i][2] = float32(v[2])
+		dst[i][3] = float32(v[3])
+	}
+	return dst
+}
+
 func (s *AccumulativeModelState) accumulate(model model.HKModel) {
-	s.Opinions = append(s.Opinions, model.CollectOpinions())
-	s.AgentNumbers = append(s.AgentNumbers, model.CollectAgentNumbers())
-	s.AgentOpinionSums = append(s.AgentOpinionSums, model.CollectAgentOpinions())
+	s.Opinions = append(
+		s.Opinions,
+		float64sToFloat32s(model.CollectOpinions()),
+	)
+	s.AgentNumbers = append(
+		s.AgentNumbers,
+		int32sToInt16s4(model.CollectAgentNumbers()),
+	)
+	s.AgentOpinionSums = append(
+		s.AgentOpinionSums,
+		float64sToFloat32s4(model.CollectAgentOpinions()),
+	)
 }
 
 func (s *AccumulativeModelState) validate(model model.HKModel) bool {
