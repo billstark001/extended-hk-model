@@ -66,12 +66,14 @@ SIMULATION_TEMP_FILE = _p('./run/temp_metadata.json')
 
 if __name__ == '__main__':
   total_count = len(params_arr)
-  for i, params in params_arr:
+  for i, params in enumerate(params_arr):
     
     logger.info(
       '(%d / %d) Scenario %s simulation started.', 
       i + 1, total_count, params['UniqueName']
     )
+    
+    os.makedirs(SIMULATION_RESULT_DIR, exist_ok=True)
     
     with open(SIMULATION_TEMP_FILE, 'w') as f:
       json.dump(params, f)
