@@ -230,14 +230,22 @@ func (s *Scenario) logEvent(event *model.EventRecord) {
 
 	case "Tweet":
 		body := event.Body.(model.TweetEventBody)
-		if body.IsRetweet {
+		if body.IsRetweet && s.metadata.CollectItemOptions.TweetEvent {
 			s.db.StoreEvent(event)
 		} else {
 			// do nothing
 		}
 
 	case "Rewiring":
-		s.db.StoreEvent(event)
+		if s.metadata.CollectItemOptions.RewiringEvent {
+			s.db.StoreEvent(event)
+		}
+
+	case "ViewTweets":
+		if s.metadata.CollectItemOptions.ViewTweetsEvent {
+			s.db.StoreEvent(event)
+		}
+
 	}
 
 }
