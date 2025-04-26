@@ -4,17 +4,27 @@ import (
 	"database/sql"
 	model "ehk-model/model"
 	"fmt"
+	"sync"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
 type EventDB struct {
-	db *sql.DB
+	db        *sql.DB
+	batchSize int
+	mu        sync.Mutex
+	cache     []*model.EventRecord
+
+	// 预编译语句
+	eventStmt      *sql.Stmt
+	rewiringStmt   *sql.Stmt
+	tweetStmt      *sql.Stmt
+	viewTweetsStmt *sql.Stmt
 }
 
-// OpenEventDB 从文件打开数据库
-func OpenEventDB(filename string) (*EventDB, error) {
+// OpenEventDB 从文件打开数据库，指定批量写入大小
+func OpenEventDB(filename string, batchSize int) (*EventDB, error) {
 	db, err := sql.Open("sqlite3", filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -84,101 +94,170 @@ func OpenEventDB(filename string) (*EventDB, error) {
 		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
 	}
 
-	return &EventDB{db: db}, nil
+	// 预编译语句
+	eventStmt, err := db.Prepare("INSERT INTO events (type, agent_id, step) VALUES (?, ?, ?)")
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to prepare event insert: %w", err)
+	}
+
+	rewiringStmt, err := db.Prepare("INSERT INTO rewiring_events (event_id, unfollow, follow) VALUES (?, ?, ?)")
+	if err != nil {
+		eventStmt.Close()
+		db.Close()
+		return nil, fmt.Errorf("failed to prepare rewiring insert: %w", err)
+	}
+
+	tweetStmt, err := db.Prepare("INSERT INTO tweet_events (event_id, agent_id, step, opinion, is_retweet) VALUES (?, ?, ?, ?, ?)")
+	if err != nil {
+		eventStmt.Close()
+		rewiringStmt.Close()
+		db.Close()
+		return nil, fmt.Errorf("failed to prepare tweet insert: %w", err)
+	}
+
+	viewTweetsStmt, err := db.Prepare("INSERT INTO view_tweets_events (event_id, data) VALUES (?, ?)")
+	if err != nil {
+		eventStmt.Close()
+		rewiringStmt.Close()
+		tweetStmt.Close()
+		db.Close()
+		return nil, fmt.Errorf("failed to prepare view_tweets insert: %w", err)
+	}
+
+	return &EventDB{
+		db:             db,
+		batchSize:      batchSize,
+		cache:          make([]*model.EventRecord, 0, batchSize),
+		eventStmt:      eventStmt,
+		rewiringStmt:   rewiringStmt,
+		tweetStmt:      tweetStmt,
+		viewTweetsStmt: viewTweetsStmt,
+	}, nil
 }
 
-// Close 关闭数据库连接
+// Close 关闭数据库连接及释放资源
 func (edb *EventDB) Close() error {
+	edb.mu.Lock()
+	defer edb.mu.Unlock()
+	edb.Flush() // 确保所有缓存写入
+	edb.eventStmt.Close()
+	edb.rewiringStmt.Close()
+	edb.tweetStmt.Close()
+	edb.viewTweetsStmt.Close()
 	return edb.db.Close()
 }
 
-// StoreEvent 存储事件到数据库
+// StoreEvent 缓存事件，批量写入
 func (edb *EventDB) StoreEvent(event *model.EventRecord) error {
-	// 开始事务
+	edb.mu.Lock()
+	defer edb.mu.Unlock()
+
+	edb.cache = append(edb.cache, event)
+	if len(edb.cache) >= edb.batchSize {
+		return edb.flushLocked()
+	}
+	return nil
+}
+
+// Flush 强制写入所有缓存事件
+func (edb *EventDB) Flush() error {
+	edb.mu.Lock()
+	defer edb.mu.Unlock()
+	return edb.flushLocked()
+}
+
+// flushLocked 需在持有锁情况下调用
+func (edb *EventDB) flushLocked() error {
+	if len(edb.cache) == 0 {
+		return nil
+	}
 	tx, err := edb.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer func() {
+
+	// 记录每个事件的ID
+	eventIDs := make([]int64, len(edb.cache))
+	for i, event := range edb.cache {
+		res, err := tx.Stmt(edb.eventStmt).Exec(event.Type, event.AgentID, event.Step)
 		if err != nil {
 			tx.Rollback()
+			return fmt.Errorf("failed to insert event: %w", err)
 		}
-	}()
-
-	// 插入基本事件信息
-	result, err := tx.Exec(
-		"INSERT INTO events (type, agent_id, step) VALUES (?, ?, ?)",
-		event.Type, event.AgentID, event.Step,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to insert event: %w", err)
+		eventID, err := res.LastInsertId()
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to get last insert ID: %w", err)
+		}
+		eventIDs[i] = eventID
 	}
 
-	// 获取自动生成的事件ID
-	eventID, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert ID: %w", err)
+	// 插入各类型子表
+	for i, event := range edb.cache {
+		switch event.Type {
+		case "Rewiring":
+			if body, ok := event.Body.(model.RewiringEventBody); ok {
+				_, err := tx.Stmt(edb.rewiringStmt).Exec(eventIDs[i], body.Unfollow, body.Follow)
+				if err != nil {
+					tx.Rollback()
+					return fmt.Errorf("failed to insert rewiring event: %w", err)
+				}
+			} else {
+				tx.Rollback()
+				return fmt.Errorf("invalid RewiringEventBody type")
+			}
+		case "Tweet":
+			if body, ok := event.Body.(model.TweetEventBody); ok {
+				if body.Record == nil {
+					tx.Rollback()
+					return fmt.Errorf("tweet record is nil")
+				}
+				_, err := tx.Stmt(edb.tweetStmt).Exec(eventIDs[i], body.Record.AgentID, body.Record.Step, body.Record.Opinion, body.IsRetweet)
+				if err != nil {
+					tx.Rollback()
+					return fmt.Errorf("failed to insert tweet event: %w", err)
+				}
+			} else {
+				tx.Rollback()
+				return fmt.Errorf("invalid TweetEventBody type")
+			}
+		case "ViewTweets":
+			if body, ok := event.Body.(model.ViewTweetsEventBody); ok {
+				data, err := msgpack.Marshal(body)
+				if err != nil {
+					tx.Rollback()
+					return fmt.Errorf("failed to marshal ViewTweetsEventBody: %w", err)
+				}
+				_, err = tx.Stmt(edb.viewTweetsStmt).Exec(eventIDs[i], data)
+				if err != nil {
+					tx.Rollback()
+					return fmt.Errorf("failed to insert view tweets event: %w", err)
+				}
+			} else {
+				tx.Rollback()
+				return fmt.Errorf("invalid ViewTweetsEventBody type")
+			}
+		default:
+			tx.Rollback()
+			return fmt.Errorf("unknown event type: %s", event.Type)
+		}
 	}
 
-	// 根据事件类型处理具体的事件内容
-	switch event.Type {
-	case "Rewiring":
-		if body, ok := event.Body.(model.RewiringEventBody); ok {
-			_, err = tx.Exec(
-				"INSERT INTO rewiring_events (event_id, unfollow, follow) VALUES (?, ?, ?)",
-				eventID, body.Unfollow, body.Follow,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to insert rewiring event: %w", err)
-			}
-		} else {
-			return fmt.Errorf("invalid RewiringEventBody type")
-		}
-
-	case "Tweet":
-		if body, ok := event.Body.(model.TweetEventBody); ok {
-			if body.Record == nil {
-				return fmt.Errorf("tweet record is nil")
-			}
-			_, err = tx.Exec(
-				"INSERT INTO tweet_events (event_id, agent_id, step, opinion, is_retweet) VALUES (?, ?, ?, ?, ?)",
-				eventID, body.Record.AgentID, body.Record.Step, body.Record.Opinion, body.IsRetweet,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to insert tweet event: %w", err)
-			}
-		} else {
-			return fmt.Errorf("invalid TweetEventBody type")
-		}
-
-	case "ViewTweets":
-		if body, ok := event.Body.(model.ViewTweetsEventBody); ok {
-			// 使用msgpack序列化ViewTweetsEventBody
-			data, err := msgpack.Marshal(body)
-			if err != nil {
-				return fmt.Errorf("failed to marshal ViewTweetsEventBody: %w", err)
-			}
-			_, err = tx.Exec(
-				"INSERT INTO view_tweets_events (event_id, data) VALUES (?, ?)",
-				eventID, data,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to insert view tweets event: %w", err)
-			}
-		} else {
-			return fmt.Errorf("invalid ViewTweetsEventBody type")
-		}
-
-	default:
-		return fmt.Errorf("unknown event type: %s", event.Type)
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// 提交事务
-	return tx.Commit()
+	// 清空缓存
+	edb.cache = edb.cache[:0]
+	return nil
 }
 
 // DeleteEventsAfterStep 删除步骤大于等于指定值的所有事件
 func (edb *EventDB) DeleteEventsAfterStep(step int) error {
+	edb.mu.Lock()
+	defer edb.mu.Unlock()
+	edb.Flush() // 保证缓存已写入再删
 	_, err := edb.db.Exec("DELETE FROM events WHERE step >= ?", step)
 	if err != nil {
 		return fmt.Errorf("failed to delete events: %w", err)

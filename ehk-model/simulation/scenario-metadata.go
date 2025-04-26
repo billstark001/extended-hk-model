@@ -7,12 +7,16 @@ import (
 )
 
 type ScenarioMetadata struct {
+	UniqueName string
+
 	model.HKAgentParams
 	model.HKModelPureParams
 	model.CollectItemOptions
 
 	RecsysFactoryType string
-	UniqueName        string
+	NetworkType       string // currently useless
+	NodeCount         int
+	NodeFollowCount   int
 }
 
 func GetDefaultRecsysFactoryDefs() map[string]model.RecsysFactory {

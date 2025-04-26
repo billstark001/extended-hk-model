@@ -30,6 +30,9 @@ func main() {
 		},
 
 		RecsysFactoryType: "Random",
+		NetworkType:       "Random",
+		NodeCount:         500,
+		NodeFollowCount:   15,
 
 		UniqueName: "test",
 	}

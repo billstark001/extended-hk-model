@@ -3,7 +3,6 @@ package simulation
 import (
 	"ehk-model/model"
 	"ehk-model/utils"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -32,14 +31,15 @@ func NewScenario(dir string, metadata *ScenarioMetadata) *Scenario {
 var RECSYS_FACTORY = GetDefaultRecsysFactoryDefs()
 
 const MAX_TWEET_EVENT_INTERVAL = 500
+const DB_CACHE_SIZE = 2000
 
 func (s *Scenario) Init() {
 
-	// TODO create parametrized graph initializer
-	nodeCount := 500
+	nodeCount := max(s.metadata.NodeCount, 1)
+	edgeCount := max(s.metadata.NodeFollowCount, 1)
 	graph := utils.CreateRandomNetwork(
 		nodeCount,
-		15./(float64(nodeCount)-1),
+		float64(edgeCount)/(float64(nodeCount)-1),
 	)
 
 	// initialize model
@@ -78,7 +78,7 @@ func (s *Scenario) Init() {
 
 	s.acc = NewAccumulativeModelState()
 
-	db, err := OpenEventDB(filepath.Join(s.dir, s.metadata.UniqueName, "events.db"))
+	db, err := OpenEventDB(filepath.Join(s.dir, s.metadata.UniqueName, "events.db"), DB_CACHE_SIZE)
 	if err != nil {
 		log.Fatalf("Failed to create event db logger: %v", err)
 	}
@@ -90,10 +90,7 @@ func (s *Scenario) Init() {
 func (s *Scenario) Load() bool {
 
 	// initialize event db
-	// TODO ensure dirs
-	// TODO optimize acc state storage
-
-	db, err := OpenEventDB(filepath.Join(s.dir, s.metadata.UniqueName, "events.db"))
+	db, err := OpenEventDB(filepath.Join(s.dir, s.metadata.UniqueName, "events.db"), DB_CACHE_SIZE)
 	if err != nil {
 		log.Printf("Failed to create event db logger: %v", err)
 		return false
@@ -145,6 +142,7 @@ func (s *Scenario) Load() bool {
 }
 
 func (s *Scenario) Dump() {
+	s.db.Flush()
 	s.serializer.SaveSnapshot(s.model.Dump())
 	s.serializer.SaveAccumulativeState(s.acc)
 }
@@ -226,29 +224,20 @@ func (s *Scenario) StepTillEnd() {
 
 func (s *Scenario) logEvent(event *model.EventRecord) {
 
-	// TODO add to database
+	// add to database when necessary
+
 	switch event.Type {
 
-	case "Tweet1":
+	case "Tweet":
 		body := event.Body.(model.TweetEventBody)
 		if body.IsRetweet {
-			fmt.Printf(
-				"Agent %d retweeted (tweet from Agent %d at step %d) at step %d\n",
-				event.AgentID, body.Record.AgentID, body.Record.Step, event.Step,
-			)
+			s.db.StoreEvent(event)
 		} else {
-			fmt.Printf(
-				"Agent %d tweeted at step %d\n",
-				event.AgentID, event.Step,
-			)
+			// do nothing
 		}
 
-	case "Rewiring1":
-		body := event.Body.(model.RewiringEventBody)
-		fmt.Printf(
-			"Agent %d unfollows %d and follows %d at step %d\n",
-			event.AgentID, body.Unfollow, body.Follow, event.Step,
-		)
+	case "Rewiring":
+		s.db.StoreEvent(event)
 	}
 
 }
