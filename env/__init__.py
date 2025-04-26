@@ -1,2 +1,0 @@
-from env.random import RandomNetworkProvider
-from env.scale_free import ScaleFreeNetworkProvider

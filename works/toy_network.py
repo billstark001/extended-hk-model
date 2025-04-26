@@ -11,10 +11,10 @@ import matplotlib as mpl
 from matplotlib.axes import Axes
 import seaborn as sns
 
-from base import HKModelParams, Scenario, SimulationParams
-from env import RandomNetworkProvider, ScaleFreeNetworkProvider
-from recsys import Random, Opinion, Structure
-import stats
+from ehk_model_old.base import HKModelParams, Scenario, SimulationParams
+from ehk_model_old.env import RandomNetworkProvider, ScaleFreeNetworkProvider
+from ehk_model_old.recsys import Random, Opinion, Structure
+import ehk_model_old.stats as stats
 from utils.stat import area_under_curve
 from utils.plot import plt_figure
 

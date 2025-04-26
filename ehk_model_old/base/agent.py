@@ -6,7 +6,7 @@ import numpy as np
 from mesa import Agent
 
 if TYPE_CHECKING:
-  from base.model import HKModel
+  from ehk_model_old.base.model import HKModel
 
 class HKAgent(Agent):
 

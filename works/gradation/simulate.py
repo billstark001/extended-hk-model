@@ -1,4 +1,4 @@
-from typing import Callable, Mapping, cast, Optional, List, Tuple
+from typing import Dict, Mapping, cast, Optional, List, Tuple
 from numpy.typing import NDArray
 
 import os
@@ -15,11 +15,10 @@ import matplotlib as mpl
 
 import seaborn as sns
 
-from base import HKModelParams, Scenario, SimulationParams, HKModel, HKModelRecommendationSystem
-from env import RandomNetworkProvider, ScaleFreeNetworkProvider
-from recsys import Random, Opinion, Structure, Mixed
-import stats
-
+from ehk_model_old.base import HKModelParams, Scenario, SimulationParams, HKModel, HKModelRecommendationSystem
+from ehk_model_old.env import RandomNetworkProvider, ScaleFreeNetworkProvider
+from ehk_model_old.recsys import Random, Opinion, Structure, Mixed
+import ehk_model_old.stats as stats
 
 from utils.stat import get_logger
 
@@ -82,38 +81,45 @@ sim_p_standard = SimulationParams(
 
 decay_rate_array = rewiring_rate_array = \
     np.array([0.005, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1])
-n_sims = 20
+n_sims = 50
 
-n_gens = [
-    # lambda m: Random(m),
-    lambda m: Mixed(
-        m,
-        Random(m, 10),
-        Opinion(m),
-        0.1),
-    lambda m: Mixed(
-        m,
-        Random(m, 10),
-        Structure(m, noise_std=0.2, matrix_init=True),
-        0.1),
-]
-
-n_gen_names = ['op', 'st']
+n_gen_names = {
+  'op': 'Opinion9',
+  'st': 'Structure9',
+}
 
 # all parameters
 
-params_arr: List[Tuple[str, float, float,
-                       Callable[[HKModel], HKModelRecommendationSystem]]] = []
+def create_go_metadata_dict(
+  name: str,
+  tolerance = 0.45,
+  decay = 0.9,
+  rewiring = 0.01,
+  retweet = 0.05,
+  recsys_type = "Random",
+  recsys_count = 3,
+):
+  return {
+    "UniqueName": name,
+    "Tolerance": tolerance,
+    "Decay": decay,
+    "RewiringRate": rewiring,
+    "RetweetRate": retweet,
+    "RecsysFactoryType": recsys_type,
+    "RecsysCount": recsys_count,
+  }
+
+params_arr: List[Dict] = []
 
 for i_sim in range(n_sims):
   for i, r in enumerate(rewiring_rate_array):
     for j, d in enumerate(decay_rate_array):
-      for k, g in enumerate(n_gens):
-        x = (
-            f'scenario_i{len(params_arr)}_r{i}_d{j}_{n_gen_names[k]}_sim{i_sim}',
-            r,
-            d,
-            g,
+      for k, g in n_gen_names.items():
+        x = create_go_metadata_dict(
+          f'scenario_i{len(params_arr)}_r{i}_d{j}_{k}_sim{i_sim}',
+          rewiring=r,
+          decay=d,
+          recsys_type=g,
         )
         params_arr.append(x)
 

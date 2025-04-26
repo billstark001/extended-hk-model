@@ -4,7 +4,7 @@ import numpy as np
 from tqdm import tqdm
 import networkx as nx
 
-from base import HKAgent, HKModel, HKModelRecommendationSystem
+from ehk_model_old.base import HKAgent, HKModel, HKModelRecommendationSystem
 
 
 def common_neighbors_count(G: nx.DiGraph, u: int, v: int):

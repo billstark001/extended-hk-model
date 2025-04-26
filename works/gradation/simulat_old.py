@@ -2,6 +2,9 @@ from typing import Callable, Mapping, cast, Optional, List, Tuple
 from numpy.typing import NDArray
 
 import os
+# import sys
+# parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# sys.path.append(parent_dir)
 
 import pickle
 from matplotlib.axes import Axes
@@ -18,11 +21,10 @@ from ehk_model_old.recsys import Random, Opinion, Structure, Mixed
 import ehk_model_old.stats as stats
 
 
-from utils.file import find_and_rename
 from utils.stat import get_logger
 
 
-BASE_PATH = './run3'
+BASE_PATH = './run2'
 os.makedirs(BASE_PATH, exist_ok=True)
 
 logger = get_logger(__name__, os.path.join(BASE_PATH, 'logfile.log'))
@@ -30,28 +32,29 @@ logger = get_logger(__name__, os.path.join(BASE_PATH, 'logfile.log'))
 # build scenarios
 
 
-def stat_collectors_f():
+def stat_collectors_f(layout=False):
   ret = {
     # 'triads': stats.TriadsCountCollector(),
-    'layout': stats.NetworkLayoutCollector(return_dict=True),
+    # 'cluster': stats.ClusteringCollector(),
     's-index': stats.SegregationIndexCollector(),
+    'in-degree': stats.InDegreeCollector(),
     'distance': stats.DistanceCollectorDiscrete(
         use_js_divergence=True,
         hist_interval=0.08,
     ),
   }
+  if layout:
+    ret['layout'] = stats.NetworkLayoutCollector(return_dict=True)
   return ret
 
+
 def save_sim_result(S: Scenario, name: str):
-  # dump_data = S.dump()
   dump_data = S.generate_record_data()
   with open(os.path.join(BASE_PATH, name + '_record.pkl'), 'wb') as f:
     pickle.dump(dump_data, f)
 
-
 def check_sim_result(name: str):
   return os.path.exists(os.path.join(BASE_PATH, name + '_record.pkl'))
-
 
 network_provider = RandomNetworkProvider(
     agent_count=400,
@@ -65,56 +68,21 @@ sim_p_standard = SimulationParams(
         300: 15,
         114514: 20,
     },
-    opinion_change_error=1e-5,
-    model_stat_collectors=stat_collectors_f(),
+    opinion_change_error=1e-4,
+    model_stat_collectors=stat_collectors_f(layout=True),
     agent_stat_keys=['cur_opinion', 'nr_agents', 'op_sum_agents', 'follow_event'],
 )
 
 
-decay_rewiring_segs = 13
-decay_rewiring_groups = (10 ** np.vstack([
-  np.linspace(-0.5, -2.5, decay_rewiring_segs),
-  np.linspace(-2.5, -0.5, decay_rewiring_segs)
-])).T
+# rewiring_rate_array = 10 ** np.arange(-2, 0 + 1/5, 1/4)
+# decay_rate_array = 10 ** np.arange(-3, 0, 1/3)
 
-def mix_opinion_structure(m: HKModel, opinion_ratio = 0.5):
-  return Mixed(
-    m,
-    Random(m, 10),
-    Mixed(
-      m,
-      Opinion(m),
-      Structure(m, noise_std=0.2, matrix_init=True),
-      opinion_ratio,
-    ),
-    0.1,
-  )
-  
-def create_mixer(opinion_ratio = 0.5):
-  def mix(m: HKModel):
-    return mix_opinion_structure(m, opinion_ratio)
-  return mix
-  
-def linear_function(x1, y1, x2, y2, x):
-  m = (y2 - y1) / (x2 - x1)
-  b = y1 - m * x1
-  y = m * x + b
-  return y
-  
-def get_mix_op_ratio(
-  decay: float, rewiring: float,
-  low_intercept = 0.2, 
-  high_intercept = 1.2,
-  low_fuse = 0, 
-  high_fuse = 1,
-):
-  bias = np.abs(np.log10(decay / rewiring))
-  if bias < low_intercept:
-    return low_fuse
-  elif bias > high_intercept:
-    return high_fuse
-  return linear_function(low_intercept, low_fuse, high_intercept, high_fuse, bias)
-  
+# rewiring_rate_array = np.array([0.01, 0.03, 0.05, 0.1, 0.3, 0.5])
+# decay_rate_array = np.array([0.005, 0.01, 0.05, 0.1, 0.5, 1])
+
+decay_rate_array = rewiring_rate_array = \
+    np.array([0.005, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1])
+n_sims = 20
 
 n_gens = [
     # lambda m: Random(m),
@@ -128,42 +96,27 @@ n_gens = [
         Random(m, 10),
         Structure(m, noise_std=0.2, matrix_init=True),
         0.1),
-    None,
 ]
 
-
-n_gen_names = ['op', 'st', 'mx']
-
-
-n_sims = 50
+n_gen_names = ['op', 'st']
 
 # all parameters
 
-params_arr: List[Tuple[str, float, float, float]] = []
+params_arr: List[Tuple[str, float, float,
+                       Callable[[HKModel], HKModelRecommendationSystem]]] = []
 
 for i_sim in range(n_sims):
-  for i_dr, (d, r) in enumerate(decay_rewiring_groups):
-    for i_g, g in enumerate(n_gens):
-      g_name = n_gen_names[i_g]
-      if g is None:
-        # mixed strategy
-        r2 = get_mix_op_ratio(d, r) # the ratio of opinion-based recsys
-        if r2 >= 1 or r2 <= 0: # mitigation is not needed, continue
-          continue
-        g = create_mixer(r2)
-      x = (
-          f'scenario_i{len(params_arr):04}_dr{i_dr}_{g_name}_sim{i_sim}',
-          r,
-          d,
-          g,
-      )
-      params_arr.append(x)
+  for i, r in enumerate(rewiring_rate_array):
+    for j, d in enumerate(decay_rate_array):
+      for k, g in enumerate(n_gens):
+        x = (
+            f'scenario_i{len(params_arr)}_r{i}_d{j}_{n_gen_names[k]}_sim{i_sim}',
+            r,
+            d,
+            g,
+        )
+        params_arr.append(x)
 
-RENAME = False
-if RENAME:
-  for name, *_ in params_arr:
-    suffix = name[len('scenario_i0000_'):] + '_record.pkl'
-    find_and_rename(BASE_PATH, suffix, name + '_record.pkl')
 
 def gen_params(r: float, d: float, g: float):
   return HKModelParams(
@@ -179,10 +132,10 @@ if __name__ == '__main__':
   for scenario_name, r, d, g in params_arr:
     if check_sim_result(scenario_name):
       continue
-
+    
     params = gen_params(r, d, g)
 
-    sim_p_standard.model_stat_collectors = stat_collectors_f()
+    sim_p_standard.model_stat_collectors = stat_collectors_f(layout=True)
     scenario = Scenario(network_provider, params, sim_p_standard)
     scenario.init()
 

@@ -1,12 +1,12 @@
 from typing import Callable, Union
 
-from base import SimulationParams, HKModelParams
-from env import RandomNetworkProvider, ScaleFreeNetworkProvider
-from recsys import Random, Opinion, Structure, Mixed
+from ehk_model_old.base import SimulationParams, HKModelParams
+from ehk_model_old.env import RandomNetworkProvider, ScaleFreeNetworkProvider
+from ehk_model_old.recsys import Random, Opinion, Structure, Mixed
 
 from dataclasses import asdict
 
-import stats
+import ehk_model_old.stats as stats
 
 # model parameters
 

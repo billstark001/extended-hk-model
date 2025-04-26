@@ -10,10 +10,10 @@ from mesa.time import RandomActivation
 from mesa.space import NetworkGrid
 import dataclasses
 
-from base.agent import HKAgent
+from ehk_model_old.base.agent import HKAgent
 
 if TYPE_CHECKING:
-  from base.recsys import HKModelRecommendationSystem
+  from ehk_model_old.base.recsys import HKModelRecommendationSystem
 
 
 class HKModel(Model):

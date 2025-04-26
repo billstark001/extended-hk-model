@@ -6,7 +6,7 @@ import dataclasses
 import networkx as nx
 import numpy as np
 
-from base.model import HKModel, HKModelParams, HKAgent
+from ehk_model_old.base.model import HKModel, HKModelParams, HKAgent
 from mesa import DataCollector
 
 from tqdm import tqdm

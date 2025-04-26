@@ -12,10 +12,10 @@ import matplotlib as mpl
 
 import seaborn as sns
 
-from base import HKModelParams, Scenario, SimulationParams, HKModel, HKModelRecommendationSystem
-from env import RandomNetworkProvider, ScaleFreeNetworkProvider
-from recsys import Random, Opinion, Structure, Mixed
-import stats
+from ehk_model_old.base import HKModelParams, Scenario, SimulationParams, HKModel, HKModelRecommendationSystem
+from ehk_model_old.env import RandomNetworkProvider, ScaleFreeNetworkProvider
+from ehk_model_old.recsys import Random, Opinion, Structure, Mixed
+import ehk_model_old.stats as stats
 
 BASE_PATH = './run2'
 os.makedirs(BASE_PATH, exist_ok=True)

@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, List, Optional, Any
 import abc
 
 if TYPE_CHECKING:
-  from base.model import HKModel
-  from base.agent import HKAgent
+  from ehk_model_old.base.model import HKModel
+  from ehk_model_old.base.agent import HKAgent
 
 class HKModelRecommendationSystem(abc.ABC):
 

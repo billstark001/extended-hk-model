@@ -11,7 +11,7 @@ from matplotlib.axes._axes import Axes
 from matplotlib.figure import Figure
 import seaborn as sns
 
-from base.scenario import Scenario
+from ehk_model_old.base.scenario import Scenario
 
 import utils.stat as p
 import utils.plot as _p

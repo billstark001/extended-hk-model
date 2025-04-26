@@ -7,12 +7,12 @@ import importlib
 import numpy as np
 from tqdm import tqdm
 
-from base import Scenario
+from ehk_model_old.base import Scenario
 
-from base.scenario import SimulationParams
+from ehk_model_old.base.scenario import SimulationParams
 import works.gradation.simulate as p
 
-import stats
+import ehk_model_old.stats as stats
 
 import utils.plot as _p
 importlib.reload(_p)

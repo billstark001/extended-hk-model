@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import importlib
 
-from base.scenario import Scenario
+from ehk_model_old.base.scenario import Scenario
 
 from works.large.scenarios import all_scenarios
 import works.large.snapshots as ss

@@ -2,7 +2,7 @@ import os
 import numpy as np
 import time
 from typing import Dict
-from base import Scenario
+from ehk_model_old.base import Scenario
 
 from works.large.scenarios import all_scenarios, set_logger
 import works.large.snapshots as ss
