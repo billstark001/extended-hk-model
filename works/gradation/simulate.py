@@ -1,27 +1,11 @@
-from typing import Dict, Mapping, cast, Optional, List, Tuple
-from numpy.typing import NDArray
+from typing import Dict, List
 
 import os
-# import sys
-# parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-# sys.path.append(parent_dir)
-
-import pickle
-from matplotlib.axes import Axes
-import networkx as nx
+import subprocess
+import json
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-
-import seaborn as sns
-
-from ehk_model_old.base import HKModelParams, Scenario, SimulationParams, HKModel, HKModelRecommendationSystem
-from ehk_model_old.env import RandomNetworkProvider, ScaleFreeNetworkProvider
-from ehk_model_old.recsys import Random, Opinion, Structure, Mixed
-import ehk_model_old.stats as stats
 
 from utils.stat import get_logger
-
 
 BASE_PATH = './run2'
 os.makedirs(BASE_PATH, exist_ok=True)
@@ -30,62 +14,13 @@ logger = get_logger(__name__, os.path.join(BASE_PATH, 'logfile.log'))
 
 # build scenarios
 
-
-def stat_collectors_f(layout=False):
-  ret = {
-    # 'triads': stats.TriadsCountCollector(),
-    # 'cluster': stats.ClusteringCollector(),
-    's-index': stats.SegregationIndexCollector(),
-    'in-degree': stats.InDegreeCollector(),
-    'distance': stats.DistanceCollectorDiscrete(
-        use_js_divergence=True,
-        hist_interval=0.08,
-    ),
-  }
-  if layout:
-    ret['layout'] = stats.NetworkLayoutCollector(return_dict=True)
-  return ret
-
-
-def save_sim_result(S: Scenario, name: str):
-  dump_data = S.generate_record_data()
-  with open(os.path.join(BASE_PATH, name + '_record.pkl'), 'wb') as f:
-    pickle.dump(dump_data, f)
-
-def check_sim_result(name: str):
-  return os.path.exists(os.path.join(BASE_PATH, name + '_record.pkl'))
-
-network_provider = RandomNetworkProvider(
-    agent_count=400,
-    agent_follow=15,
-)
-sim_p_standard = SimulationParams(
-    max_total_step=15000,
-    model_stat_interval={
-        50: 5,
-        150: 10,
-        300: 15,
-        114514: 20,
-    },
-    opinion_change_error=1e-4,
-    model_stat_collectors=stat_collectors_f(layout=True),
-    agent_stat_keys=['cur_opinion', 'nr_agents', 'op_sum_agents', 'follow_event'],
-)
-
-
-# rewiring_rate_array = 10 ** np.arange(-2, 0 + 1/5, 1/4)
-# decay_rate_array = 10 ** np.arange(-3, 0, 1/3)
-
-# rewiring_rate_array = np.array([0.01, 0.03, 0.05, 0.1, 0.3, 0.5])
-# decay_rate_array = np.array([0.005, 0.01, 0.05, 0.1, 0.5, 1])
-
 decay_rate_array = rewiring_rate_array = \
     np.array([0.005, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1])
 n_sims = 50
 
 n_gen_names = {
-  'op': 'Opinion9',
-  'st': 'Structure9',
+  'op': 'OpinionM9',
+  'st': 'StructureM9',
 }
 
 # all parameters
@@ -123,39 +58,28 @@ for i_sim in range(n_sims):
         )
         params_arr.append(x)
 
+_p = lambda p: os.path.normpath(os.path.expanduser(p))
 
-def gen_params(r: float, d: float, g: float):
-  return HKModelParams(
-      tolerance=0.45,
-      decay=d,
-      rewiring_rate=r,
-      recsys_count=10,
-      recsys_factory=g
-  )
-
+GO_SIMULATOR_PATH = _p('./ehk-model/main')
+SIMULATION_RESULT_DIR = _p('./run/')
+SIMULATION_TEMP_FILE = _p('./run/temp_metadata.json')
 
 if __name__ == '__main__':
-  for scenario_name, r, d, g in params_arr:
-    if check_sim_result(scenario_name):
-      continue
+  total_count = len(params_arr)
+  for i, params in params_arr:
     
-    params = gen_params(r, d, g)
-
-    sim_p_standard.model_stat_collectors = stat_collectors_f(layout=True)
-    scenario = Scenario(network_provider, params, sim_p_standard)
-    scenario.init()
-
-    logger.info('Scenario %s simulation started.', scenario_name)
-
-    try:
-
-      scenario.iter()
-      save_sim_result(scenario, scenario_name)
-
-      logger.info('Saved scenario %s. Model at step %d.',
-                  scenario_name, scenario.steps)
-
-    except Exception as e:
-      logger.error(
-          'Error occurred when simulating scenario %s.', scenario_name)
-      logger.exception(e)
+    logger.info(
+      '(%d / %d) Scenario %s simulation started.', 
+      i + 1, total_count, params['UniqueName']
+    )
+    
+    with open(SIMULATION_TEMP_FILE, 'w') as f:
+      json.dump(params, f)
+    
+    res = subprocess.run([GO_SIMULATOR_PATH, SIMULATION_RESULT_DIR, SIMULATION_TEMP_FILE])
+    
+    if res.returncode == 0:
+      logger.info('Simulation of scenario %s complete', params['UniqueName'])
+    else:
+      logger.error('Simulation of scenario %s errored with code %d', params['UniqueName'], res.returncode)
+      

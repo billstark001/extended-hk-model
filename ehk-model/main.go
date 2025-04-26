@@ -3,6 +3,9 @@ package main
 import (
 	"ehk-model/model"
 	"ehk-model/simulation"
+	"encoding/json"
+	"log"
+	"os"
 )
 
 func main() {
@@ -37,7 +40,23 @@ func main() {
 		UniqueName: "test",
 	}
 
-	scenario := simulation.NewScenario("./run", metadata)
+	args := os.Args
+	basePath := args[1]
+	metadataPath := args[2]
+	metadataJson, err := os.ReadFile(metadataPath)
+	if err != nil {
+		log.Fatalf("Failed to load metadata file: %v", err)
+	}
+
+	// basePath := "./run"
+	// metadataJson := []byte(`{}`)
+
+	err = json.Unmarshal(metadataJson, metadata)
+	if err != nil {
+		log.Fatalf("Failed to unmarshal metadata file: %v", err)
+	}
+
+	scenario := simulation.NewScenario(basePath, metadata)
 
 	if !scenario.Load() {
 		scenario.Init()

@@ -46,5 +46,24 @@ func GetDefaultRecsysFactoryDefs() map[string]model.RecsysFactory {
 			})
 		},
 	}
+
+	ret["OpinionM9"] = func(h *model.HKModel) model.HKModelRecommendationSystem {
+		return &recsys.Mix{
+			Model:       h,
+			RecSys1:     ret["Random"](h),
+			RecSys2:     ret["Opinion"](h),
+			RecSys1Rate: 0.1,
+		}
+	}
+
+	ret["StructureM9"] = func(h *model.HKModel) model.HKModelRecommendationSystem {
+		return &recsys.Mix{
+			Model:       h,
+			RecSys1:     ret["Random"](h),
+			RecSys2:     ret["Structure"](h),
+			RecSys1Rate: 0.1,
+		}
+	}
+
 	return ret
 }
