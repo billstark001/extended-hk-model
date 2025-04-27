@@ -141,7 +141,7 @@ func (m *HKModel) SetAgentCurTweets() {
 }
 
 // Step advances the model by one time step
-func (m *HKModel) Step() (int, float64) {
+func (m *HKModel) Step(doIncrementCurStep bool) (int, float64) {
 	// Pre-step actions for recommendation system
 	if m.Recsys != nil {
 		m.Recsys.PreStep()
@@ -191,7 +191,9 @@ func (m *HKModel) Step() (int, float64) {
 	}
 
 	// lastly, increment step counter
-	m.CurStep++
+	if doIncrementCurStep {
+		m.CurStep++
+	}
 
 	return changedCount, changedOpinionMax
 }

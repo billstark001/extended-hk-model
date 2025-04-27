@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -282,6 +284,33 @@ func (s *SimulationSerializer) LoadGraph(step int) (*utils.NetworkXGraph, error)
 	}
 
 	return &graph, nil
+}
+
+func (s *SimulationSerializer) DeleteGraphsAfterStep(step int, ignoreStepParsingErrors bool) error {
+
+	reGraphName := regexp.MustCompile(`graph-(\d+)\.msgpack`)
+
+	// list all graphs
+	files, err := s._list("graph", ".msgpack")
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		matches := reGraphName.FindStringSubmatch(file)
+		stepInt, err := strconv.Atoi(matches[1])
+		if err != nil && !ignoreStepParsingErrors {
+			return err
+		}
+		if err == nil && stepInt >= step {
+			err := os.Remove(file)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // #endregion

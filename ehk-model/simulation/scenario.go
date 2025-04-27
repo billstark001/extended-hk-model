@@ -139,6 +139,10 @@ func (s *Scenario) Load() bool {
 
 	s.acc = acc
 
+	// delete potentially dirty data
+	s.db.DeleteEventsAfterStep(s.model.CurStep)
+	s.serializer.DeleteGraphsAfterStep(s.model.CurStep, false)
+
 	return true
 }
 
@@ -149,7 +153,7 @@ func (s *Scenario) Dump() {
 }
 
 func (s *Scenario) Step() (int, float64) {
-	changedCount, maxOpinionChange := s.model.Step()
+	changedCount, maxOpinionChange := s.model.Step(false)
 
 	// event is naturally logged
 
@@ -162,6 +166,10 @@ func (s *Scenario) Step() (int, float64) {
 		s.serializer.SaveGraph(utils.SerializeGraph(s.model.Graph), s.model.CurStep)
 		s.acc.UnsafeTweetEvent = 0
 	}
+
+	// increase the counter manually
+	// to ensure the graph records' step numbers stay consistent
+	s.model.CurStep++
 
 	return changedCount, maxOpinionChange
 }

@@ -138,9 +138,9 @@ func OpenEventDB(filename string, batchSize int) (*EventDB, error) {
 
 // Close 关闭数据库连接及释放资源
 func (edb *EventDB) Close() error {
+	edb.Flush() // 确保所有缓存写入
 	edb.mu.Lock()
 	defer edb.mu.Unlock()
-	edb.Flush() // 确保所有缓存写入
 	edb.eventStmt.Close()
 	edb.rewiringStmt.Close()
 	edb.tweetStmt.Close()
@@ -255,9 +255,9 @@ func (edb *EventDB) flushLocked() error {
 
 // DeleteEventsAfterStep 删除步骤大于等于指定值的所有事件
 func (edb *EventDB) DeleteEventsAfterStep(step int) error {
+	edb.Flush() // 保证缓存已写入再删
 	edb.mu.Lock()
 	defer edb.mu.Unlock()
-	edb.Flush() // 保证缓存已写入再删
 	_, err := edb.db.Exec("DELETE FROM events WHERE step >= ?", step)
 	if err != nil {
 		return fmt.Errorf("failed to delete events: %w", err)
