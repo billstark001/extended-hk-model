@@ -9,7 +9,7 @@ type HKModelDumpData struct {
 	AgentNumbers     []AgentNumberRecord
 	AgentOpinionSums []AgentOpinionSumRecord
 	Tweets           map[int64][]TweetRecord
-	RecsysDumpData   any // no pointer
+	RecsysDumpData   []byte // no pointer
 }
 
 func (m *HKModel) Dump() *HKModelDumpData {
@@ -66,7 +66,7 @@ func (d *HKModelDumpData) Load(
 	// recover dump data
 	if model.Recsys != nil {
 		// pointer is passed
-		model.Recsys.PostInit(&d.RecsysDumpData)
+		model.Recsys.PostInit(d.RecsysDumpData)
 	}
 
 	return model

@@ -28,7 +28,7 @@ func NewOpinion(model *model.HKModel, noiseStd float64) *Opinion {
 }
 
 // PostInit implements model.HKModelRecommendationSystem
-func (o *Opinion) PostInit(dumpData any) {
+func (o *Opinion) PostInit(dumpData []byte) {
 	o.NumNodes = o.Model.Graph.Nodes().Len()
 	o.Agents = o.Model.Schedule.Agents
 	o.AgentIndices = make(map[int64]int, o.NumNodes)

@@ -2,11 +2,14 @@ package recsys
 
 import (
 	"ehk-model/model"
+	"log"
+
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 type MixDump struct {
-	RecSys1Dump any
-	RecSys2Dump any
+	RecSys1Dump []byte
+	RecSys2Dump []byte
 }
 
 type Mix struct {
@@ -21,11 +24,13 @@ func _() model.HKModelRecommendationSystem {
 	return &Mix{}
 }
 
-func (rs *Mix) PostInit(dumpData any) {
+func (rs *Mix) PostInit(dumpData []byte) {
+	dumpStruct := &MixDump{}
 	if dumpData != nil {
-		if data, ok := dumpData.(*MixDump); ok {
-			rs.RecSys1.PostInit(&data.RecSys1Dump)
-			rs.RecSys2.PostInit(&data.RecSys2Dump)
+		err := msgpack.Unmarshal(dumpData, dumpStruct)
+		if err == nil {
+			rs.RecSys1.PostInit(dumpStruct.RecSys1Dump)
+			rs.RecSys2.PostInit(dumpStruct.RecSys2Dump)
 			return
 		} else {
 			panic("test")
@@ -67,9 +72,14 @@ func (rs *Mix) Recommend(
 	return ret
 }
 
-func (rs *Mix) Dump() any {
-	return MixDump{
+func (rs *Mix) Dump() []byte {
+	ret := MixDump{
 		RecSys1Dump: rs.RecSys1.Dump(),
 		RecSys2Dump: rs.RecSys2.Dump(),
 	}
+	retByte, err := msgpack.Marshal(ret)
+	if err != nil {
+		log.Fatalf("Failed to marshal structure recsys dump data: %v", err)
+	}
+	return retByte
 }

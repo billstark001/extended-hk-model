@@ -34,7 +34,7 @@ func NewOpinionRandom(model *model.HKModel, tolerance, steepness, noiseStd, rand
 }
 
 // PostInit implements model.HKModelRecommendationSystem
-func (o *OpinionRandom) PostInit(dumpData any) {
+func (o *OpinionRandom) PostInit(dumpData []byte) {
 	o.NumNodes = o.Model.Graph.Nodes().Len()
 	o.AllIndices = make([]int, o.NumNodes)
 	for i := range o.NumNodes {

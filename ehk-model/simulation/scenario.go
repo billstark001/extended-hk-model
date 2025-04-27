@@ -1,6 +1,7 @@
 package simulation
 
 import (
+	"context"
 	"ehk-model/model"
 	"ehk-model/utils"
 	"log"
@@ -176,7 +177,7 @@ const OPINION_CHANGE_THRESHOLD = 1e-7
 const STOP_SIM_STEPS = 60
 const SAVE_INTERVAL = 300 // seconds
 
-func (s *Scenario) StepTillEnd() {
+func (s *Scenario) StepTillEnd(ctx context.Context) {
 
 	// if finished, jump this simulation
 	if s.IsFinished() {
@@ -189,7 +190,9 @@ func (s *Scenario) StepTillEnd() {
 	lastSaveTime := time.Now()
 	successiveThresholdMet := 0
 
-	for s.model.CurStep < MAX_SIM_COUNT {
+	unitStep := func() (bool, bool) {
+
+		didDump := false
 
 		// step
 		nwChange, opChange := s.Step()
@@ -204,7 +207,7 @@ func (s *Scenario) StepTillEnd() {
 			successiveThresholdMet = 0
 		}
 		if successiveThresholdMet > STOP_SIM_STEPS {
-			break
+			return false, didDump
 		}
 
 		// save at fixed interval
@@ -212,14 +215,59 @@ func (s *Scenario) StepTillEnd() {
 		if timeInterval.Seconds() >= SAVE_INTERVAL {
 			lastSaveTime = time.Now()
 			s.Dump()
+			didDump = true
 		}
+
+		return true, didDump
 
 	}
 
-	// finally save everything
-	s.Dump()
-	s.serializer.MarkFinished()
-	s.serializer.SaveGraph(utils.SerializeGraph(s.model.Graph), s.model.CurStep)
+	isCtxDone := false
+	isShouldNotContinue := false
+	didDump := false
+
+iterLoop:
+	for s.model.CurStep < MAX_SIM_COUNT {
+		select {
+		case <-ctx.Done():
+			isCtxDone = true
+			break iterLoop
+
+		default:
+			didDump = false
+			shouldContinue, _didDump := unitStep()
+			didDump = _didDump
+
+			if shouldContinue {
+				// do nothing
+			} else {
+				isShouldNotContinue = true
+				break iterLoop
+			}
+		}
+	}
+
+	bar.Close()
+
+	if !didDump {
+		s.Dump()
+	}
+
+	if isCtxDone {
+		log.Printf("Simulation ended (`ctx.Done()` received)")
+		// the simulation is halted
+		// do nothing
+	} else {
+		if !isShouldNotContinue {
+			log.Printf("Simulation ended (max iteration reached)")
+		} else {
+			log.Printf("Simulation ended (shouldContinue == false)")
+		}
+		// the simulation is finished
+		s.serializer.MarkFinished()
+		s.serializer.SaveGraph(utils.SerializeGraph(s.model.Graph), s.model.CurStep)
+	}
+
 }
 
 func (s *Scenario) logEvent(event *model.EventRecord) {

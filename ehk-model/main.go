@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"ehk-model/model"
 	"ehk-model/simulation"
 	"encoding/json"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
@@ -62,5 +65,15 @@ func main() {
 		scenario.Init()
 	}
 
-	scenario.StepTillEnd()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigs
+		cancel()
+	}()
+
+	scenario.StepTillEnd(ctx)
 }

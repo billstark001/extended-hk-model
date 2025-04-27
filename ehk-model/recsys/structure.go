@@ -2,12 +2,15 @@ package recsys
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"sort"
 	"time"
 
 	"ehk-model/model"
 	"ehk-model/utils"
+
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 // Structure implements a recommendation system based on network structure
@@ -83,7 +86,7 @@ func (s *Structure) calcConnMatGraph() {
 }
 
 // PostInit implements model.HKModelRecommendationSystem
-func (s *Structure) PostInit(dumpData any) {
+func (s *Structure) PostInit(dumpData []byte) {
 
 	s.NumNodes = s.Model.Graph.Nodes().Len()
 	s.AllIndices = make([]int, s.NumNodes)
@@ -99,8 +102,9 @@ func (s *Structure) PostInit(dumpData any) {
 
 	// Load connection matrix if dumped
 	if dumpData != nil {
-		if connMat, ok := dumpData.(*[][]int); ok {
-			s.ConnMat = *connMat
+		s.ConnMat = make([][]int, 0)
+		err := msgpack.Unmarshal(dumpData, &s.ConnMat)
+		if err == nil {
 			if s.LogFunc != nil {
 				s.LogFunc("Connection matrix loaded from dump data.")
 			}
@@ -220,6 +224,10 @@ func (s *Structure) Recommend(agent *model.HKAgent, neighbors []*model.HKAgent, 
 }
 
 // Dump implements model.HKModelRecommendationSystem
-func (s *Structure) Dump() any {
-	return s.ConnMat
+func (s *Structure) Dump() []byte {
+	data, err := msgpack.Marshal(s.ConnMat)
+	if err != nil {
+		log.Fatalf("Failed to marshal structure recsys dump data: %v", err)
+	}
+	return data
 }

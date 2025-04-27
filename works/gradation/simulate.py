@@ -66,6 +66,7 @@ SIMULATION_TEMP_FILE = _p('./run/temp_metadata.json')
 
 if __name__ == '__main__':
   total_count = len(params_arr)
+  is_sim_halted = False
   for i, params in enumerate(params_arr):
     
     logger.info(
@@ -77,11 +78,35 @@ if __name__ == '__main__':
     
     with open(SIMULATION_TEMP_FILE, 'w') as f:
       json.dump(params, f)
-    
-    res = subprocess.run([GO_SIMULATOR_PATH, SIMULATION_RESULT_DIR, SIMULATION_TEMP_FILE])
-    
-    if res.returncode == 0:
+      
+    params_proc = [GO_SIMULATOR_PATH, SIMULATION_RESULT_DIR, SIMULATION_TEMP_FILE]
+    print(' '.join(params_proc))
+    with subprocess.Popen(
+      params_proc,
+      # stdout=subprocess.PIPE,
+      # stderr=subprocess.PIPE,
+      text=True     
+    ) as proc:
+      try:
+        # stdout, stderr = proc.communicate()
+        proc.wait()
+        returncode = proc.returncode
+      except KeyboardInterrupt:
+        proc.terminate()
+        try:
+          proc.wait(timeout=60)
+        except Exception:
+          proc.kill()
+        is_sim_halted = True
+        returncode = -15
+
+    if returncode == 0:
       logger.info('Simulation of scenario %s complete', params['UniqueName'])
+    elif returncode == -15:
+      logger.info('Simulation of scenario %s halted by SIGTERM', params['UniqueName'])
     else:
-      logger.error('Simulation of scenario %s errored with code %d', params['UniqueName'], res.returncode)
+      logger.error('Simulation of scenario %s errored with code %d', params['UniqueName'], returncode)
+      
+    if is_sim_halted:
+      break
       

@@ -4,7 +4,7 @@ package model
 type HKModelRecommendationSystem interface {
 	// PostInit is called after the model is initialized
 	// dumpData is passed as pointer
-	PostInit(dumpData any)
+	PostInit(dumpData []byte)
 
 	// PreStep is called before each model step
 	PreStep()
@@ -19,7 +19,7 @@ type HKModelRecommendationSystem interface {
 	Recommend(agent *HKAgent, neighbors []*HKAgent, count int) []*TweetRecord
 
 	// Dump returns internal data for debugging/analysis
-	Dump() any
+	Dump() []byte
 }
 
 type BaseRecommendationSystem struct {
@@ -31,7 +31,7 @@ func _() HKModelRecommendationSystem {
 	return &BaseRecommendationSystem{}
 }
 
-func (rs *BaseRecommendationSystem) PostInit(dumpData any) {
+func (rs *BaseRecommendationSystem) PostInit(dumpData []byte) {
 }
 
 func (rs *BaseRecommendationSystem) PreStep() {
@@ -47,6 +47,6 @@ func (rs *BaseRecommendationSystem) Recommend(agent *HKAgent, neighbors []*HKAge
 	return []*TweetRecord{}
 }
 
-func (rs *BaseRecommendationSystem) Dump() any {
+func (rs *BaseRecommendationSystem) Dump() []byte {
 	return nil
 }
