@@ -32,6 +32,7 @@ type ViewTweetsEventBody struct {
 	RecommendedDiscordant []*TweetRecord
 }
 
+// (concordant neighbor, concordant recommend, d.n., d.r.)
 type AgentNumberRecord = [4]int
 type AgentOpinionSumRecord = [4]float64
 
