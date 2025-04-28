@@ -1,0 +1,90 @@
+
+import sqlite3
+import struct
+
+import numpy as np
+import lz4.frame
+import msgpack
+import networkx as nx
+
+def load_accumulative_model_state(path: str):
+  with open(path, 'rb') as f:
+    raw = f.read()
+  # LZ4 解压
+  decompressed = lz4.frame.decompress(raw)
+  offset = 0
+
+  # 读取steps和agents
+  steps, agents = struct.unpack_from('<ii', decompressed, offset)
+  offset += 8
+
+  # 读取Opinions
+  opinions = []
+  for _ in range(steps):
+    arr = np.frombuffer(decompressed, dtype='<f4', count=agents, offset=offset)
+    opinions.append(arr)
+    offset += 4 * agents
+
+  # 读取AgentNumbers
+  agent_numbers = []
+  for _ in range(steps):
+    step_arr = []
+    for _ in range(agents):
+      arr = struct.unpack_from('<4h', decompressed, offset)
+      step_arr.append(arr)
+      offset += 4 * 2
+    agent_numbers.append(step_arr)
+
+  # 读取AgentOpinionSums
+  agent_opinion_sums = []
+  for _ in range(steps):
+    step_arr = []
+    for _ in range(agents):
+      arr = struct.unpack_from('<4f', decompressed, offset)
+      step_arr.append(arr)
+      offset += 4 * 4
+    agent_opinion_sums.append(step_arr)
+
+  return {
+    'steps': steps,
+    'agents': agents,
+    'opinions': np.array(opinions),  # shape: (steps, agents)
+    'agent_numbers': np.array(agent_numbers),  # shape: (steps, agents, 4)
+    'agent_opinion_sums': np.array(agent_opinion_sums),  # shape: (steps, agents, 4)
+  }
+
+
+def load_gonum_graph_dump(filename: str):
+  # 读取 msgpack 文件
+  with open(filename, "rb") as f:
+    nx_data = msgpack.unpack(f, raw=False)
+  
+  # 获取 adjacency 信息
+  adjacency = nx_data["adjacency"]
+  directed = nx_data.get("directed", True)
+  nodes = nx_data.get("nodes", {})
+  graph_attrs = nx_data.get("graph", {})
+
+  # 构建 NetworkX 图
+  if directed:
+    G = nx.DiGraph()
+  else:
+    G = nx.Graph()
+
+  # 添加节点属性
+  for n, attrs in nodes.items():
+    G.add_node(n, **attrs)
+
+  # 添加边和边属性
+  for from_node, neighbors in adjacency.items():
+    for to_node, edge_attrs in neighbors.items():
+      if edge_attrs is None:
+        edge_attrs = {}
+      G.add_edge(from_node, to_node, **edge_attrs)
+
+  # 设置图的属性
+  G.graph.update(graph_attrs)
+  return G
+
+def load_events_db(filename: str):
+  return sqlite3.connect(filename)

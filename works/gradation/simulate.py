@@ -1,73 +1,20 @@
-from typing import Dict, List
-
 import os
 import subprocess
 import json
-import numpy as np
+import time
 
 from utils.stat import get_logger
+from .params import GO_SIMULATOR_PATH, all_scenarios, SIMULATION_RESULT_DIR, SIMULATION_TEMP_FILE
 
-BASE_PATH = './run2'
-os.makedirs(BASE_PATH, exist_ok=True)
-
-logger = get_logger(__name__, os.path.join(BASE_PATH, 'logfile.log'))
-
-# build scenarios
-
-decay_rate_array = rewiring_rate_array = \
-    np.array([0.005, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1])
-n_sims = 50
-
-n_gen_names = {
-  'op': 'OpinionM9',
-  'st': 'StructureM9',
-}
-
-# all parameters
-
-def create_go_metadata_dict(
-  name: str,
-  tolerance = 0.45,
-  decay = 0.9,
-  rewiring = 0.01,
-  retweet = 0.05,
-  recsys_type = "Random",
-  recsys_count = 3,
-):
-  return {
-    "UniqueName": name,
-    "Tolerance": tolerance,
-    "Decay": decay,
-    "RewiringRate": rewiring,
-    "RetweetRate": retweet,
-    "RecsysFactoryType": recsys_type,
-    "RecsysCount": recsys_count,
-  }
-
-params_arr: List[Dict] = []
-
-for i_sim in range(n_sims):
-  for i, r in enumerate(rewiring_rate_array):
-    for j, d in enumerate(decay_rate_array):
-      for k, g in n_gen_names.items():
-        x = create_go_metadata_dict(
-          f'scenario_i{len(params_arr)}_r{i}_d{j}_{k}_sim{i_sim}',
-          rewiring=r,
-          decay=d,
-          recsys_type=g,
-        )
-        params_arr.append(x)
-
-_p = lambda p: os.path.normpath(os.path.expanduser(p))
-
-GO_SIMULATOR_PATH = _p('./ehk-model/main')
-SIMULATION_RESULT_DIR = _p('./run/')
-SIMULATION_TEMP_FILE = _p('./run/temp_metadata.json')
+os.makedirs(SIMULATION_RESULT_DIR, exist_ok=True)
+logger = get_logger(__name__, os.path.join(SIMULATION_RESULT_DIR, 'logfile.log'))
 
 if __name__ == '__main__':
-  total_count = len(params_arr)
+  
+  total_count = len(all_scenarios)
   is_sim_halted = False
-  for i, params in enumerate(params_arr):
+  for i, params in enumerate(all_scenarios):
+    tstart = time.time()
     
     logger.info(
       '(%d / %d) Scenario %s simulation started.', 
@@ -80,15 +27,11 @@ if __name__ == '__main__':
       json.dump(params, f)
       
     params_proc = [GO_SIMULATOR_PATH, SIMULATION_RESULT_DIR, SIMULATION_TEMP_FILE]
-    print(' '.join(params_proc))
     with subprocess.Popen(
       params_proc,
-      # stdout=subprocess.PIPE,
-      # stderr=subprocess.PIPE,
       text=True     
     ) as proc:
       try:
-        # stdout, stderr = proc.communicate()
         proc.wait()
         returncode = proc.returncode
       except KeyboardInterrupt:
@@ -100,12 +43,16 @@ if __name__ == '__main__':
         is_sim_halted = True
         returncode = -15
 
+    tdelta = time.time() - tstart
+    
+    log_params = [i + 1, total_count, tdelta, params['UniqueName']]
+
     if returncode == 0:
-      logger.info('Simulation of scenario %s complete', params['UniqueName'])
+      logger.info('(%d / %d, %.2fs) %s: completed', *log_params)
     elif returncode == -15:
-      logger.info('Simulation of scenario %s halted by SIGTERM', params['UniqueName'])
+      logger.info('(%d / %d, %.2fs) %s: halted by SIGTERM', *log_params)
     else:
-      logger.error('Simulation of scenario %s errored with code %d', params['UniqueName'], returncode)
+      logger.error('(%d / %d, %.2fs) %s: errored with code %d', *log_params, returncode)
       
     if is_sim_halted:
       break

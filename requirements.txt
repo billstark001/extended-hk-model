@@ -6,3 +6,5 @@ seaborn
 tqdm
 powerlaw
 scipy
+msgpack
+lz4
