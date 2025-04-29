@@ -267,13 +267,17 @@ def adaptive_discrete_sampling(
 
     if t_mid not in samples:
       f_left, f_right = samples[t_left], samples[t_right]
+      f_mid = f(t_mid)
+      t_mid_rate = (t_mid - t_left) / (t_right - t_left)
       if err_func is not None:
-        error = abs(err_func(f_left, f_right))
+        error = err_func(f_left, f_right, f_mid, t_mid_rate)
       else:
-        error = abs(f_left - f_right)
+        f_mid_interp = f_right * t_mid_rate \
+          + f_left * (1 - t_mid_rate)
+        error = abs(f_mid - f_mid_interp)
       # 满足误差或强制采样时，采样并细分
       if error > error_threshold or force_sample:
-        samples[t_mid] = f(t_mid)
+        samples[t_mid] = f_mid
         interval_queue.append((t_left, t_mid))
         interval_queue.append((t_mid, t_right))
       # 否则，不再细分
