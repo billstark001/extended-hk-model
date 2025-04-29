@@ -69,7 +69,7 @@ func (s *AccumulativeModelState) accumulate(model model.HKModel) {
 }
 
 func (s *AccumulativeModelState) validate(model model.HKModel) bool {
-	st := model.CurStep
+	st := model.CurStep + 1
 	return len(s.Opinions) == st &&
 		len(s.AgentNumbers) == st &&
 		len(s.AgentOpinionSums) == st

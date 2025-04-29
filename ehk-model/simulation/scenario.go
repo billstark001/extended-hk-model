@@ -86,6 +86,12 @@ func (s *Scenario) Init() {
 
 	s.db = db
 
+	// write initial record
+	s.serializer.SaveGraph(utils.SerializeGraph(s.model.Graph), s.model.CurStep)
+	s.acc.accumulate(*s.model)
+	s.model.CurStep = 1
+
+	s.sanitize()
 }
 
 func (s *Scenario) Load() bool {
@@ -139,11 +145,16 @@ func (s *Scenario) Load() bool {
 
 	s.acc = acc
 
-	// delete potentially dirty data
-	s.db.DeleteEventsAfterStep(s.model.CurStep)
-	s.serializer.DeleteGraphsAfterStep(s.model.CurStep, false)
+	s.sanitize()
 
 	return true
+}
+
+func (s *Scenario) sanitize() {
+	// delete potentially dirty data
+	// 'after': >=
+	s.db.DeleteEventsAfterStep(s.model.CurStep)
+	s.serializer.DeleteGraphsAfterStep(s.model.CurStep, false)
 }
 
 func (s *Scenario) Dump() {
@@ -203,8 +214,8 @@ func (s *Scenario) StepTillEnd(ctx context.Context) {
 		didDump := false
 
 		// step
-		nwChange, opChange := s.Step()
 		bar.Set(s.model.CurStep)
+		nwChange, opChange := s.Step()
 
 		// if threshold is met, end in prior
 		thresholdMet := nwChange < NETWORK_CHANGE_THRESHOLD &&
@@ -235,7 +246,7 @@ func (s *Scenario) StepTillEnd(ctx context.Context) {
 	didDump := false
 
 iterLoop:
-	for s.model.CurStep < MAX_SIM_COUNT {
+	for s.model.CurStep <= MAX_SIM_COUNT {
 		select {
 		case <-ctx.Done():
 			isCtxDone = true
@@ -261,19 +272,22 @@ iterLoop:
 		s.Dump()
 	}
 
+	// st is the last step that has full simulation record
+	st := s.model.CurStep - 1
+
 	if isCtxDone {
-		log.Printf("Simulation ended (`ctx.Done()` received)")
+		log.Printf("Simulation ended (`ctx.Done()` received, step: %d)", st)
 		// the simulation is halted
 		// do nothing
 	} else {
 		if !isShouldNotContinue {
-			log.Printf("Simulation ended (max iteration reached)")
+			log.Printf("Simulation ended (max iteration reached), step: %d", st)
 		} else {
-			log.Printf("Simulation ended (shouldContinue == false)")
+			log.Printf("Simulation ended (shouldContinue == false, step: %d)", st)
 		}
 		// the simulation is finished
 		s.serializer.MarkFinished()
-		s.serializer.SaveGraph(utils.SerializeGraph(s.model.Graph), s.model.CurStep)
+		s.serializer.SaveGraph(utils.SerializeGraph(s.model.Graph), st)
 	}
 
 }
