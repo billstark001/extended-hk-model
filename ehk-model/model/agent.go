@@ -102,20 +102,23 @@ func NewHKAgent(uniqueID int64, model *HKModel, opinion *float64) *HKAgent {
 }
 
 type PartitionTweetsReturn struct {
-	concordantNeighbor    []*TweetRecord
-	concordantRecommended []*TweetRecord
-	discordantNeighbor    []*TweetRecord
-	discordantRecommended []*TweetRecord
-	sumN                  float64
-	sumR                  float64
-	sumND                 float64
-	sumRD                 float64
+	concordantNeighbor      []*HKAgent
+	concordantNeighborTweet []*TweetRecord
+	concordantRecommended   []*TweetRecord
+	discordantNeighbor      []*HKAgent
+	discordantNeighborTweet []*TweetRecord
+	discordantRecommended   []*TweetRecord
+	sumN                    float64
+	sumR                    float64
+	sumND                   float64
+	sumRD                   float64
 }
 
 // PartitionTweets divides tweets into concordant and discordant groups
 func PartitionTweets(
 	opinion float64,
-	neighbors []*TweetRecord,
+	neighbors []*HKAgent,
+	neighbor_tweets []*TweetRecord,
 	recommended []*TweetRecord,
 	epsilon float64,
 ) PartitionTweetsReturn {
@@ -124,13 +127,16 @@ func PartitionTweets(
 	r := PartitionTweetsReturn{}
 
 	// Process neighbors
-	for _, a := range neighbors {
-		o := a.Opinion
+	for i, at := range neighbor_tweets {
+		a := neighbors[i]
+		o := at.Opinion
 		if math.Abs(opinion-o) <= epsilon {
 			r.concordantNeighbor = append(r.concordantNeighbor, a)
+			r.concordantNeighborTweet = append(r.concordantNeighborTweet, at)
 			r.sumN += o - opinion
 		} else {
 			r.discordantNeighbor = append(r.discordantNeighbor, a)
+			r.discordantNeighborTweet = append(r.discordantNeighborTweet, at)
 			r.sumND += o - opinion
 		}
 	}
@@ -157,7 +163,8 @@ func HKAgentStep(
 	agentID int64,
 	curOpinion float64,
 	curStep int,
-	neighbors []*TweetRecord,
+	neighbors []*HKAgent,
+	neighbor_tweets []*TweetRecord,
 	recommended []*TweetRecord,
 	params *HKAgentParams,
 	options *CollectItemOptions,
@@ -183,10 +190,10 @@ func HKAgentStep(
 
 	// Calculate tweet sets
 	t := PartitionTweets(
-		curOpinion, neighbors, recommended, params.Tolerance,
+		curOpinion, neighbors, neighbor_tweets, recommended, params.Tolerance,
 	)
 
-	nNeighbor := len(t.concordantNeighbor)
+	nNeighbor := len(t.concordantNeighborTweet)
 	nRecommended := len(t.concordantRecommended)
 	nConcordant := nNeighbor + nRecommended
 
@@ -195,7 +202,7 @@ func HKAgentStep(
 		nrAgents = [4]int{
 			nNeighbor,
 			nRecommended,
-			len(t.discordantNeighbor),
+			len(t.discordantNeighborTweet),
 			len(t.discordantRecommended),
 		}
 	}
@@ -203,8 +210,8 @@ func HKAgentStep(
 	// Record viewed tweets if requested
 	if options.ViewTweetsEvent {
 		eViewTweets = &ViewTweetsEventBody{
-			NeighborConcordant:    t.concordantNeighbor,
-			NeighborDiscordant:    t.discordantNeighbor,
+			NeighborConcordant:    t.concordantNeighborTweet,
+			NeighborDiscordant:    t.discordantNeighborTweet,
 			RecommendedConcordant: t.concordantRecommended,
 			RecommendedDiscordant: t.discordantRecommended,
 		}
@@ -231,7 +238,7 @@ func HKAgentStep(
 		retweetIndex := int(float64(nConcordant)*rndRetweet/rRetweet) % nConcordant
 		var retweetRecord *TweetRecord
 		if retweetIndex < nNeighbor {
-			retweetRecord = t.concordantNeighbor[retweetIndex]
+			retweetRecord = t.concordantNeighborTweet[retweetIndex]
 		} else {
 			retweetRecord = t.concordantRecommended[retweetIndex-nNeighbor]
 		}
@@ -259,12 +266,12 @@ func HKAgentStep(
 	// Handle rewiring
 	gamma := params.RewiringRate
 	if gamma > 0 &&
-		len(t.discordantNeighbor) > 0 && len(t.concordantRecommended) > 0 &&
+		len(t.discordantNeighborTweet) > 0 && len(t.concordantRecommended) > 0 &&
 		rndRewiring < gamma {
 		idx1 := rand.Intn(len(t.concordantRecommended))
-		idx2 := rand.Intn(len(t.discordantNeighbor))
+		idx2 := rand.Intn(len(t.discordantNeighborTweet))
 		follow := t.concordantRecommended[idx1].AgentID
-		unfollow := t.discordantNeighbor[idx2].AgentID
+		unfollow := t.discordantNeighbor[idx2].ID
 
 		nextFollow = &RewiringEventBody{
 			Unfollow: unfollow,
@@ -302,6 +309,7 @@ func (a *HKAgent) Step() {
 		a.ID,
 		a.CurOpinion,
 		a.Model.CurStep,
+		neighbors,
 		neighbor_tweets,
 		recommended,
 		a.Params,

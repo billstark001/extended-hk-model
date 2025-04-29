@@ -30,6 +30,7 @@ func main() {
 
 		CollectItemOptions: model.CollectItemOptions{
 
+			AgentNumber:   true,
 			OpinionSum:    true,
 			RewiringEvent: true,
 			TweetEvent:    true,

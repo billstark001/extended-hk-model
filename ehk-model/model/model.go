@@ -48,9 +48,10 @@ type HKModel struct {
 	Graph *simple.DirectedGraph
 	Grid  *NetworkGrid
 
+	// the smallest step that the data is not intact
+	// equates the current step during step
 	// will be incremented after the simulation step ends
-	// starts from 0
-	// guaranteed to be the current step during step
+	// starts from 1
 	CurStep int
 
 	// utils(?)
@@ -175,13 +176,19 @@ func (m *HKModel) Step(doIncrementCurStep bool) (int, float64) {
 
 		// Rewiring
 		if a.NextFollow != nil {
-			m.Graph.RemoveEdge(a.ID, a.NextFollow.Unfollow)
-			m.Graph.SetEdge(m.Graph.NewEdge(
-				m.Graph.Node(a.ID),
-				m.Graph.Node(a.NextFollow.Follow),
-			))
-			changed = append(changed, a.NextFollow)
-			changedCount++
+			if !m.Graph.HasEdgeFromTo(a.ID, a.NextFollow.Unfollow) {
+				panic("BUG: wrong rewiring parameters")
+			}
+			// only rewires if the edge is inexistent
+			if !m.Graph.HasEdgeFromTo(a.ID, a.NextFollow.Follow) {
+				m.Graph.RemoveEdge(a.ID, a.NextFollow.Unfollow)
+				m.Graph.SetEdge(m.Graph.NewEdge(
+					m.Graph.Node(a.ID),
+					m.Graph.Node(a.NextFollow.Follow),
+				))
+				changed = append(changed, a.NextFollow)
+				changedCount++
+			}
 		}
 	}
 
