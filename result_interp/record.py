@@ -54,6 +54,7 @@ class RawSimulationRecord:
     self.graphs: Dict[int, nx.DiGraph] = {}
     self.graph_steps: List[int] = []
     self.graph_steps.extend(self.graphs_stored.keys())
+    self.graph_steps.sort()
 
     # store acc state data locally
     self.opinions: NDArray = self.acc_state['opinions']
@@ -63,16 +64,19 @@ class RawSimulationRecord:
     self.max_step = int(acc_state['steps'])
 
     g0 = self.graphs_stored[0]
-    follow_counts = [len(g0.out_edges[x]) for x in range(self.agents)]
+    follow_counts = [len(g0.out_edges(x)) for x in range(self.agents)]
     self.followers = np.array(follow_counts)
 
   def dispose(self):
     self.events_db.close()
     self.graphs = {}
+    self.graph_steps = []
+    self.graph_steps.extend(self.graphs_stored.keys())
+    self.graph_steps.sort()
 
   def get_graph(self, step: int):
     # the step is invalid
-    if step >= self.max_step or step < 0:
+    if step > self.max_step or step < 0:
       raise ValueError("invalid step")
 
     # the step is already available
@@ -108,9 +112,15 @@ class RawSimulationRecord:
       body = get_rewiring_event_body(self.events_db, e.id)
       if body is None:
         raise ValueError("bad dump data (event)")
-      nearest_available_graph.remove_edge(e.agent_id, body.unfollow)
+      try:
+        nearest_available_graph.remove_edge(e.agent_id, body.unfollow)
+      except Exception as ex:
+        print(ex)
       nearest_available_graph.add_edge(e.agent_id, body.follow)
 
     # store the applied graphs
     self.graphs[step] = nearest_available_graph
+    self.graph_steps.append(step)
+    self.graph_steps.sort()
+    
     return nearest_available_graph

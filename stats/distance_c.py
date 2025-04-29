@@ -31,6 +31,25 @@ def js_divergence_continuous(p_func, q_func, xmin=0, xmax=2, t_err=1e-13) -> flo
   return np.sqrt(val)
 
 
+def kl_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n=1000, t_err=1e-13):
+  xs = np.linspace(xmin, xmax, n)
+  p_vals = np.maximum(p_func(xs), t_err)
+  q_vals = np.maximum(q_func(xs), t_err)
+  integrand = p_vals * (np.log(p_vals) - np.log(q_vals))
+  return np.trapz(integrand, xs)
+
+
+def js_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n=1000, t_err=1e-13):
+  xs = np.linspace(xmin, xmax, n)
+  p_vals = np.maximum(p_func(xs), t_err)
+  q_vals = np.maximum(q_func(xs), t_err)
+  m_vals = 0.5 * (p_vals + q_vals)
+  integrand = 0.5 * (p_vals * (np.log(p_vals) - np.log(m_vals)) +
+                     q_vals * (np.log(q_vals) - np.log(m_vals)))
+  val = np.trapz(integrand, xs)
+  return np.sqrt(val)
+
+
 def kde_min_bw_factory(min_bandwidth):
   def min_bw_factor(kde_obj):
     default_factor = kde_obj.scotts_factor()
@@ -74,7 +93,8 @@ class DistanceCollectorContinuous:
     self.use_debug_data = use_debug_data
     self.t_opinion = t_opinion
     self.k = k
-    self.div = js_divergence_continuous if use_js_divergence else kl_divergence_continuous
+    self.div = js_divergence_continuous_fast \
+      if use_js_divergence else kl_divergence_continuous_fast
 
   def collect(
       self,
@@ -104,7 +124,8 @@ class DistanceCollectorContinuous:
     else:
       o_rand_vals[:] = 1.0 / (k - 0)
 
-    def o_rand_pdf(x): return np.interp(x, axis, o_rand_vals)
+    def o_rand_pdf(x):
+      return np.interp(x, axis, o_rand_vals)
 
     s_rand_vals = ideal_dist_init_array(axis)
     if s_rand_vals.sum() > 0:
@@ -112,7 +133,8 @@ class DistanceCollectorContinuous:
     else:
       s_rand_vals[:] = 1.0 / (k - 0)
 
-    def s_rand_pdf(x): return np.interp(x, axis, s_rand_vals)
+    def s_rand_pdf(x):
+      return np.interp(x, axis, s_rand_vals)
 
     # worst cases
     o_worst_b = o_sample[o_sample >= self.t_opinion]
@@ -123,14 +145,16 @@ class DistanceCollectorContinuous:
     if o_worst_vals.sum() > 0:
       o_worst_vals /= np.trapz(o_worst_vals, axis)
 
-    def o_worst_pdf(x): return np.interp(x, axis, o_worst_vals)
+    def o_worst_pdf(x):
+      return np.interp(x, axis, o_worst_vals)
 
     s_worst_vals = np.zeros_like(axis)
     s_worst_vals[0] = 1.0
     if s_worst_vals.sum() > 0:
       s_worst_vals /= np.trapz(s_worst_vals, axis)
 
-    def s_worst_pdf(x): return np.interp(x, axis, s_worst_vals)
+    def s_worst_pdf(x):
+      return np.interp(x, axis, s_worst_vals)
 
     # scales
     o_scale_worst = o_scale_rand = self.div(

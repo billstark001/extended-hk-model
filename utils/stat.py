@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, Callable
+from typing import Optional, Tuple, Callable, TypeVar
 from numpy.typing import NDArray, DTypeLike
 from scipy.interpolate import interp1d
 
@@ -213,13 +213,15 @@ def area_under_curve(points: NDArray, arg_sort=False, complement: Optional[float
 
   return area
 
+T = TypeVar('T')
 
 def adaptive_discrete_sampling(
-  f: Callable[[int], float],
+  f: Callable[[int], T],
   error_threshold: float,
   t_start: int,
   t_end: int,
-  max_interval: int | None = None
+  max_interval: int | None = None,
+  err_func: Callable[[T, T], float] | None = None
 ):
   """
   对离散时间轴上的函数f，进行自适应采样（非递归实现）。
@@ -265,17 +267,17 @@ def adaptive_discrete_sampling(
 
     if t_mid not in samples:
       f_left, f_right = samples[t_left], samples[t_right]
-      interp = f_left + (f_right - f_left) * \
-        (t_mid - t_left) / (t_right - t_left)
-      actual = f(t_mid)
-      error = abs(actual - interp)
+      if err_func is not None:
+        error = abs(err_func(f_left, f_right))
+      else:
+        error = abs(f_left - f_right)
       # 满足误差或强制采样时，采样并细分
       if error > error_threshold or force_sample:
-        samples[t_mid] = actual
+        samples[t_mid] = f(t_mid)
         interval_queue.append((t_left, t_mid))
         interval_queue.append((t_mid, t_right))
       # 否则，不再细分
 
-  t_arr = np.array(sorted(samples.keys()))
-  f_arr = np.array([samples[t] for t in t_arr])
+  t_arr = sorted(samples.keys())
+  f_arr = [samples[t] for t in t_arr]
   return t_arr, f_arr

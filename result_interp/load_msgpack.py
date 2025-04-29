@@ -57,7 +57,7 @@ def load_accumulative_model_state(path: str):
 def load_gonum_graph_dump(filename: str):
   # 读取 msgpack 文件
   with open(filename, "rb") as f:
-    nx_data = msgpack.unpack(f, raw=False)
+    nx_data = msgpack.unpack(f, raw=False, strict_map_key=False)
   
   # 获取 adjacency 信息
   adjacency = nx_data["adjacency"]
