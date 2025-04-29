@@ -44,7 +44,7 @@ for i_sim in range(n_sims):
     for j, d in enumerate(decay_rate_array):
       for k, g in n_gen_names.items():
         x = create_go_metadata_dict(
-          f'scenario_i{len(all_scenarios_grad)}_r{i}_d{j}_{k}_sim{i_sim}',
+          f's_grad_r{i}_d{j}_{k}_sim{i_sim}',
           rewiring=r,
           decay=d,
           recsys_type=g,
