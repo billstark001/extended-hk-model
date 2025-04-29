@@ -10,7 +10,7 @@ from tqdm import tqdm
 from ehk_model_old.base import Scenario
 
 from ehk_model_old.base.scenario import SimulationParams
-import works.gradation.simulate as p
+import works.simulate.gradation as p
 
 import ehk_model_old.stats as stats
 

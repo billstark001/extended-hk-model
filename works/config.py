@@ -37,19 +37,19 @@ def create_go_metadata_dict(
     "RecsysCount": recsys_count,
   }
 
-all_scenarios: List[Dict] = []
+all_scenarios_grad: List[Dict] = []
 
 for i_sim in range(n_sims):
   for i, r in enumerate(rewiring_rate_array):
     for j, d in enumerate(decay_rate_array):
       for k, g in n_gen_names.items():
         x = create_go_metadata_dict(
-          f'scenario_i{len(all_scenarios)}_r{i}_d{j}_{k}_sim{i_sim}',
+          f'scenario_i{len(all_scenarios_grad)}_r{i}_d{j}_{k}_sim{i_sim}',
           rewiring=r,
           decay=d,
           recsys_type=g,
         )
-        all_scenarios.append(x)
+        all_scenarios_grad.append(x)
 
 
 # assign paths

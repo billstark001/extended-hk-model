@@ -13,7 +13,7 @@ from tqdm import tqdm
 import matplotlib as mpl
 
 from utils.stat import compress_array_to_b64
-import works.gradation.simulate as p
+import works.simulate.gradation as p
 
 from works.stat import c
 

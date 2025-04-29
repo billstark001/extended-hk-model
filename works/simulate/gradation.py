@@ -4,16 +4,16 @@ import json
 import time
 
 from utils.stat import get_logger
-from works.gradation.params import GO_SIMULATOR_PATH, all_scenarios, SIMULATION_RESULT_DIR, SIMULATION_TEMP_FILE
+from works.config import GO_SIMULATOR_PATH, all_scenarios_grad, SIMULATION_RESULT_DIR, SIMULATION_TEMP_FILE
 
 os.makedirs(SIMULATION_RESULT_DIR, exist_ok=True)
 logger = get_logger(__name__, os.path.join(SIMULATION_RESULT_DIR, 'logfile.log'))
 
 if __name__ == '__main__':
   
-  total_count = len(all_scenarios)
+  total_count = len(all_scenarios_grad)
   is_sim_halted = False
-  for i, params in enumerate(all_scenarios):
+  for i, params in enumerate(all_scenarios_grad):
     tstart = time.time()
     
     logger.info(

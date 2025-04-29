@@ -22,13 +22,7 @@ from utils.file import read_records
 from utils.stat import adaptive_moving_stats
 from utils.plot import numpy_to_latex_table, plt_figure, get_colormap
 
-import works.gradation.simulate as p
-import works.gradation.stat as pp
-
-import utils.plot as _p
-importlib.reload(_p)
-importlib.reload(p)
-importlib.reload(pp)
+import works.config as cfg
 
 # figure templates
 
@@ -63,23 +57,23 @@ def transform_kde(
         data: NDArray,
         lower: float | None = None,
         upper: float | None = None):
-    if lower is None:
-      lower = data.min()
-    if upper is None:
-      upper = data.max()
+  if lower is None:
+    lower = data.min()
+  if upper is None:
+    upper = data.max()
 
-    scaled_data = scale_array(data, (lower, upper), (-1, 1))
-    transformed_data = np.arctanh(scaled_data)
-    kde = gaussian_kde(transformed_data)
+  scaled_data = scale_array(data, (lower, upper), (-1, 1))
+  transformed_data = np.arctanh(scaled_data)
+  kde = gaussian_kde(transformed_data)
 
-    def density(x):
-        scaled_x = scale_array(x, (lower, upper), (-1, 1))
-        transformed_x = np.arctanh(scaled_x)
-        trsf_density_inv = 1 - np.tanh(scaled_x) ** 2
-        return kde(transformed_x) * np.abs(2 / (upper - lower) *
-                                           (1 / trsf_density_inv))
+  def density(x):
+    scaled_x = scale_array(x, (lower, upper), (-1, 1))
+    transformed_x = np.arctanh(scaled_x)
+    trsf_density_inv = 1 - np.tanh(scaled_x) ** 2
+    return kde(transformed_x) * np.abs(2 / (upper - lower) *
+                                       (1 / trsf_density_inv))
 
-    return density
+  return density
 
 
 def draw_adaptive_moving_stats(
@@ -131,7 +125,8 @@ def scatter_data(
   return np.array([[np.mean(z[_i]) for _i in [_1, _2, _3, _4]] for z in [x, y]])
 
 
-bool_cmap = LinearSegmentedColormap.from_list("bool", ["tab:red", 'tab:purple', "tab:blue"])
+bool_cmap = LinearSegmentedColormap.from_list(
+    "bool", ["tab:red", 'tab:purple', "tab:blue"])
 density_cmap = LinearSegmentedColormap.from_list("bool", ["white", "gray"])
 
 
@@ -175,7 +170,8 @@ def scatter_heatmap(
   s1 = np.sum(c)
   s2 = np.sum(nc)
   d_gross = (d_c * s1 + d_nc * s2) / (s1 + s2)
-  d_ratio = d_c * (s1 / (s1 + s2)) / d_gross  # 0: nc(polarized), 1: c(consensual)
+  # 0: nc(polarized), 1: c(consensual)
+  d_ratio = d_c * (s1 / (s1 + s2)) / d_gross
 
   # create heatmap
   d_draw = bool_cmap(d_ratio.T)
@@ -193,8 +189,6 @@ def scatter_heatmap(
       extent=[xmin, xmax, ymin, ymax,],
       origin='lower',
   )
-
-  
 
   contour = ax.contour(
       xi, yi, d_gross,
@@ -221,17 +215,17 @@ def add_colorbar_legend(fig: Figure, density_vmax=1.):
   fig.subplots_adjust(right=0.85)
   cbar_ax = fig.add_axes([0.88, 0.1, 0.02, 0.8])
   # cbar_ax = fig.add_axes([0.93, 0.1, 0.01, 0.8])
-  
+
   # sm = plt.cm.ScalarMappable(cmap=density_cmap, norm=plt.Normalize(vmin=0, vmax=density_vmax))
   # sm.set_array([])
   # cbar_density = plt.colorbar(sm, cax=cbar_ax)
   # cbar_density.set_label('Density')
-  
-  sm = plt.cm.ScalarMappable(cmap=bool_cmap, norm=plt.Normalize(vmin=0, vmax=100))
+
+  sm = plt.cm.ScalarMappable(
+      cmap=bool_cmap, norm=plt.Normalize(vmin=0, vmax=100))
   sm.set_array([])
   cbar_density = fig.colorbar(sm, cax=cbar_ax)
   cbar_density.set_label('% consensual cases')
-
 
 
 def heatmap_diff(
@@ -255,16 +249,16 @@ def heatmap_diff(
 
   for _ in (ax1, ax2, ax3):
     _.invert_yaxis()
-    _.set_xticks(np.arange(p.decay_rate_array.size))
-    _.set_xticklabels(p.decay_rate_array, rotation=90)
-    _.set_yticks(np.arange(p.rewiring_rate_array.size))
-    _.set_yticklabels([' ' for _ in p.rewiring_rate_array])
+    _.set_xticks(np.arange(cfg.decay_rate_array.size))
+    _.set_xticklabels(cfg.decay_rate_array, rotation=90)
+    _.set_yticks(np.arange(cfg.rewiring_rate_array.size))
+    _.set_yticklabels([' ' for _ in cfg.rewiring_rate_array])
     _.grid(False)
 
     _.set_xlabel('decay')
 
-  ax1.set_yticklabels(p.rewiring_rate_array)
-  ax3.set_yticklabels(p.rewiring_rate_array)
+  ax1.set_yticklabels(cfg.rewiring_rate_array)
+  ax3.set_yticklabels(cfg.rewiring_rate_array)
 
   ax1.set_title('(a) structure', loc='left')
   ax2.set_title('(b) opinion', loc='left')
@@ -289,9 +283,9 @@ def draw_bar_plot(
   bars = ax.bar(labels, means, bar_width, yerr=std_devs, capsize=capsize)
 
   for bar in bars:
-      height = bar.get_height()
-      ax.text(bar.get_x() + bar.get_width()/2., height,
-              f'{height:.3f}', ha='center', va='bottom')
+    height = bar.get_height()
+    ax.text(bar.get_x() + bar.get_width()/2., height,
+            f'{height:.3f}', ha='center', va='bottom')
 
   return bars
 
@@ -356,8 +350,8 @@ def show_fig(name: str = 'test'):
 # prepare data
 
 
-full_sim_len = p.rewiring_rate_array.shape[0] * \
-    p.decay_rate_array.shape[0] * len(p.n_gens)
+full_sim_len = cfg.rewiring_rate_array.shape[0] * \
+    cfg.decay_rate_array.shape[0] * len(cfg.n_gen_names)
 
 vals_0d, vals_non_0d = read_records(pat_file_paths, full_sim_len)
 
@@ -390,9 +384,9 @@ pat_csv_values_raw = np.array(pat_csv_values_)
 pat_csv_values = pat_csv_values_raw.reshape((
     len(fields_to_draw_heatmap),
     -1,
-    p.rewiring_rate_array.shape[0],
-    p.decay_rate_array.shape[0],
-    len(p.n_gens),
+    cfg.rewiring_rate_array.shape[0],
+    cfg.decay_rate_array.shape[0],
+    len(cfg.n_gen_names),
 ))
 # axes: (#sim, rewiring, decay, recsys)
 active_steps, grad_indices, hs_last, triads, mean_vars = pat_csv_values
@@ -433,10 +427,10 @@ show_fig('heatmap_grad_index')
 # vectorized form of gradation index
 # and its scatter plot
 
-rewiring_mat = np.repeat(p.rewiring_rate_array.reshape(
-    (-1, 1)), axis=1, repeats=p.decay_rate_array.size)
-decay_mat = np.repeat(p.decay_rate_array.reshape(
-    (1, -1)), axis=0, repeats=p.rewiring_rate_array.size)
+rewiring_mat = np.repeat(cfg.rewiring_rate_array.reshape(
+    (-1, 1)), axis=1, repeats=cfg.decay_rate_array.size)
+decay_mat = np.repeat(cfg.decay_rate_array.reshape(
+    (1, -1)), axis=0, repeats=cfg.rewiring_rate_array.size)
 rd_rate_mat = np.log10(rewiring_mat) - np.log10(decay_mat)
 
 # stacked_rd_rate_mat = np.concatenate([
