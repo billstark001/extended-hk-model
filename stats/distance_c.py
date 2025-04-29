@@ -1,0 +1,168 @@
+from typing import Dict, Union, Optional, Tuple
+import numpy as np
+import networkx as nx
+from scipy.stats import gaussian_kde
+from scipy.integrate import quad
+
+
+def ideal_dist_init_array(x: np.ndarray):
+  ret_array = x / -2 + 1
+  ret_array[x > 2] = 0
+  ret_array[x < 0] = 0
+  return ret_array
+
+
+def kl_divergence_continuous(p_func, q_func, xmin=0, xmax=2, t_err=1e-13) -> float:
+  def integrand(x):
+    p = max(p_func(x), t_err)
+    q = max(q_func(x), t_err)
+    return p * (np.log(p) - np.log(q))
+  val, _ = quad(integrand, xmin, xmax, limit=100)
+  return val
+
+
+def js_divergence_continuous(p_func, q_func, xmin=0, xmax=2, t_err=1e-13) -> float:
+  def integrand(x):
+    p = max(p_func(x), t_err)
+    q = max(q_func(x), t_err)
+    m = (p + q) / 2
+    return 0.5 * (p * (np.log(p) - np.log(m)) + q * (np.log(q) - np.log(m)))
+  val, _ = quad(integrand, xmin, xmax, limit=100)
+  return np.sqrt(val)
+
+
+def kde_min_bw_factory(min_bandwidth):
+  def min_bw_factor(kde_obj):
+    default_factor = kde_obj.scotts_factor()
+    min_factor = min_bandwidth / np.std(kde_obj.dataset, ddof=1)
+    return max(default_factor, min_factor)
+  return min_bw_factor
+
+
+def get_kde_pdf(data, min_bandwidth: float, xmin: float, xmax: float):
+  # 如果样本全为某个点，KDE会报错，这里做特殊处理
+  if np.all(data == data[0]):
+    # 返回一个峰值在这个点的近似delta分布
+    def delta_like_pdf(x):
+      return 1.0 if np.isclose(x, data[0]) else 0.0
+    return delta_like_pdf
+
+  bw_method = kde_min_bw_factory(min_bandwidth)
+  kde = gaussian_kde(data, bw_method=bw_method)
+  # 截断在[xmin, xmax]范围
+
+  def pdf(x):
+    val = kde(x)
+    val = np.clip(val, 0, None)
+    return val
+  return pdf
+
+
+class DistanceCollectorContinuous:
+  def __init__(
+      self,
+      min_bandwidth: Optional[float] = 0.05,
+      t_err: float = 1e-10,
+      use_js_divergence: bool = False,
+      use_debug_data: bool = False,
+      t_opinion: float = 0.4,
+      k: float = 2.0
+  ):
+    self.min_bandwidth = min_bandwidth
+    self.t_err = t_err
+    self.use_js_divergence = use_js_divergence
+    self.use_debug_data = use_debug_data
+    self.t_opinion = t_opinion
+    self.k = k
+    self.div = js_divergence_continuous if use_js_divergence else kl_divergence_continuous
+
+  def collect(
+      self,
+      prefix: str,
+      digraph: nx.DiGraph, opinion: np.ndarray,
+      *args, **kwargs,
+  ) -> Union[float, np.ndarray, Dict[str, Union[float, np.ndarray]]]:
+
+    k = self.k
+    # sampling
+    o_slice_mat = np.tile(opinion.reshape((opinion.size, 1)), opinion.size)
+    o_sample = np.abs(o_slice_mat - o_slice_mat.T).flatten()
+    o_sample = np.clip(o_sample, 0, k)
+    neighbors = np.array(digraph.edges)
+    s_sample = np.abs(opinion[neighbors[:, 1]] - opinion[neighbors[:, 0]])
+    s_sample = np.clip(s_sample, 0, k)
+
+    # KDE for pmf
+    o_pdf = get_kde_pdf(o_sample, self.min_bandwidth, 0, k)
+    s_pdf = get_kde_pdf(s_sample, self.min_bandwidth, 0, k)
+
+    # 构造理想分布，用于归一化/对比
+    axis = np.linspace(0, k, 200)
+    o_rand_vals = ideal_dist_init_array(axis)
+    if o_rand_vals.sum() > 0:
+      o_rand_vals /= np.trapz(o_rand_vals, axis)
+    else:
+      o_rand_vals[:] = 1.0 / (k - 0)
+
+    def o_rand_pdf(x): return np.interp(x, axis, o_rand_vals)
+
+    s_rand_vals = ideal_dist_init_array(axis)
+    if s_rand_vals.sum() > 0:
+      s_rand_vals /= np.trapz(s_rand_vals, axis)
+    else:
+      s_rand_vals[:] = 1.0 / (k - 0)
+
+    def s_rand_pdf(x): return np.interp(x, axis, s_rand_vals)
+
+    # worst cases
+    o_worst_b = o_sample[o_sample >= self.t_opinion]
+    o_worst_v = self.t_opinion if o_worst_b.size == 0 else np.mean(o_worst_b)
+    o_worst_vals = np.zeros_like(axis)
+    o_worst_vals[0] = 0.5
+    o_worst_vals[np.argmin(np.abs(axis - o_worst_v))] = 0.5
+    if o_worst_vals.sum() > 0:
+      o_worst_vals /= np.trapz(o_worst_vals, axis)
+
+    def o_worst_pdf(x): return np.interp(x, axis, o_worst_vals)
+
+    s_worst_vals = np.zeros_like(axis)
+    s_worst_vals[0] = 1.0
+    if s_worst_vals.sum() > 0:
+      s_worst_vals /= np.trapz(s_worst_vals, axis)
+
+    def s_worst_pdf(x): return np.interp(x, axis, s_worst_vals)
+
+    # scales
+    o_scale_worst = o_scale_rand = self.div(
+        o_worst_pdf, o_rand_pdf, xmin=0, xmax=k, t_err=self.t_err)
+    s_scale_worst = s_scale_rand = self.div(
+        s_worst_pdf, s_rand_pdf, xmin=0, xmax=k, t_err=self.t_err)
+    if not self.use_js_divergence:
+      o_scale_worst = self.div(
+          o_rand_pdf, o_worst_pdf,
+          xmin=0, xmax=k, t_err=self.t_err
+      )
+      s_scale_worst = self.div(
+          s_rand_pdf, s_worst_pdf,
+          xmin=0, xmax=k, t_err=self.t_err
+      )
+
+    debug_data = {}
+    if self.use_debug_data:
+      debug_data = {
+          prefix + '-kde-o-sample': o_sample,
+          prefix + '-kde-s-sample': s_sample,
+          prefix + '-axis': axis,
+          prefix + '-rand-o-pdf': o_rand_vals,
+          prefix + '-rand-s-pdf': s_rand_vals,
+          prefix + '-worst-o-pdf': o_worst_vals,
+          prefix + '-worst-s-pdf': s_worst_vals,
+      }
+
+    return {
+        prefix + '-rand-o': self.div(o_pdf, o_rand_pdf, xmin=0, xmax=k, t_err=self.t_err) / o_scale_rand,
+        prefix + '-rand-s': self.div(s_pdf, s_rand_pdf, xmin=0, xmax=k, t_err=self.t_err) / s_scale_rand,
+        prefix + '-worst-o': self.div(o_pdf, o_worst_pdf, xmin=0, xmax=k, t_err=self.t_err) / o_scale_worst,
+        prefix + '-worst-s': self.div(s_pdf, s_worst_pdf, xmin=0, xmax=k, t_err=self.t_err) / s_scale_worst,
+        **debug_data,
+    }

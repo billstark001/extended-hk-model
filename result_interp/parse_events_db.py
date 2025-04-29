@@ -157,6 +157,10 @@ def load_event_body(
   event.body = body
   return event
 
+
+def load_events_db(filename: str):
+  return sqlite3.connect(filename)
+
 # ---------------- 示例用法 ----------------
 
 if __name__ == "__main__":

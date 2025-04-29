@@ -15,19 +15,19 @@ def load_accumulative_model_state(path: str):
   offset = 0
 
   # 读取steps和agents
-  steps, agents = struct.unpack_from('<ii', decompressed, offset)
+  steps_p1, agents = struct.unpack_from('<ii', decompressed, offset)
   offset += 8
 
   # 读取Opinions
   opinions = []
-  for _ in range(steps):
+  for _ in range(steps_p1):
     arr = np.frombuffer(decompressed, dtype='<f4', count=agents, offset=offset)
     opinions.append(arr)
     offset += 4 * agents
 
   # 读取AgentNumbers
   agent_numbers = []
-  for _ in range(steps):
+  for _ in range(steps_p1):
     step_arr = []
     for _ in range(agents):
       arr = struct.unpack_from('<4h', decompressed, offset)
@@ -37,7 +37,7 @@ def load_accumulative_model_state(path: str):
 
   # 读取AgentOpinionSums
   agent_opinion_sums = []
-  for _ in range(steps):
+  for _ in range(steps_p1):
     step_arr = []
     for _ in range(agents):
       arr = struct.unpack_from('<4f', decompressed, offset)
@@ -46,11 +46,11 @@ def load_accumulative_model_state(path: str):
     agent_opinion_sums.append(step_arr)
 
   return {
-    'steps': steps,
+    'steps': steps_p1 - 1,
     'agents': agents,
-    'opinions': np.array(opinions),  # shape: (steps, agents)
-    'agent_numbers': np.array(agent_numbers),  # shape: (steps, agents, 4)
-    'agent_opinion_sums': np.array(agent_opinion_sums),  # shape: (steps, agents, 4)
+    'opinions': np.array(opinions),  # shape: (steps + 1, agents)
+    'agent_numbers': np.array(agent_numbers),  # shape: (steps + 1, agents, 4)
+    'agent_opinion_sums': np.array(agent_opinion_sums),  # shape: (steps + 1, agents, 4)
   }
 
 
@@ -85,6 +85,3 @@ def load_gonum_graph_dump(filename: str):
   # 设置图的属性
   G.graph.update(graph_attrs)
   return G
-
-def load_events_db(filename: str):
-  return sqlite3.connect(filename)

@@ -14,6 +14,8 @@ import (
 func SaveAccumulativeModelState(path string, state *AccumulativeModelState) error {
 	var buf bytes.Buffer
 
+	// this `steps` variable is larger than the real step number by 1
+	// since it includes step 0
 	steps := int32(len(state.Opinions))
 	if steps == 0 {
 		return fmt.Errorf("empty opinions")
