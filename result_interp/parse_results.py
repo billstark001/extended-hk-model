@@ -66,6 +66,10 @@ class RawSimulationRecord:
     follow_counts = [len(g0.out_edges[x]) for x in range(self.agents)]
     self.followers = np.array(follow_counts)
 
+  def dispose(self):
+    self.events_db.close()
+    self.graphs = {}
+
   def get_graph(self, step: int):
     # the step is invalid
     if step >= self.max_step or step < 0:
