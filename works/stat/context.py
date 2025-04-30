@@ -184,13 +184,14 @@ def get_gradation_index_hp(p_index, h_index):
 
 
 @c.selector
-def calc_active_step(g_index, active_threshold, min_inactive_value):
-  active_step = int(first_more_or_equal_than(
+def calc_active_step(x_indices, g_index, active_threshold, min_inactive_value):
+  active_step_index = int(first_more_or_equal_than(
       g_index,
       np.max([np.max(g_index) * active_threshold, min_inactive_value])
   ))
-  active_step_threshold = g_index[active_step - 1]
-  g_index_active = g_index[:active_step]
+  active_step = x_indices[active_step_index]
+  active_step_threshold = g_index[active_step_index - 1]
+  g_index_active = g_index[:active_step_index]
   g_index_mean_active = np.mean(g_index_active)
 
   return active_step, active_step_threshold, \
@@ -261,6 +262,8 @@ def get_bc_hom_x_and_smpl(scenario_record: RawSimulationRecord):
     g = scenario_record.get_graph(step)
     o = scenario_record.opinions[step]
     ret = get_bc_hom(g, o)
+    if np.isnan(ret):
+      return None
     return ret
 
   def err_bc_hom(x1, x2, x3, t3):
@@ -268,7 +271,8 @@ def get_bc_hom_x_and_smpl(scenario_record: RawSimulationRecord):
       return 0
     if x1 is None or x2 is None or x3 is None:
       return 1
-    return x1 * (1 - t3) + x2 * t3 - x3
+    ret = x1 * (1 - t3) + x2 * t3 - x3
+    return ret
 
   x_bc_hom, bc_hom_smpl = adaptive_discrete_sampling(
       get_bc_hom_step,
