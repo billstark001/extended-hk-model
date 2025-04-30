@@ -114,8 +114,10 @@ class RawSimulationRecord:
         raise ValueError("bad dump data (event)")
       try:
         nearest_available_graph.remove_edge(e.agent_id, body.unfollow)
-      except Exception as ex:
-        print(ex)
+      except nx.NetworkXError as ex:
+        # very occasional data corruption, attempt to remove inexistent edges
+        # this essentially does not affect the collective pattern
+        pass
       nearest_available_graph.add_edge(e.agent_id, body.follow)
 
     # store the applied graphs

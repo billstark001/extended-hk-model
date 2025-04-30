@@ -1,11 +1,13 @@
 from typing import Dict, Union, Optional, Tuple
+from numpy.typing import NDArray
+
 import numpy as np
 import networkx as nx
 from scipy.stats import gaussian_kde, norm
 from scipy.integrate import quad
 
 
-def ideal_dist_init_array(x: np.ndarray, k = 2):
+def ideal_dist_init_array(x: np.ndarray, k=2):
   ret_array = x / -k + 1
   ret_array[x > k] = 0
   ret_array[x < 0] = 0
@@ -31,18 +33,28 @@ def js_divergence_continuous(p_func, q_func, xmin=0, xmax=2, t_err=1e-13) -> flo
   return np.sqrt(val)
 
 
-def kl_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n=1000, t_err=1e-13):
-  xs = np.linspace(xmin, xmax, n)
-  p_vals = np.maximum(p_func(xs), t_err)
-  q_vals = np.maximum(q_func(xs), t_err)
+def kl_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | int = 1000, t_err=1e-13):
+  if isinstance(n, np.ndarray):
+    xs = n
+    p_vals = np.maximum(p_func, t_err)
+    q_vals = np.maximum(q_func, t_err)
+  else:
+    xs = np.linspace(xmin, xmax, n)
+    p_vals = np.maximum(p_func(xs), t_err)
+    q_vals = np.maximum(q_func(xs), t_err)
   integrand = p_vals * (np.log(p_vals) - np.log(q_vals))
   return np.trapz(integrand, xs)
 
 
-def js_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n=1000, t_err=1e-13):
-  xs = np.linspace(xmin, xmax, n)
-  p_vals = np.maximum(p_func(xs), t_err)
-  q_vals = np.maximum(q_func(xs), t_err)
+def js_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | int = 1000, t_err=1e-13):
+  if isinstance(n, np.ndarray):
+    xs = n
+    p_vals = np.maximum(p_func, t_err)
+    q_vals = np.maximum(q_func, t_err)
+  else:
+    xs = np.linspace(xmin, xmax, n)
+    p_vals = np.maximum(p_func(xs), t_err)
+    q_vals = np.maximum(q_func(xs), t_err)
   m_vals = 0.5 * (p_vals + q_vals)
   integrand = 0.5 * (p_vals * (np.log(p_vals) - np.log(m_vals)) +
                      q_vals * (np.log(q_vals) - np.log(m_vals)))
@@ -63,7 +75,8 @@ def get_kde_pdf(data, min_bandwidth: float, xmin: float, xmax: float):
   if np.all(data == data[0]):
     # 返回一个峰值在这个点的近似delta分布
     def delta_like_pdf(x):
-      return 1.0 if np.isclose(x, data[0]) else 0.0
+      return norm.pdf(x, data[0], min_bandwidth)
+      # return 1.0 if np.isclose(x[0], data[0]) else 0.0
     return delta_like_pdf
 
   bw_method = kde_min_bw_factory(min_bandwidth)
@@ -115,21 +128,22 @@ class DistanceCollectorContinuous:
     # KDE for pmf
     o_pdf = get_kde_pdf(o_sample, self.min_bandwidth, 0, k)
     s_pdf = get_kde_pdf(s_sample, self.min_bandwidth, 0, k)
-    
+
     err_range = self.min_bandwidth * 4
     axis = np.linspace(0 - err_range, k + err_range, 200)
 
     # 构造理想分布，用于归一化/对比
-    
+
     o_rand_vals = ideal_dist_init_array(axis, k=k)
     if o_rand_vals.sum() > 0:
       o_rand_vals /= np.trapz(o_rand_vals, axis)
     else:
       o_rand_vals[:] = 1.0 / (k - 0)
+    s_rand_vals = o_rand_vals
 
-    def o_rand_pdf(x):
-      return np.interp(x, axis, o_rand_vals)
-    s_rand_pdf = o_rand_pdf
+    # def o_rand_pdf(x):
+    #   return np.interp(x, axis, o_rand_vals)
+    # s_rand_pdf = o_rand_pdf
 
     # worst cases
     o_worst_b = o_sample[o_sample >= self.t_opinion]
@@ -141,38 +155,42 @@ class DistanceCollectorContinuous:
     if o_worst_vals.sum() > 0:
       o_worst_vals /= np.trapz(o_worst_vals, axis)
 
-    def o_worst_pdf(x):
-      return np.interp(x, axis, o_worst_vals)
+    # def o_worst_pdf(x):
+    #   return np.interp(x, axis, o_worst_vals)
 
     s_worst_vals = norm.pdf(axis, 0, self.min_bandwidth)
     if s_worst_vals.sum() > 0:
       s_worst_vals /= np.trapz(s_worst_vals, axis)
 
-    def s_worst_pdf(x):
-      return np.interp(x, axis, s_worst_vals)
+    # def s_worst_pdf(x):
+    #   return np.interp(x, axis, s_worst_vals)
 
     # scales
 
     params_dict = dict(
         xmin=0 - err_range, xmax=k + err_range, t_err=self.t_err,
+        n=axis,
     )
     o_scale_worst = o_scale_rand = self.div(
-        o_worst_pdf, o_rand_pdf,
+        o_worst_vals, o_rand_vals,
         **params_dict
     )
     s_scale_worst = s_scale_rand = self.div(
-        s_worst_pdf, s_rand_pdf,
+        s_worst_vals, s_rand_vals,
         **params_dict
     )
     if not self.use_js_divergence:
       o_scale_worst = self.div(
-          o_rand_pdf, o_worst_pdf,
+          o_rand_vals, o_worst_vals,
           **params_dict
       )
       s_scale_worst = self.div(
-          s_rand_pdf, s_worst_pdf,
+          s_rand_vals, s_worst_vals,
           **params_dict
       )
+
+    o_vals = o_pdf(axis)
+    s_vals = s_pdf(axis)
 
     debug_data = {}
     if self.use_debug_data:
@@ -187,9 +205,9 @@ class DistanceCollectorContinuous:
       }
 
     return {
-        prefix + '-rand-o': self.div(o_pdf, o_rand_pdf,  **params_dict) / o_scale_rand,
-        prefix + '-rand-s': self.div(s_pdf, s_rand_pdf,  **params_dict) / s_scale_rand,
-        prefix + '-worst-o': self.div(o_pdf, o_worst_pdf,  **params_dict) / o_scale_worst,
-        prefix + '-worst-s': self.div(s_pdf, s_worst_pdf,  **params_dict) / s_scale_worst,
+        prefix + '-rand-o': self.div(o_vals, o_rand_vals,  **params_dict) / o_scale_rand,
+        prefix + '-rand-s': self.div(s_vals, s_rand_vals,  **params_dict) / s_scale_rand,
+        prefix + '-worst-o': self.div(o_vals, o_worst_vals,  **params_dict) / o_scale_worst,
+        prefix + '-worst-s': self.div(s_vals, s_worst_vals,  **params_dict) / s_scale_worst,
         **debug_data,
     }

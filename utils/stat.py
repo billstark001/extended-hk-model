@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, Callable, TypeVar
+from typing import Optional, Tuple, Callable, TypeVar, List
 from numpy.typing import NDArray, DTypeLike
 from scipy.interpolate import interp1d
 
@@ -285,3 +285,18 @@ def adaptive_discrete_sampling(
   t_arr = sorted(samples.keys())
   f_arr = [samples[t] for t in t_arr]
   return t_arr, f_arr
+
+
+def merge_data_with_axes(
+  *data: Tuple[NDArray, NDArray]
+):
+  all_x = np.concatenate([x for x, _ in data])
+  x_merged = np.unique(all_x)
+  
+  y_s: List[NDArray] = []
+  for x, y in data:
+    interp_func = interp1d(x, y, axis=0, kind='linear', bounds_error=False, fill_value='extrapolate')
+    new_y = interp_func(x_merged)
+    y_s.append(new_y)
+  
+  return x_merged, y_s

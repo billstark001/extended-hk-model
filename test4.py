@@ -3,18 +3,19 @@ import numpy as np
 import networkx as nx
 
 from stats.distance_c import DistanceCollectorContinuous
-from utils.stat import adaptive_discrete_sampling
+from utils.stat import adaptive_discrete_sampling, merge_data_with_axes
 import works.config as c
 from result_interp import RawSimulationRecord
 
 
 dis = DistanceCollectorContinuous(
-    use_js_divergence=True
+    use_js_divergence=True,
+    min_bandwidth=0.01,
 )
 
 rec = RawSimulationRecord(
     c.SIMULATION_RESULT_DIR,
-    c.all_scenarios_grad[8]
+    c.all_scenarios_grad[10]
 )
 rec.load()
 
@@ -26,7 +27,7 @@ def err_func(x1, x2, x3, t3): return max(
 
 
 def calc_distance(step: int):
-  print('dis', step)
+#   print('dis', step)
   graph = rec.get_graph(step)
   opinion = rec.opinions[step]
 
@@ -34,8 +35,8 @@ def calc_distance(step: int):
 
   d_rand_o = dis_res['d-rand-o']
   d_rand_s = dis_res['d-rand-s']
-  d_worst_o = dis_res['d-worst-o']
-  d_worst_s = dis_res['d-worst-s']
+  d_worst_o = 1 - dis_res['d-worst-o']
+  d_worst_s = 1 - dis_res['d-worst-s']
 
   return d_rand_o, d_rand_s, d_worst_o, d_worst_s
 
@@ -63,4 +64,9 @@ cxh, cyh = adaptive_discrete_sampling(
     calc_homophily, 0.01,
     0, rec.max_step,
     max_interval=512,
+)
+
+x, (y_dist, y_homo) = merge_data_with_axes(
+  (cx, cy),
+  (cxh, cyh)
 )
