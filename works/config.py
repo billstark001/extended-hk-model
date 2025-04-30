@@ -73,3 +73,5 @@ SIMULATION_TEMP_FILE = os.path.join(
   SIMULATION_RESULT_DIR,
   os.environ['SIMULATION_TEMP_FILE_NAME']
 )
+
+SIMULATION_PLOT_DIR = normalize_path(os.environ['SIMULATION_PLOT_DIR'])

@@ -61,9 +61,9 @@ def calc_homophily(step: int):
 
 
 cxh, cyh = adaptive_discrete_sampling(
-    calc_homophily, 0.01,
-    0, rec.max_step,
-    max_interval=512,
+    calc_homophily, 
+    0.01,
+    0, rec.max_step, max_interval=512,
 )
 
 x, (y_dist, y_homo) = merge_data_with_axes(

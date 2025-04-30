@@ -14,7 +14,7 @@ from matplotlib.figure import Figure
 from utils.plot import plot_network_snapshot, plt_figure
 import works.detail.simulate as p
 
-from works.stat import c
+from works.stat.context import c
 
 # parameters
 

@@ -2,26 +2,23 @@
 from typing import List, Any, Dict
 
 import os
-import re
 import json
-import pickle
-import importlib
 
 import numpy as np
+import matplotlib as mpl
 from tqdm import tqdm
 
-import matplotlib as mpl
-
+from result_interp.record import RawSimulationRecord
 from utils.stat import compress_array_to_b64
-import works.mix.simulate as p
 
+import works.config as cfg
 from works.stat.context import c
 
 
 # parameters
 
-scenario_base_path = './run3'
-plot_path = './fig3'
+scenario_base_path = cfg.SIMULATION_RESULT_DIR
+plot_path = cfg.SIMULATION_PLOT_DIR
 
 os.makedirs(scenario_base_path, exist_ok=True)
 os.makedirs(plot_path, exist_ok=True)
@@ -47,27 +44,7 @@ c.set_state(
     min_inactive_value=0.75
 )
 
-def parse_scenario_string(scenario_string: str):
-  
-  match = re.match(
-    r'scenario_i(\d+)_dr(\d+)_(\w+)_sim(\d+)', 
-    scenario_string
-  )
-  
-  if match:
-    i = int(match.group(1))
-    dr = int(match.group(2))
-    word = match.group(3)
-    sim = int(match.group(4))
-    return {
-      'index': i,
-      'params_index': dr,
-      'recsys': word,
-      'sim_count': sim
-    }
-  else:
-    assert False, 'TODO'
-      
+
 if __name__ == '__main__':
 
   pat_stats_set: List[Dict[str, Any]] = []
@@ -87,11 +64,12 @@ if __name__ == '__main__':
       json.dump(pat_stats_set, f, indent=2, ensure_ascii=False)
     unsaved = False
 
-  itr = tqdm(p.params_arr, bar_format=short_progress_bar)
-  for scenario_name, r, d, g in itr:
-    
+  itr = tqdm(cfg.all_scenarios_grad, bar_format=short_progress_bar)
+  for scenario_metadata in itr:
+
+    scenario_name = scenario_metadata['UniqueName']
     itr.set_postfix_str(scenario_name)
-    
+
     if scenario_name in processed_data:
       pat_stats_set.append(processed_data[scenario_name])
       continue
@@ -101,32 +79,29 @@ if __name__ == '__main__':
 
     # load scenario
 
-    scenario_path = os.path.join(
-        scenario_base_path, scenario_name + '_record.pkl')
-    if not os.path.exists(scenario_path):
+    scenario_record = RawSimulationRecord(
+        scenario_base_path,
+        scenario_metadata,
+    )
+    scenario_record.load()
+    if not scenario_record.is_finished:
       continue
-
-    with open(scenario_path, 'rb') as f:
-      S_metadata, S_stats, S_agent_stats = pickle.load(f)
+    assert scenario_record.is_sanitized, 'non-sanitized scenario'
 
     c.set_state(
-        model_metadata=S_metadata,
-        model_stats=S_stats,
-        agent_stats=S_agent_stats,
+        scenario_record=scenario_record,
     )
-    
-    
-    # expr
-    
-    
-    # save
 
     opinion_last_diff = c.opinion_last_diff
     event_step_mean = np.mean(c.event_step)
+
+    bc_hom_last = c.bc_hom_last
+    if np.isnan(bc_hom_last):
+      bc_hom_last = None
+
     pat_stats = dict(
         name=scenario_name,
         step=c.total_steps,
-        **parse_scenario_string(scenario_name),
 
         active_step=c.active_step,
         active_step_threshold=c.active_step_threshold,
@@ -134,18 +109,24 @@ if __name__ == '__main__':
 
         p_last=c.p_index[-1],
         h_last=c.h_index[-1],
-        s_last=c.s_index[-1],
+        # s_last=c.s_index[-1],
 
         grad_index=c.gradation_index_hp,
-        event_count = c.event_step.size,
-        event_step_mean = event_step_mean,
+        event_count=c.event_step.size,
+        event_step_mean=event_step_mean,
         triads=c.n_triads,
-        
+
+        bc_hom_last=bc_hom_last,
+
+        x_bc_hom=c.x_bc_hom,
+        bc_hom_smpl=c.bc_hom_smpl,
+
+        x_mean_vars=c.x_mean_vars,
+        mean_vars_smpl=c.mean_vars_smpl,
+
         opinion_diff=opinion_last_diff if np.isfinite(
             opinion_last_diff) else -1,
-        
-        bc_hom_smpl=c.bc_hom_smpl,
-        mean_vars_smpl=c.mean_vars_smpl,
+
     )
 
     pat_stats_set.append(pat_stats)

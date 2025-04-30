@@ -156,16 +156,7 @@ cython_debug/
 
 # project related
 **/.DS_Store
-run
-run2_old
-run2
-run3
-run4
-fig
-fig2
-fig3
-fig4
-fig_final
-fig_final_1
-fig_final_2
 nohup.out
+run**
+fig**
+fig_final**

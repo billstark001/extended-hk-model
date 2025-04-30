@@ -15,7 +15,7 @@ import matplotlib as mpl
 from utils.stat import compress_array_to_b64
 import works.simulate.gradation as p
 
-from works.stat import c
+from works.stat.context import c
 
 
 # parameters
@@ -69,7 +69,7 @@ if __name__ == '__main__':
 
   itr = tqdm(p.params_arr, bar_format=short_progress_bar)
   for scenario_name, r, d, g in itr:
-    
+
     itr.set_postfix_str(scenario_name)
 
     if scenario_name in processed_data:
@@ -101,8 +101,7 @@ if __name__ == '__main__':
     bc_hom_last = c.bc_hom_last
     if np.isnan(bc_hom_last):
       bc_hom_last = None
-    
-    
+
     pat_stats = dict(
         name=scenario_name,
         step=c.total_steps,
@@ -113,30 +112,28 @@ if __name__ == '__main__':
 
         p_last=c.p_index[-1],
         h_last=c.h_index[-1],
-        s_last=c.s_index[-1],
+        # s_last=c.s_index[-1],
 
         grad_index=c.gradation_index_hp,
-        event_count = c.event_step.size,
-        event_step_mean = event_step_mean,
+        event_count=c.event_step.size,
+        event_step_mean=event_step_mean,
         triads=c.n_triads,
-        
+
         bc_hom_last=bc_hom_last,
+
+        # x_bc_hom=c.x_bc_hom,
         bc_hom_smpl=c.bc_hom_smpl,
+
+        # x_mean_vars=c.x_mean_vars,
         mean_vars_smpl=c.mean_vars_smpl,
-        
+
         opinion_diff=opinion_last_diff if np.isfinite(
             opinion_last_diff) else -1,
 
-        # in_degree=c.in_degree,
-
-        # smpl_pearson_rel=c.smpl_pearson_rel,
-        # smpl_rec_dis_network=c.smpl_rec_dis_network,
-        # smpl_rec_concordant_n=c.smpl_rec_concordant_n,
     )
 
     pat_stats_set.append(pat_stats)
     save_stats()
-
 
   if unsaved:
     save_stats()
