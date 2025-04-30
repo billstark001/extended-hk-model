@@ -1,17 +1,15 @@
-from typing import List
 from numpy.typing import NDArray
 
 import numpy as np
-from scipy.stats import pearsonr, skew, kurtosis
+from scipy.stats import skew, kurtosis
 import networkx as nx
 
-from scipy.interpolate import interp1d
 
 from result_interp.parse_events_db import get_events_by_step_range
 from result_interp.record import RawSimulationRecord
 from stats.distance_c import DistanceCollectorContinuous
 from utils.context import Context
-from utils.stat import adaptive_discrete_sampling, area_under_curve, compress_array_to_b64, first_more_or_equal_than, merge_data_with_axes
+from utils.stat import adaptive_discrete_sampling, area_under_curve, first_more_or_equal_than, merge_data_with_axes
 
 
 c = Context(
@@ -207,10 +205,10 @@ def get_gradation_index_pat_diff(h_index, p_index, active_step):
 @c.selector
 def calc_opinion_last(scenario_record: RawSimulationRecord):
   opinion_last = scenario_record.opinions[scenario_record.max_step]
-  opinion_last_mean = np.mean(opinion_last)
-  opinion_last_diff = \
+  opinion_last_mean = float(np.mean(opinion_last))
+  opinion_last_diff = float(\
       np.mean(opinion_last[opinion_last > opinion_last_mean]) - \
-      np.mean(opinion_last[opinion_last <= opinion_last_mean])
+      np.mean(opinion_last[opinion_last <= opinion_last_mean]))
   return opinion_last, opinion_last_mean, opinion_last_diff
 
 
@@ -238,7 +236,7 @@ def get_n_triads_and_bc_hom(scenario_record: RawSimulationRecord):
 
 
 @c.selector
-def get_vars_smpl(
+def get_mean_vars_x_and_smpl(
     scenario_record: RawSimulationRecord,
 ):
   def get_vars(step: int):
@@ -258,7 +256,7 @@ def get_vars_smpl(
 
 
 @c.selector
-def get_bc_hom_smpl(scenario_record: RawSimulationRecord):
+def get_bc_hom_x_and_smpl(scenario_record: RawSimulationRecord):
   def get_bc_hom_step(step: int):
     g = scenario_record.get_graph(step)
     o = scenario_record.opinions[step]

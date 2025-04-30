@@ -23,7 +23,7 @@ def analyze_last_return(func: Callable):
       tree) if isinstance(node, ast.FunctionDef))
 
   last_return = None
-  for node in ast.walk(function_def):
+  for node in function_def.body:
     if isinstance(node, ast.Return):
       last_return = node
 
@@ -43,6 +43,10 @@ def analyze_last_return(func: Callable):
 
 if __name__ == "__main__":
   def test_function():
+    def nested_test_function():
+      a = 3
+      b = 4
+      return a
     x = 1
     y = 2
     return x, y
