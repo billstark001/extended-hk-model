@@ -4,6 +4,7 @@ import (
 	"context"
 	"ehk-model/model"
 	"ehk-model/utils"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -272,7 +273,8 @@ iterLoop:
 		}
 	}
 
-	bar.Close()
+	// bar.Close()
+	fmt.Println("")
 
 	if !didDump {
 		s.Dump()
