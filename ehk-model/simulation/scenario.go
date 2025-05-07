@@ -97,7 +97,13 @@ func (s *Scenario) Init() {
 func (s *Scenario) Load() bool {
 
 	// initialize event db
-	db, err := OpenEventDB(filepath.Join(s.dir, s.metadata.UniqueName, "events.db"), DB_CACHE_SIZE)
+	dbPath := filepath.Join(s.dir, s.metadata.UniqueName, "events.db")
+	_, err := os.Stat(dbPath)
+	if os.IsNotExist(err) {
+		// db inexistent
+		return false
+	}
+	db, err := OpenEventDB(dbPath, DB_CACHE_SIZE)
 	if err != nil {
 		log.Printf("Failed to create event db logger: %v", err)
 		return false
