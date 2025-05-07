@@ -27,7 +27,7 @@ func GetDefaultRecsysFactoryDefs() map[string]model.RecsysFactory {
 		},
 
 		"Opinion": func(h *model.HKModel) model.HKModelRecommendationSystem {
-			return recsys.NewOpinion(h, 0.1)
+			return recsys.NewOpinion(h, 0.1, nil)
 		},
 
 		"Structure": func(h *model.HKModel) model.HKModelRecommendationSystem {

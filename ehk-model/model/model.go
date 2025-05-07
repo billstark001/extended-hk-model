@@ -123,6 +123,7 @@ func NewHKModel(
 }
 
 func (m *HKModel) SetAgentCurTweets() {
+	cntTweetRetain := max(m.ModelParams.TweetRetainCount, 1)
 	for aid, a := range m.Grid.AgentMap {
 		if a.CurTweet == nil {
 			l := len(m.Grid.TweetMap[aid])
@@ -132,7 +133,7 @@ func (m *HKModel) SetAgentCurTweets() {
 					AgentID: aid,
 					Opinion: a.CurOpinion,
 					Step:    -1,
-				}, m.ModelParams.TweetRetainCount)
+				}, cntTweetRetain)
 				l = 1
 			}
 			// apply the latest one
@@ -162,6 +163,7 @@ func (m *HKModel) Step(doIncrementCurStep bool) (int, float64) {
 	changedOpinionMax := 0.0
 
 	// Apply changes from agents
+	cntTweetRetain := max(m.ModelParams.TweetRetainCount, 1)
 	for _, a := range m.Schedule.Agents {
 		// Opinion change
 		changedOpinion := a.NextOpinion - a.CurOpinion
@@ -170,7 +172,7 @@ func (m *HKModel) Step(doIncrementCurStep bool) (int, float64) {
 
 		// Add tweet if there is one
 		if a.NextTweet != nil {
-			m.Grid.AddTweet(a.ID, a.NextTweet, m.ModelParams.TweetRetainCount)
+			m.Grid.AddTweet(a.ID, a.NextTweet, cntTweetRetain)
 			a.CurTweet = a.NextTweet
 		}
 

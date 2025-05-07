@@ -10,7 +10,7 @@ import (
 type NetworkGrid struct {
 	Graph    *simple.DirectedGraph
 	AgentMap map[int64]*HKAgent
-	TweetMap map[int64][]*TweetRecord
+	TweetMap map[int64][]*TweetRecord // { [agent id]: latest tweets (left -> right: newer) }
 	mu       sync.RWMutex
 }
 

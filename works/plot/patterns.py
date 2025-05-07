@@ -19,7 +19,7 @@ cat_labels = ['P;P', 'P;C', 'H;P', 'H;C']
 def load_pattern_data(pat_file_paths: List[str]):
   """Load pattern data from json files"""
   full_sim_len = cfg.rewiring_rate_array.shape[0] * \
-      cfg.decay_rate_array.shape[0] * len(cfg.n_gen_names)
+      cfg.decay_rate_array.shape[0] * len(cfg.rs_names)
 
   vals_0d, vals_non_0d = read_records(pat_file_paths, full_sim_len)
 
@@ -43,7 +43,7 @@ def prepare_heatmap_data(vals_0d):
       -1,
       cfg.rewiring_rate_array.shape[0],
       cfg.decay_rate_array.shape[0],
-      len(cfg.n_gen_names),
+      len(cfg.rs_names),
   ))
 
   # axes: (#sim, rewiring, decay, recsys)
