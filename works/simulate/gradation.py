@@ -20,7 +20,7 @@ if __name__ == '__main__':
       x.startswith('finished') for x in \
         os.listdir(_p)
     ):
-      if i % 10 == 9:
+      if (i + 1) % 50 == 0:
         print(f'Ignoring finished simulation: ({i + 1} / {total_count})')
       continue
     
