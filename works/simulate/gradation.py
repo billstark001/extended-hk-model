@@ -14,14 +14,22 @@ if __name__ == '__main__':
   total_count = len(all_scenarios_grad)
   is_sim_halted = False
   for i, params in enumerate(all_scenarios_grad):
+    
+    _p = os.path.join(SIMULATION_RESULT_DIR, params['UniqueName'])
+    if os.path.isdir(_p) and any(
+      x.startswith('finished') for x in \
+        os.listdir(_p)
+    ):
+      if i % 10 == 9:
+        print(f'Ignoring finished simulation: ({i + 1} / {total_count})')
+      continue
+    
     tstart = time.time()
     
     logger.info(
       '(%d / %d) Scenario %s simulation started.', 
       i + 1, total_count, params['UniqueName']
     )
-    
-    os.makedirs(SIMULATION_RESULT_DIR, exist_ok=True)
     
     with open(SIMULATION_TEMP_FILE, 'w') as f:
       json.dump(params, f)
