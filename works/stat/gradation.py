@@ -107,9 +107,10 @@ if __name__ == '__main__':
         active_step_threshold=c.active_step_threshold,
         g_index_mean_active=c.g_index_mean_active,
 
-        p_last=c.p_index[-1],
-        h_last=c.h_index[-1],
-        # s_last=c.s_index[-1],
+        x_indices=c.x_indices,
+        h_index=c.h_index, # hom index
+        p_index=c.p_index, # pol index
+        g_index=c.g_index, # env index
 
         grad_index=c.gradation_index_hp,
         event_count=c.event_step.size,
@@ -126,6 +127,9 @@ if __name__ == '__main__':
 
         opinion_diff=opinion_last_diff if np.isfinite(
             opinion_last_diff) else -1,
+        
+        x_opinion_diff_mean=c.x_opinion_diff_mean,
+        opinion_diff_mean_smpl=c.opinion_diff_mean_smpl,
 
     )
 

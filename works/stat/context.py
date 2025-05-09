@@ -121,6 +121,7 @@ def get_total_steps(scenario_record: RawSimulationRecord):
 distance_collector = DistanceCollectorContinuous(
     use_js_divergence=True,
     min_bandwidth=0.01,
+    node_cnt=500,
 )
 
 
@@ -165,13 +166,14 @@ def get_indices(scenario_record: RawSimulationRecord):
       0.01,
       0, scenario_record.max_step, max_interval=512,
   )
-  x_indices, (y_dist, y_homo) = merge_data_with_axes(
+  x_indices_raw, (y_dist, y_homo) = merge_data_with_axes(
       g_distance, g_homophily,
   )
 
-  h_index = y_homo
-  p_index = y_dist[:, 2]  # d-worst-o
-  g_index = y_dist[:, 3]  # d-worst-s
+  x_indices = x_indices_raw.tolist()
+  h_index = y_homo.tolist()
+  p_index = y_dist[:, 2].tolist()  # d-worst-o
+  g_index = y_dist[:, 3].tolist()  # d-worst-s
 
   return x_indices, h_index, p_index, g_index
 
@@ -180,13 +182,13 @@ def get_indices(scenario_record: RawSimulationRecord):
 
 @c.selector
 def get_gradation_index_hp(p_index, h_index):
-  return area_under_curve([p_index, h_index])
+  return area_under_curve(np.array([p_index, h_index]))
 
 
 @c.selector
 def calc_active_step(x_indices, g_index, active_threshold, min_inactive_value):
   active_step_index = int(first_more_or_equal_than(
-      g_index,
+      np.array(g_index),
       np.max([np.max(g_index) * active_threshold, min_inactive_value])
   ))
   active_step = x_indices[active_step_index]
@@ -211,6 +213,27 @@ def calc_opinion_last(scenario_record: RawSimulationRecord):
       np.mean(opinion_last[opinion_last > opinion_last_mean]) - \
       np.mean(opinion_last[opinion_last <= opinion_last_mean]))
   return opinion_last, opinion_last_mean, opinion_last_diff
+
+
+@c.selector
+def get_opinion_diff(scenario_record: RawSimulationRecord):
+  opinion = scenario_record.opinions
+  opinion_diff = np.copy(opinion)
+  opinion_diff[1:] -= opinion[:-1]
+  if opinion_diff.shape[0] > 1:
+    opinion_diff[0] = opinion_diff[1]
+  return opinion_diff
+
+
+@c.selector
+def get_opinion_diff_mean(opinion_diff: NDArray, scenario_record: RawSimulationRecord):
+  odm_raw = np.abs(opinion_diff).mean(axis=1)
+  x_opinion_diff_mean, opinion_diff_mean_smpl = adaptive_discrete_sampling(
+    lambda x: float(odm_raw[x]),
+    0.01,
+    0, scenario_record.max_step, max_interval=512,
+  )
+  return x_opinion_diff_mean, opinion_diff_mean_smpl
 
 
 # @c.selector

@@ -3,7 +3,8 @@ from numpy.typing import NDArray
 
 import numpy as np
 import networkx as nx
-from scipy.stats import gaussian_kde, norm
+from scipy.stats import norm, gaussian_kde
+from sklearn.neighbors import KernelDensity
 from scipy.integrate import quad
 
 
@@ -33,7 +34,9 @@ def js_divergence_continuous(p_func, q_func, xmin=0, xmax=2, t_err=1e-13) -> flo
   return np.sqrt(val)
 
 
-def kl_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | int = 1000, t_err=1e-13):
+LINSPACE_SMPL_COUNT = 128
+
+def kl_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | int = LINSPACE_SMPL_COUNT, t_err=1e-13):
   if isinstance(n, np.ndarray):
     xs = n
     p_vals = np.maximum(p_func, t_err)
@@ -46,7 +49,12 @@ def kl_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | i
   return np.trapz(integrand, xs)
 
 
-def js_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | int = 1000, t_err=1e-13):
+def fast_trapz(y: NDArray, x: NDArray):
+  h = x[1] - x[0]
+  result = h * (y.sum() - 0.5 * (y[0] + y[-1]))
+  return result
+
+def js_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | int = LINSPACE_SMPL_COUNT, t_err=1e-13):
   if isinstance(n, np.ndarray):
     xs = n
     p_vals = np.maximum(p_func, t_err)
@@ -58,7 +66,8 @@ def js_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | i
   m_vals = 0.5 * (p_vals + q_vals)
   integrand = 0.5 * (p_vals * (np.log(p_vals) - np.log(m_vals)) +
                      q_vals * (np.log(q_vals) - np.log(m_vals)))
-  val = np.trapz(integrand, xs)
+  val = fast_trapz(integrand, xs)
+  # val = np.trapz(integrand, xs)
   return np.sqrt(val)
 
 
@@ -69,6 +78,14 @@ def kde_min_bw_factory(min_bandwidth):
     return max(default_factor, min_factor)
   return min_bw_factor
 
+def kde_min_bw_calc(data: NDArray, min_bw=0.1):
+  std = np.std(data, ddof=1)
+  default_bw = 1.06 * std * len(data) ** (-1 / 5)  # 例如scott
+  bw = max(default_bw, min_bw)
+  return bw
+
+def min_bandwidth_enforcer(bandwidth, min_bandwidth, data):
+  return max(bandwidth, min_bandwidth, np.std(data, ddof=1)*0.1)  # 举例
 
 def get_kde_pdf(data, min_bandwidth: float, xmin: float, xmax: float):
   # 如果样本全为某个点，KDE会报错，这里做特殊处理
@@ -80,20 +97,28 @@ def get_kde_pdf(data, min_bandwidth: float, xmin: float, xmax: float):
     return delta_like_pdf
 
   bw_method = kde_min_bw_factory(min_bandwidth)
-  kde = gaussian_kde(data, bw_method=bw_method)
-  # 截断在[xmin, xmax]范围
+  data_smpl = data # np.random.choice(data, size=2000, replace=False)
+  kde = gaussian_kde(data_smpl, bw_method=bw_method)
+  return kde
 
-  def pdf(x):
-    val = kde(x)
-    val = np.clip(val, 0, None)
-    return val
-  return pdf
+  # kde = KernelDensity(
+  #   kernel='gaussian', 
+  #   bandwidth=kde_min_bw_calc(data, min_bw=min_bandwidth))
+  # kde.fit(data[:, None])  # 需要二维 shape=(n_samples, n_features)
+  
+  # def ret(x: NDArray):
+  #   log_density = kde.score_samples(x[:, None])    # 返回log密度
+  #   density = np.exp(log_density)         # 取指数得到真正的密度
+  #   return density
+  
+  # return ret
 
 
 class DistanceCollectorContinuous:
   def __init__(
       self,
       min_bandwidth: Optional[float] = 0.05,
+      node_cnt = 500,
       t_err: float = 1e-10,
       use_js_divergence: bool = False,
       use_debug_data: bool = False,
@@ -108,6 +133,20 @@ class DistanceCollectorContinuous:
     self.k = k
     self.div = js_divergence_continuous_fast \
         if use_js_divergence else kl_divergence_continuous_fast
+        
+    
+    err_range = self.min_bandwidth * 4
+    self.axis = np.linspace(0 - err_range, k + err_range, LINSPACE_SMPL_COUNT)
+    
+    
+    o_rand_vals = ideal_dist_init_array(self.axis, k=k)
+    if o_rand_vals.sum() > 0:
+      o_rand_vals /= np.trapz(o_rand_vals, self.axis)
+    else:
+      o_rand_vals[:] = 1.0 / (k - 0)
+    
+    self.o_rand_vals = o_rand_vals
+    self.triu_indices = np.triu_indices(node_cnt, k=1)
 
   def collect(
       self,
@@ -119,7 +158,8 @@ class DistanceCollectorContinuous:
     k = self.k
     # sampling
     o_slice_mat = np.tile(opinion.reshape((opinion.size, 1)), opinion.size)
-    o_sample = np.abs(o_slice_mat - o_slice_mat.T).flatten()
+    o_sample_mat = np.abs(o_slice_mat - o_slice_mat.T)
+    o_sample = o_sample_mat[self.triu_indices]
     o_sample = np.clip(o_sample, 0, k)
     neighbors = np.array(digraph.edges)
     s_sample = np.abs(opinion[neighbors[:, 1]] - opinion[neighbors[:, 0]])
@@ -129,17 +169,11 @@ class DistanceCollectorContinuous:
     o_pdf = get_kde_pdf(o_sample, self.min_bandwidth, 0, k)
     s_pdf = get_kde_pdf(s_sample, self.min_bandwidth, 0, k)
 
-    err_range = self.min_bandwidth * 4
-    axis = np.linspace(0 - err_range, k + err_range, 200)
 
     # 构造理想分布，用于归一化/对比
-
-    o_rand_vals = ideal_dist_init_array(axis, k=k)
-    if o_rand_vals.sum() > 0:
-      o_rand_vals /= np.trapz(o_rand_vals, axis)
-    else:
-      o_rand_vals[:] = 1.0 / (k - 0)
-    s_rand_vals = o_rand_vals
+    err_range = self.min_bandwidth * 4
+    axis = self.axis
+    s_rand_vals = o_rand_vals = self.o_rand_vals
 
     # def o_rand_pdf(x):
     #   return np.interp(x, axis, o_rand_vals)
@@ -153,14 +187,14 @@ class DistanceCollectorContinuous:
         0.5 * norm.pdf(axis, 0, self.min_bandwidth) + \
         0.5 * norm.pdf(axis, o_worst_v, self.min_bandwidth)
     if o_worst_vals.sum() > 0:
-      o_worst_vals /= np.trapz(o_worst_vals, axis)
+      o_worst_vals /= fast_trapz(o_worst_vals, axis)
 
     # def o_worst_pdf(x):
     #   return np.interp(x, axis, o_worst_vals)
 
     s_worst_vals = norm.pdf(axis, 0, self.min_bandwidth)
     if s_worst_vals.sum() > 0:
-      s_worst_vals /= np.trapz(s_worst_vals, axis)
+      s_worst_vals /= fast_trapz(s_worst_vals, axis)
 
     # def s_worst_pdf(x):
     #   return np.interp(x, axis, s_worst_vals)
