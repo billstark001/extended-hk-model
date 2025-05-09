@@ -191,6 +191,8 @@ def calc_active_step(x_indices, g_index, active_threshold, min_inactive_value):
       np.array(g_index),
       np.max([np.max(g_index) * active_threshold, min_inactive_value])
   ))
+  if active_step_index >= len(x_indices):
+    active_step_index = len(x_indices) - 1 # take last index
   active_step = x_indices[active_step_index]
   active_step_threshold = g_index[active_step_index - 1]
   g_index_active = g_index[:active_step_index]
