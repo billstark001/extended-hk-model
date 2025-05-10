@@ -72,6 +72,7 @@ if __name__ == '__main__':
 
     if scenario_name in processed_data:
       pat_stats_set.append(processed_data[scenario_name])
+      unsaved = True
       continue
 
     if unsaved:
