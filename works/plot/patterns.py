@@ -5,9 +5,7 @@ from scipy.stats import gaussian_kde
 
 from utils.file import read_records
 
-from works.plot.visuals import (
-    plt_figure, plt_save_and_close
-)
+from works.plot.visuals import plt_figure, plt_save_and_close
 
 import works.config as cfg
 

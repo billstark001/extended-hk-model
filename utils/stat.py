@@ -3,11 +3,11 @@ from numpy.typing import NDArray, DTypeLike
 from scipy.interpolate import interp1d
 
 import logging
+from collections import OrderedDict, deque
 
 import numpy as np
 import zlib
 import base64
-import numpy as np
 
 
 def compress_array_to_b64(arr: NDArray) -> str:
@@ -77,16 +77,16 @@ def moving_average(data: NDArray, window_size: int):
 
 
 def adaptive_moving_stats(
-  x: NDArray,
-  y: NDArray,
-  h0: float,
-  alpha: float = 0.5,
-  g: float = 1.0,
-  min: Optional[float] = None,
-  max: Optional[float] = None,
-  density_estimation_point: Optional[int] = 20,
-  result_point: Optional[int] = 100,
-  epsilon=1e-14,
+    x: NDArray,
+    y: NDArray,
+    h0: float,
+    alpha: float = 0.5,
+    g: float = 1.0,
+    min: Optional[float] = None,
+    max: Optional[float] = None,
+    density_estimation_point: Optional[int] = 20,
+    result_point: Optional[int] = 100,
+    epsilon=1e-14,
 ) -> Tuple[NDArray, NDArray, NDArray]:
 
   min = min if min is not None else x.min()
@@ -94,28 +94,28 @@ def adaptive_moving_stats(
 
   # estimate current point density
   density_x = x if density_estimation_point is None else np.linspace(
-    min, max, density_estimation_point, dtype=float)
+      min, max, density_estimation_point, dtype=float)
   kde = np.sum(
-    np.exp(-0.5 * ((density_x.reshape((-1, 1)) -
-         x.reshape((1, -1))) / h0) ** 2) / np.sqrt(2 * np.pi * h0 ** 2),
-    axis=1
+      np.exp(-0.5 * ((density_x.reshape((-1, 1)) -
+                      x.reshape((1, -1))) / h0) ** 2) / np.sqrt(2 * np.pi * h0 ** 2),
+      axis=1
   )
   density = kde / (x.size * h0)
 
   # calculate result point
   result_x = x if result_point is None else np.linspace(
-    min, max, result_point, dtype=float)
+      min, max, result_point, dtype=float)
 
   # calculate adaptive width
   density_resampled_ = interp1d(
-    density_x, density, fill_value='extrapolate')
+      density_x, density, fill_value='extrapolate')
   density_resampled: NDArray = density_resampled_(result_x)
   lambda_t = (density_resampled / g) ** (-alpha)
   h_t = h0 * lambda_t
 
   # calculate avg & std
   mask = np.exp(-0.5 * ((
-    result_x.reshape((-1, 1)) - x.reshape((1, -1))
+      result_x.reshape((-1, 1)) - x.reshape((1, -1))
   ) / h_t.reshape((-1, 1))) ** 2) / np.sqrt(2 * np.pi * h_t.reshape((-1, 1)) ** 2)
   # shape: (result_point, #value)
   mask_sum = np.sum(mask, axis=1).reshape((-1, 1)) + epsilon
@@ -128,7 +128,7 @@ def adaptive_moving_stats(
 
 
 def proc_opinion_diff(dn: NDArray, dr: NDArray,
-            n_n: NDArray, n_r: NDArray, average=3, error=1e-4):
+                      n_n: NDArray, n_r: NDArray, average=3, error=1e-4):
 
   if dn.shape[0] > 1:
     dn[0] = dn[1]
@@ -146,8 +146,8 @@ def proc_opinion_diff(dn: NDArray, dr: NDArray,
   sum_r1 = moving_average(np.mean(n_r, axis=1), average)
 
   pad_index = min(
-    first_less_than(sn, error),
-    first_less_than(sr, error),
+      first_less_than(sn, error),
+      first_less_than(sr, error),
   )
 
   ratio_s = sr[:pad_index] / (sr[:pad_index] + sn[:pad_index])
@@ -158,16 +158,16 @@ def proc_opinion_diff(dn: NDArray, dr: NDArray,
 
 def proc_opinion_ratio(
 
-    sum_n: NDArray, sum_r: NDArray,
-    n_n: NDArray, n_r: NDArray,
-    error=1e-2):
+        sum_n: NDArray, sum_r: NDArray,
+        n_n: NDArray, n_r: NDArray,
+        error=1e-2):
 
   sum_an = np.abs(sum_n)
   sum_ar = np.abs(sum_r)
 
   sum_mask = np.logical_and(
-    sum_an > error,
-    sum_ar > error
+      sum_an > error,
+      sum_ar > error
   )
   n_mask = (n_n + n_r) > 1
 
@@ -213,15 +213,17 @@ def area_under_curve(points: NDArray, arg_sort=False, complement: Optional[float
 
   return area
 
+
 T = TypeVar('T')
 
+
 def adaptive_discrete_sampling(
-  f: Callable[[int], T],
-  error_threshold: float,
-  t_start: int,
-  t_end: int,
-  max_interval: int | None = None,
-  err_func: Callable[[T, T], float] | None = None
+    f: Callable[[int], T],
+    error_threshold: float,
+    t_start: int,
+    t_end: int,
+    max_interval: int | None = None,
+    err_func: Callable[[T, T], float] | None = None
 ):
   """
   对离散时间轴上的函数f，进行自适应采样（非递归实现）。
@@ -239,7 +241,6 @@ def adaptive_discrete_sampling(
   if t_start >= t_end:
     raise ValueError("t_start 必须小于 t_end")
 
-  from collections import OrderedDict, deque
   samples = OrderedDict()
   samples[t_start] = f(t_start)
   samples[t_end] = f(t_end)
@@ -273,7 +274,7 @@ def adaptive_discrete_sampling(
         error = err_func(f_left, f_right, f_mid, t_mid_rate)
       else:
         f_mid_interp = f_right * t_mid_rate \
-          + f_left * (1 - t_mid_rate)
+            + f_left * (1 - t_mid_rate)
         error = abs(f_mid - f_mid_interp)
       # 满足误差或强制采样时，采样并细分
       if error > error_threshold or force_sample:
@@ -288,15 +289,18 @@ def adaptive_discrete_sampling(
 
 
 def merge_data_with_axes(
-  *data: Tuple[NDArray, NDArray]
+    *data: Tuple[NDArray, NDArray]
 ):
   all_x = np.concatenate([x for x, _ in data])
   x_merged = np.unique(all_x)
-  
+
   y_s: List[NDArray] = []
   for x, y in data:
-    interp_func = interp1d(x, y, axis=0, kind='linear', bounds_error=False, fill_value='extrapolate')
+    interp_func = interp1d(
+        x, y, axis=0, kind='linear',
+        bounds_error=False, fill_value='extrapolate'
+    )
     new_y = interp_func(x_merged)
     y_s.append(new_y)
-  
+
   return x_merged, y_s

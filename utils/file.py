@@ -48,9 +48,14 @@ def read_records(pat_file_paths: List[str], full_sim_len: int = 1):
     else:
       keys_non_0d.append(k)
 
-  vals_0d = pd.DataFrame([[x[key] for key in keys_0d]
-                         for x in pat_files_raw], columns=keys_0d)
-  vals_non_0d = {k: [v[k] for v in pat_files_raw]
-                 for k in keys_non_0d}
+  vals_0d = pd.DataFrame(
+      [[x[key] for key in keys_0d]
+       for x in pat_files_raw],
+      columns=keys_0d
+  )
+  vals_non_0d = {
+      k: [v[k] for v in pat_files_raw]
+      for k in keys_non_0d
+  }
 
   return vals_0d, vals_non_0d

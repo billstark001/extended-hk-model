@@ -10,7 +10,7 @@ import numpy as np
 decay_rate_array = rewiring_rate_array = \
     np.array([0.005, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1])
 retweet_rate_array = np.array([0, 0.1, 0.25, 0.5])
-n_sims = 50
+n_sims = 10
 
 rs_names = {
   'st': ('StructureM9', 0),

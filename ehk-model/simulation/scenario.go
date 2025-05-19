@@ -33,7 +33,7 @@ func NewScenario(dir string, metadata *ScenarioMetadata) *Scenario {
 var RECSYS_FACTORY = GetDefaultRecsysFactoryDefs()
 
 const MAX_TWEET_EVENT_INTERVAL = 500
-const DB_CACHE_SIZE = 2000
+const DB_CACHE_SIZE = 40000
 
 func (s *Scenario) Init() {
 
@@ -274,7 +274,9 @@ iterLoop:
 	}
 
 	// bar.Close()
-	fmt.Println("")
+	if s.model.CurStep <= MAX_SIM_COUNT {
+		fmt.Println("")
+	}
 
 	if !didDump {
 		s.Dump()

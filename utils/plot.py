@@ -27,9 +27,13 @@ def plot_network_snapshot(
   ax.spines['left'].set_visible(False)
   ax.spines['right'].set_visible(False)
 
-  nx.draw_networkx_nodes(G, ax=ax, pos=pos, node_color=opinion,
-                         cmap=cmap, vmin=-1, vmax=1, node_size=40)
-  nx.draw_networkx_edges(G, ax=ax, pos=pos, node_size=40, alpha=0.36)
+  nx.draw_networkx_nodes(
+      G, ax=ax, pos=pos, node_color=opinion,
+      cmap=cmap, vmin=-1, vmax=1, node_size=40
+  )
+  nx.draw_networkx_edges(
+      G, ax=ax, pos=pos, node_size=40, alpha=0.36
+  )
 
   ax.set_xlabel(f'step = {step}')
 
@@ -38,13 +42,15 @@ def plot_network_snapshot(
 
 
 @overload
-def plt_figure(n_row: int,
-               hw_ratio=3/4, total_width=16) -> Tuple[Figure, List[Axes]]: ...
+def plt_figure(
+    n_row: int,
+    hw_ratio=3/4, total_width=16) -> Tuple[Figure, List[Axes]]: ...
 
 
 @overload
-def plt_figure(n_col: int,
-               hw_ratio=3/4, total_width=16) -> Tuple[Figure, List[Axes]]: ...
+def plt_figure(
+    n_col: int,
+    hw_ratio=3/4, total_width=16) -> Tuple[Figure, List[Axes]]: ...
 
 
 @overload

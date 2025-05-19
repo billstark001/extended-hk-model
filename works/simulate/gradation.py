@@ -5,7 +5,7 @@ import time
 
 from utils.stat import get_logger
 from works.config import GO_SIMULATOR_PATH, all_scenarios_grad, SIMULATION_RESULT_DIR, SIMULATION_TEMP_FILE
-
+print(f'Result Directory: {SIMULATION_RESULT_DIR}')
 os.makedirs(SIMULATION_RESULT_DIR, exist_ok=True)
 logger = get_logger(__name__, os.path.join(SIMULATION_RESULT_DIR, 'logfile.log'))
 
