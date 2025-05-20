@@ -5,6 +5,22 @@ from playhouse.migrate import SqliteMigrator, migrate
 import numpy as np
 
 
+def nullable(exclude=None):
+  if exclude is None:
+    exclude = []
+
+  def decorator(cls):
+    for key, value in cls.__dict__.items():
+      if (
+          isinstance(value, peewee.Field)
+          and not getattr(value, 'primary_key', False)
+          and key not in exclude
+      ):
+        value.null = True
+    return cls
+  return decorator
+
+
 class NumpyArrayField(peewee.BlobField):
   """
   支持自动序列化/反序列化 numpy.ndarray 的 Peewee 字段。
@@ -12,13 +28,13 @@ class NumpyArrayField(peewee.BlobField):
   支持可选强制类型（force_dtype），在读写时用 astype。
   """
 
-  def __init__(self, force_dtype: Optional[Union[str, np.dtype]] = None, *args, **kwargs):
+  def __init__(self, dtype: Optional[Union[str, np.dtype]] = None, *args, **kwargs):
     """
     :param force_dtype: 强制类型（如np.float32），None则不转换。
     其余参数同peewee.BlobField
     """
     self.force_dtype = np.dtype(
-        force_dtype) if force_dtype is not None else None
+        dtype) if dtype is not None else None
     super().__init__(*args, **kwargs)
 
   def _to_numpy(self, value: Any) -> np.ndarray:

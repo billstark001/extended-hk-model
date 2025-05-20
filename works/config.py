@@ -83,3 +83,9 @@ SIMULATION_TEMP_FILE = os.path.join(
 )
 
 SIMULATION_PLOT_DIR = normalize_path(os.environ['SIMULATION_PLOT_DIR'])
+
+SIMULATION_INSTANCE_NAME = os.environ['SIMULATION_INSTANCE_NAME']
+assert SIMULATION_INSTANCE_NAME is not None and SIMULATION_INSTANCE_NAME != '', 'SIMULATION_INSTANCE_NAME not defined'
+
+if __name__ == '__main__':
+  print(f'Simulation Instance: {SIMULATION_INSTANCE_NAME}')
