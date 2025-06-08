@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, TypedDict
 
 import os
 
@@ -21,6 +21,16 @@ rs_names = {
 
 # all parameters
 
+class GoMetadataDict(TypedDict):
+  UniqueName: str
+  Tolerance: float
+  Decay: float
+  RewiringRate: float
+  RetweetRate: float
+  RecsysFactoryType: str
+  RecsysCount: int
+  TweetRetainCount: int
+
 def create_go_metadata_dict(
   name: str,
   tolerance = 0.45,
@@ -30,7 +40,7 @@ def create_go_metadata_dict(
   recsys_type = "Random",
   recsys_count = 10,
   tweet_retain_count = 3,
-):
+) -> GoMetadataDict:
   return {
     "UniqueName": name,
     "Tolerance": tolerance,
@@ -42,7 +52,7 @@ def create_go_metadata_dict(
     "TweetRetainCount": tweet_retain_count,
   }
 
-all_scenarios_grad: List[Dict] = []
+all_scenarios_grad: List[GoMetadataDict] = []
 
 for i_sim in range(n_sims):
   for i_rw, rw in enumerate(rewiring_rate_array):

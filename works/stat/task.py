@@ -1,4 +1,6 @@
+# type: ignore
 
+from typing import Type, TYPE_CHECKING
 
 import numpy as np
 
@@ -17,9 +19,11 @@ from utils.peewee import NumpyArrayField, nullable
     'recsys_type', 'tweet_retain_count',
 ])
 class ScenarioStatistics(peewee.Model):
+  DoesNotExist: Type[peewee.DoesNotExist]
 
   class Meta:
     database: peewee.Database
+  _meta: Type[Meta]
 
   # model metadata
   name: str = peewee.CharField(max_length=255, index=True)
@@ -61,9 +65,12 @@ class ScenarioStatistics(peewee.Model):
   opinion_diff_mean_smpl: np.ndarray = NumpyArrayField(dtype=np.float64)
 
 
+if TYPE_CHECKING:
+  from works.config import GoMetadataDict
+
 
 def stats_from_dict(
-    scenario_metadata: dict,
+    scenario_metadata: 'GoMetadataDict',
     stats_dict: dict,
     origin: str,
 ):
@@ -71,9 +78,9 @@ def stats_from_dict(
   _d: dict = {}
   for k, v in stats_dict.items():
     if k in [
-      'name', 'origin',
-      'tolerance', 'decay', 'rewiring', 'retweet',
-      'recsys_type', 'tweet_retain_count',
+        'name', 'origin',
+        'tolerance', 'decay', 'rewiring', 'retweet',
+        'recsys_type', 'tweet_retain_count',
     ]:
       continue
     if hasattr(ScenarioStatistics, k):
@@ -97,7 +104,7 @@ def stats_from_dict(
 
 
 def get_statistics(
-    scenario_metadata: dict,
+    scenario_metadata: 'GoMetadataDict',
     scenario_base_path: str,
     origin: str,
     active_threshold=0.98,

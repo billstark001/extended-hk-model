@@ -1,4 +1,4 @@
-from typing import Mapping, Optional, Tuple, List, overload, Union, Iterable, Any
+from typing import Mapping, Optional, Tuple, List, overload, Union, Iterable, Any, Literal, Sequence
 from numpy.typing import NDArray
 
 import networkx as nx
@@ -22,10 +22,11 @@ def plot_network_snapshot(
   sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
   sm.set_array([])
 
-  ax.spines['top'].set_visible(False)
-  ax.spines['bottom'].set_visible(False)
-  ax.spines['left'].set_visible(False)
-  ax.spines['right'].set_visible(False)
+  if ax is not None:
+    ax.spines['top'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(False)
 
   nx.draw_networkx_nodes(
       G, ax=ax, pos=pos, node_color=opinion,
@@ -35,41 +36,56 @@ def plot_network_snapshot(
       G, ax=ax, pos=pos, node_size=40, alpha=0.36
   )
 
-  ax.set_xlabel(f'step = {step}')
+  if ax is not None:
+    ax.set_xlabel(f'step = {step}')
 
   plt.colorbar(sm, ticks=np.linspace(-1, 1, 5), ax=ax)
   plt.tight_layout()
 
-
+@overload
+def plt_figure(
+    n_row: Literal[1],
+    n_col: Literal[1],
+    hw_ratio: float = 3/4,
+    total_width: float = 16,
+    **kwargs
+) -> Tuple[Figure, Axes]: ...
+@overload
+def plt_figure(
+    n_row: Literal[1],
+    n_col: int,
+    hw_ratio: float = 3/4,
+    total_width: float = 16,
+    **kwargs
+) -> Tuple[Figure, Sequence[Axes]]: ...
 @overload
 def plt_figure(
     n_row: int,
-    hw_ratio=3/4, total_width=16) -> Tuple[Figure, List[Axes]]: ...
-
-
+    n_col: Literal[1],
+    hw_ratio: float = 3/4,
+    total_width: float = 16,
+    **kwargs
+) -> Tuple[Figure, Sequence[Axes]]: ...
 @overload
 def plt_figure(
+    n_row: int,
     n_col: int,
-    hw_ratio=3/4, total_width=16) -> Tuple[Figure, List[Axes]]: ...
-
-
-@overload
-def plt_figure(
-    n_row: int, n_col: int,
-    hw_ratio=3/4, total_width=16,
+    hw_ratio: float = 3/4,
+    total_width: float = 16,
     **kwargs
-) -> Tuple[Figure, List[List[Axes]]]: ...
-
+) -> Tuple[Figure, Sequence[Sequence[Axes]]]: ...
 
 def plt_figure(
-    n_row=1, n_col=1,
-    hw_ratio=3/4, total_width=16,
+    n_row: int = 1,
+    n_col: int = 1,
+    hw_ratio: float = 3/4,
+    total_width: float = 16,
     **kwargs
-) -> Tuple[Figure, List[List[Axes]]]:
+) -> Tuple[Figure, Union[Axes, Sequence[Axes], Sequence[Sequence[Axes]]]]:
   width = total_width / n_col
   height = width * hw_ratio
   total_height = height * n_row
-  return plt.subplots(n_row, n_col, figsize=(total_width, total_height), **kwargs)
+  return plt.subplots(n_row, n_col, figsize=(total_width, total_height), **kwargs) # type: ignore
 
 
 def get_colormap(

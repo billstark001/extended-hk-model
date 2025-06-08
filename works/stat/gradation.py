@@ -68,7 +68,7 @@ if __name__ == '__main__':
   ) as executor:
     try:
 
-      futures: Dict[Future[ScenarioStatistics], str] = {}
+      futures: Dict[Future[ScenarioStatistics | None], str] = {}
       for s in tqdm(cfg.all_scenarios_grad):
         if stats_exist(s['UniqueName'], origin):
           continue
