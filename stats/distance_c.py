@@ -1,18 +1,42 @@
-from typing import Dict, Union, Optional, Tuple
+from typing import Dict, Union, Any
 from numpy.typing import NDArray
 
 import numpy as np
 import networkx as nx
 from scipy.stats import norm, gaussian_kde
-from sklearn.neighbors import KernelDensity
 from scipy.integrate import quad
 
 
-def ideal_dist_init_array(x: np.ndarray, k=2):
+def sample_linear_pdf(n: int, k: float, random_state=None):
+  rng = np.random.default_rng(random_state)
+  u = rng.uniform(0, 1, size=n)
+  x = k - k * np.sqrt(1 - u)
+  return x
+
+
+def ideal_dist_init_array(x: np.ndarray, k: float = 2):
   ret_array = x / -k + 1
   ret_array[x > k] = 0
   ret_array[x < 0] = 0
   return ret_array
+
+
+def ideal_dist_worst_obj_array(
+    axis: np.ndarray, cl: float, n: int, min_bw: float,
+):
+  m = (n * n - n) // 2
+  std = cl / 2  # std. of dataset
+  factor = max(
+      m ** (-1./(1+4)),  # scotts
+      min_bw / std,
+  )
+  std_norm = std * factor
+
+  o_worst_vals = \
+      0.5 * norm.pdf(axis, 0, std_norm) + \
+      0.5 * norm.pdf(axis, cl, std_norm)
+
+  return o_worst_vals
 
 
 def kl_divergence_continuous(p_func, q_func, xmin=0, xmax=2, t_err=1e-13) -> float:
@@ -34,7 +58,8 @@ def js_divergence_continuous(p_func, q_func, xmin=0, xmax=2, t_err=1e-13) -> flo
   return np.sqrt(val)
 
 
-LINSPACE_SMPL_COUNT = 128
+LINSPACE_SMPL_COUNT = 256
+
 
 def kl_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | int = LINSPACE_SMPL_COUNT, t_err=1e-13):
   if isinstance(n, np.ndarray):
@@ -53,6 +78,7 @@ def fast_trapz(y: NDArray, x: NDArray):
   h = x[1] - x[0]
   result = h * (y.sum() - 0.5 * (y[0] + y[-1]))
   return result
+
 
 def js_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | int = LINSPACE_SMPL_COUNT, t_err=1e-13):
   if isinstance(n, np.ndarray):
@@ -78,14 +104,17 @@ def kde_min_bw_factory(min_bandwidth):
     return max(default_factor, min_factor)
   return min_bw_factor
 
+
 def kde_min_bw_calc(data: NDArray, min_bw=0.1):
   std = np.std(data, ddof=1)
   default_bw = 1.06 * std * len(data) ** (-1 / 5)  # 例如scott
   bw = max(default_bw, min_bw)
   return bw
 
+
 def min_bandwidth_enforcer(bandwidth, min_bandwidth, data):
   return max(bandwidth, min_bandwidth, np.std(data, ddof=1)*0.1)  # 举例
+
 
 def get_kde_pdf(data, min_bandwidth: float, xmin: float, xmax: float):
   # 如果样本全为某个点，KDE会报错，这里做特殊处理
@@ -97,54 +126,55 @@ def get_kde_pdf(data, min_bandwidth: float, xmin: float, xmax: float):
     return delta_like_pdf
 
   bw_method = kde_min_bw_factory(min_bandwidth)
-  data_smpl = data # np.random.choice(data, size=2000, replace=False)
+  data_smpl = data  # np.random.choice(data, size=2000, replace=False)
   kde = gaussian_kde(data_smpl, bw_method=bw_method)
   return kde
 
   # kde = KernelDensity(
-  #   kernel='gaussian', 
+  #   kernel='gaussian',
   #   bandwidth=kde_min_bw_calc(data, min_bw=min_bandwidth))
   # kde.fit(data[:, None])  # 需要二维 shape=(n_samples, n_features)
-  
+
   # def ret(x: NDArray):
   #   log_density = kde.score_samples(x[:, None])    # 返回log密度
   #   density = np.exp(log_density)         # 取指数得到真正的密度
   #   return density
-  
+
   # return ret
 
 
 class DistanceCollectorContinuous:
   def __init__(
       self,
-      min_bandwidth: Optional[float] = 0.05,
-      node_cnt = 500,
+      min_bandwidth: float = 0.05,
+      node_cnt=500,
       t_err: float = 1e-10,
       use_js_divergence: bool = False,
       use_debug_data: bool = False,
-      t_opinion: float = 0.4,
       k: float = 2.0
   ):
     self.min_bandwidth = min_bandwidth
     self.t_err = t_err
     self.use_js_divergence = use_js_divergence
     self.use_debug_data = use_debug_data
-    self.t_opinion = t_opinion
     self.k = k
+    self.node_cnt = node_cnt
     self.div = js_divergence_continuous_fast \
         if use_js_divergence else kl_divergence_continuous_fast
-        
-    
+
     err_range = self.min_bandwidth * 4
     self.axis = np.linspace(0 - err_range, k + err_range, LINSPACE_SMPL_COUNT)
-    
-    
-    o_rand_vals = ideal_dist_init_array(self.axis, k=k)
-    if o_rand_vals.sum() > 0:
-      o_rand_vals /= np.trapz(o_rand_vals, self.axis)
-    else:
-      o_rand_vals[:] = 1.0 / (k - 0)
-    
+
+    # o_rand_vals = ideal_dist_init_array(self.axis, k=k)
+    # if o_rand_vals.sum() > 0:
+    #   o_rand_vals /= np.trapz(o_rand_vals, self.axis)
+    # else:
+    #   o_rand_vals[:] = 1.0 / (k - 0)
+
+    o_rand_smpl = sample_linear_pdf(int(node_cnt ** 1.75), k)
+    o_rand_pdf = get_kde_pdf(o_rand_smpl, self.min_bandwidth, 0, k)
+    o_rand_vals = o_rand_pdf(self.axis)
+
     self.o_rand_vals = o_rand_vals
     self.triu_indices = np.triu_indices(node_cnt, k=1)
 
@@ -152,8 +182,9 @@ class DistanceCollectorContinuous:
       self,
       prefix: str,
       digraph: nx.DiGraph, opinion: np.ndarray,
+      t_opinion: float = 0.4,
       *args, **kwargs,
-  ) -> Union[float, np.ndarray, Dict[str, Union[float, np.ndarray]]]:
+  ) -> Dict[str, Union[float, np.ndarray]]:
 
     k = self.k
     # sampling
@@ -165,43 +196,30 @@ class DistanceCollectorContinuous:
     s_sample = np.abs(opinion[neighbors[:, 1]] - opinion[neighbors[:, 0]])
     s_sample = np.clip(s_sample, 0, k)
 
-    # KDE for pmf
+    # KDE for pdf
     o_pdf = get_kde_pdf(o_sample, self.min_bandwidth, 0, k)
     s_pdf = get_kde_pdf(s_sample, self.min_bandwidth, 0, k)
 
+    # get their ideal PDF's
 
-    # 构造理想分布，用于归一化/对比
+    # random cases, use pre-rendered
     err_range = self.min_bandwidth * 4
     axis = self.axis
     s_rand_vals = o_rand_vals = self.o_rand_vals
 
-    # def o_rand_pdf(x):
-    #   return np.interp(x, axis, o_rand_vals)
-    # s_rand_pdf = o_rand_pdf
-
     # worst cases
-    o_worst_b = o_sample[o_sample >= self.t_opinion]
-    o_worst_v = self.t_opinion if o_worst_b.size == 0 else np.mean(o_worst_b)
+    # objective
+    o_worst_b = o_sample[o_sample >= t_opinion]
+    o_worst_v = float(t_opinion if o_worst_b.size == 0 else np.mean(o_worst_b))
+    o_worst_vals = ideal_dist_worst_obj_array(
+        axis, o_worst_v, self.node_cnt, self.min_bandwidth
+    )
 
-    o_worst_vals = \
-        0.5 * norm.pdf(axis, 0, self.min_bandwidth) + \
-        0.5 * norm.pdf(axis, o_worst_v, self.min_bandwidth)
-    if o_worst_vals.sum() > 0:
-      o_worst_vals /= fast_trapz(o_worst_vals, axis)
-
-    # def o_worst_pdf(x):
-    #   return np.interp(x, axis, o_worst_vals)
-
+    # subjective
     s_worst_vals = norm.pdf(axis, 0, self.min_bandwidth)
-    if s_worst_vals.sum() > 0:
-      s_worst_vals /= fast_trapz(s_worst_vals, axis)
-
-    # def s_worst_pdf(x):
-    #   return np.interp(x, axis, s_worst_vals)
 
     # scales
-
-    params_dict = dict(
+    params_dict: Any = dict(
         xmin=0 - err_range, xmax=k + err_range, t_err=self.t_err,
         n=axis,
     )
@@ -238,10 +256,12 @@ class DistanceCollectorContinuous:
           prefix + '-worst-s-pdf': s_worst_vals,
       }
 
-    return {
+    ret = {
         prefix + '-rand-o': self.div(o_vals, o_rand_vals,  **params_dict) / o_scale_rand,
         prefix + '-rand-s': self.div(s_vals, s_rand_vals,  **params_dict) / s_scale_rand,
         prefix + '-worst-o': self.div(o_vals, o_worst_vals,  **params_dict) / o_scale_worst,
         prefix + '-worst-s': self.div(s_vals, s_worst_vals,  **params_dict) / s_scale_worst,
         **debug_data,
     }
+
+    return ret

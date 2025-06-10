@@ -1,4 +1,4 @@
-from typing import List, Dict, cast
+from typing import List, Dict, cast, TYPE_CHECKING
 from numpy.typing import NDArray
 
 import os
@@ -11,12 +11,15 @@ from result_interp.load_msgpack import load_accumulative_model_state, load_gonum
 from result_interp.parse_events_db import get_events_by_step_range, get_rewiring_event_body, load_events_db
 from utils.stat import last_less_than
 
+if TYPE_CHECKING:
+  from works.config import GoMetadataDict
+
 re_graph = re.compile(r'graph-(\d+).msgpack')
 
 
 class RawSimulationRecord:
 
-  def __init__(self, base_dir: str, metadata: dict):
+  def __init__(self, base_dir: str, metadata: 'GoMetadataDict'):
     unique_name = metadata['UniqueName']
     full_path = os.path.join(base_dir, unique_name)
     file_list = os.listdir(full_path)
@@ -36,17 +39,18 @@ class RawSimulationRecord:
     self.acc_state_path = os.path.join(full_path, acc_state_list[-1])
     self.graph_paths = {}
     for graph_name in graph_list:
-      step_index = int(re_graph.match(graph_name).group(1))
+      step_index = int(re_graph.match(graph_name).group(1)) # type: ignore
       self.graph_paths[step_index] = os.path.join(full_path, graph_name)
 
     self.max_step: int = 0
+    self.metadata: 'GoMetadataDict' = dict(**metadata) # type: ignore
 
   def load(self):
     acc_state = load_accumulative_model_state(self.acc_state_path)
     events_db = load_events_db(self.events_db_path)
     graphs: Dict[int, nx.DiGraph] = {}
     for graph_name, graph_path in self.graph_paths.items():
-      graphs[graph_name] = load_gonum_graph_dump(graph_path)
+      graphs[graph_name] = load_gonum_graph_dump(graph_path) # type: ignore
 
     self.acc_state = acc_state
     self.events_db = events_db
@@ -97,7 +101,7 @@ class RawSimulationRecord:
         self.graphs_stored[nearest_available_step]
         if nearest_available_step in self.graphs_stored else
         self.graphs[nearest_available_step]
-    ).copy()
+    ).copy() # type: ignore
 
     # get events
     # since we want all events till the step ends, so step + 1

@@ -14,6 +14,7 @@ from utils.plot import plt_figure, get_colormap
 from utils.peewee import sync_peewee_table
 import works.config as cfg
 from works.stat.task import ScenarioStatistics
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 
 
 T = TypeVar("T")
@@ -73,18 +74,16 @@ def create_heatmap_evaluator(
       bc_inst_num.append(
         [[f_ext(x) for x in y] for y in l_rw]
       )
-    bc_inst_avg = np.array([
+    bc_inst_avg = [
       [f_sum(y) for y in x] for x in bc_inst_num
-    ])
+    ]
     return bc_inst_avg
     
   return eval_func
   
 
 
-def heatmap_diff(
-  set_gradation_map = True,
-):
+def heatmap_diff():
   fig, axes = plt_figure(
     n_row=4, n_col=4, hw_ratio=1
   )
@@ -107,31 +106,87 @@ def heatmap_diff(
         axis.set_title(title, loc='left')
       
       eval_func = create_heatmap_evaluator(rs, tw)
-      heatmap = eval_func(
+      heatmap = np.array(eval_func(
         lambda x: x.active_step,
         lambda x: np.log10(np.mean(x)),
-      )
+      ))
       axis.imshow(heatmap, **cmap_arr4) # type: ignore
         
 
   fig.tight_layout()
 
-  if set_gradation_map:
-    for axis in axes_flattened:
-      axis.invert_yaxis()
-      axis.set_xticks(np.arange(cfg.decay_rate_array.size))
-      axis.set_xticklabels([' ' for _ in cfg.rewiring_rate_array])
-      axis.set_yticks(np.arange(cfg.rewiring_rate_array.size))
-      axis.set_yticklabels([' ' for _ in cfg.rewiring_rate_array])
-      axis.grid(False)
-    for axis in axes[3]:
-      axis.set_xlabel('decay')
-      axis.set_xticklabels(cfg.decay_rate_array, rotation=90)
-    for axis, *_ in axes:
-      axis.set_ylabel('rewiring')
-      axis.set_yticklabels(cfg.rewiring_rate_array)
+  for axis in axes_flattened:
+    axis.invert_yaxis()
+    axis.set_xticks(np.arange(cfg.decay_rate_array.size))
+    axis.set_xticklabels([' ' for _ in cfg.decay_rate_array])
+    axis.set_yticks(np.arange(cfg.rewiring_rate_array.size))
+    axis.set_yticklabels([' ' for _ in cfg.rewiring_rate_array])
+    axis.grid(False)
+  for axis in axes[3]:
+    axis.set_xlabel('decay')
+    axis.set_xticklabels(cfg.decay_rate_array, rotation=90)
+  for axis, *_ in axes:
+    axis.set_ylabel('rewiring')
+    axis.set_yticklabels(cfg.rewiring_rate_array)
 
   cmap_setter4()
+  
+  return fig
+
+
+def curve_diff():
+  
+  # build colormap
+    
+  c_a = (0, 0, 1, 0.1)    # 蓝色
+  c_b = (1, 0, 0, 0.1)    # 红色
+
+  cmap = LinearSegmentedColormap.from_list('mycmap', [c_a, c_b])
+  
+  fig, axes = plt_figure(
+    n_row=4, n_col=4, hw_ratio=1
+  )
+  axes_flattened: List[Axes] = []
+  for a in axes:
+    axes_flattened.extend(a)
+    
+  for i_rs, rs in enumerate(rs_keys):
+    for i_tw, tw in enumerate(tw_keys):
+      print('#', i_rs * 4 + i_tw + 1, rs, tw)
+      axis = axes[i_rs][i_tw]
+      if i_rs == 0 or i_tw == 0:
+        title = f'{rs} / {tw}'
+        axis.set_title(title, loc='left')
+      
+      eval_func = create_heatmap_evaluator(rs, tw)
+      heatmap = eval_func(
+        # lambda x: (x.grad_index, x.p_index, x.h_index),
+        lambda x: (x.grad_index, x.x_indices / x.active_step, x.h_index),
+        # lambda x: (x.grad_index, x.x_mean_vars / x.active_step, x.mean_vars_smpl),
+        lambda x: x,
+      )
+      for _h in heatmap:
+        for __h in _h:
+          for g, x, y in __h:
+            c_g = cmap((g - 0.7) / (1 - 0.7))
+            axis.plot(x, y, color=c_g, linewidth=0.5)
+        
+
+  fig.tight_layout()
+
+  for axis in axes_flattened:
+    eps = 0.1
+    axis.set_xbound(-eps, 1 + eps)
+    axis.set_ybound(-eps, 1 + eps)
+    axis.grid(True)
+  for axis in axes[3]:
+    axis.set_xlabel('polarization')
+  for axis, *_ in axes:
+    axis.set_ylabel('homophily')
+  # for axis in axes[3]:
+  #   axis.set_xlabel('norm. time')
+  # for axis, *_ in axes:
+  #   axis.set_ylabel('env. index')
   
   return fig
 
@@ -144,5 +199,6 @@ if __name__ == '__main__':
   ScenarioStatistics._meta.database = stats_db
   stats_db.create_tables([ScenarioStatistics])
 
-  fig = heatmap_diff()
+  # fig = heatmap_diff()
+  fig = curve_diff()
   fig.show()

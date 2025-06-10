@@ -91,6 +91,8 @@ def adaptive_moving_stats(
 
   min = min if min is not None else x.min()
   max = max if max is not None else x.max()
+  
+  assert min is not None and max is not None
 
   # estimate current point density
   density_x = x if density_estimation_point is None else np.linspace(
@@ -108,7 +110,7 @@ def adaptive_moving_stats(
 
   # calculate adaptive width
   density_resampled_ = interp1d(
-      density_x, density, fill_value='extrapolate')
+      density_x, density, fill_value='extrapolate') # type: ignore
   density_resampled: NDArray = density_resampled_(result_x)
   lambda_t = (density_resampled / g) ** (-alpha)
   h_t = h0 * lambda_t
@@ -223,7 +225,7 @@ def adaptive_discrete_sampling(
     t_start: int,
     t_end: int,
     max_interval: int | None = None,
-    err_func: Callable[[T, T], float] | None = None
+    err_func: Callable[[T, T, T, float], float] | None = None
 ):
   """
   对离散时间轴上的函数f，进行自适应采样（非递归实现）。
@@ -246,7 +248,7 @@ def adaptive_discrete_sampling(
   samples[t_end] = f(t_end)
 
   # 队列元素为 (t_left, t_right)
-  interval_queue = deque()
+  interval_queue: deque[Tuple[int, int]] = deque()
   interval_queue.append((t_start, t_end))
 
   while interval_queue:
@@ -298,7 +300,7 @@ def merge_data_with_axes(
   for x, y in data:
     interp_func = interp1d(
         x, y, axis=0, kind='linear',
-        bounds_error=False, fill_value='extrapolate'
+        bounds_error=False, fill_value='extrapolate' # type: ignore
     )
     new_y = interp_func(x_merged)
     y_s.append(new_y)

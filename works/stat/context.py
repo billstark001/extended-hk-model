@@ -1,4 +1,4 @@
-# type: ignore
+
 
 from numpy.typing import NDArray
 
@@ -139,7 +139,7 @@ def calc_distance(rec: RawSimulationRecord, step: int):
   graph = rec.get_graph(step)
   opinion = rec.opinions[step]
 
-  dis_res = distance_collector.collect('d', graph, opinion)
+  dis_res = distance_collector.collect('d', graph, opinion, t_opinion=rec.metadata['Tolerance'])
 
   d_rand_o = dis_res['d-rand-o']
   d_rand_s = dis_res['d-rand-s']
@@ -152,7 +152,12 @@ def calc_distance(rec: RawSimulationRecord, step: int):
 def calc_homophily(rec: RawSimulationRecord, step: int):
   f = rec.followers
   f_slice = rec.agent_numbers[step, :, 0]
-  return np.mean(f_slice / f, dtype=float)
+  h_index_raw: np.ndarray = np.mean(f_slice / f, dtype=float)
+  # normalize: random state = 0, convergence state = 1
+  eps = rec.metadata['Tolerance']
+  clip_factor: float = eps - (eps ** 2) / 8
+  h_index = (h_index_raw - clip_factor) / (1 - clip_factor)
+  return h_index
 
 
 @c.selector
@@ -187,16 +192,37 @@ def get_gradation_index_hp(p_index, h_index):
   return area_under_curve(np.array([p_index, h_index]))
 
 
+def interp(x0, x1, p):
+  return x0 * (1 - p) + x1 * p
+
+
 @c.selector
-def calc_active_step(x_indices, g_index, active_threshold, min_inactive_value):
+def calc_active_step(
+  x_indices, g_index, 
+  active_threshold: float, min_inactive_value: float,
+):
+  active_step_crit_value: float = np.max([np.max(g_index) * active_threshold, min_inactive_value])
   active_step_index = int(first_more_or_equal_than(
       np.array(g_index),
-      np.max([np.max(g_index) * active_threshold, min_inactive_value])
+      active_step_crit_value,
   ))
   if active_step_index >= len(x_indices):
     active_step_index = len(x_indices) - 1 # take last index
-  active_step = x_indices[active_step_index]
-  active_step_threshold = g_index[active_step_index - 1]
+  elif active_step_index < 1:
+    active_step_index = 1
+    
+  # first inactive step
+  post_active_step = x_indices[active_step_index]
+  post_active_step_g = g_index[active_step_index]
+  # last active step
+  pre_active_step = x_indices[active_step_index - 1]
+  pre_active_step_g = g_index[active_step_index - 1]
+  
+  interp_p = max(min((active_step_crit_value - pre_active_step_g) \
+    / (post_active_step_g - pre_active_step_g), 1), 0)
+  active_step = int(interp(pre_active_step, post_active_step, interp_p))
+  active_step_threshold = float(interp(pre_active_step_g, post_active_step_g, interp_p))
+  
   g_index_active = g_index[:active_step_index]
   g_index_mean_active = np.mean(g_index_active)
 
