@@ -139,7 +139,8 @@ def calc_distance(rec: RawSimulationRecord, step: int):
   graph = rec.get_graph(step)
   opinion = rec.opinions[step]
 
-  dis_res = distance_collector.collect('d', graph, opinion, t_opinion=rec.metadata['Tolerance'])
+  dis_res = distance_collector.collect(
+      'd', graph, opinion, t_opinion=rec.metadata['Tolerance'])
 
   d_rand_o = dis_res['d-rand-o']
   d_rand_s = dis_res['d-rand-s']
@@ -169,7 +170,7 @@ def get_indices(scenario_record: RawSimulationRecord):
       err_func=err_func_distance,
   )
   g_homophily = adaptive_discrete_sampling(
-      lambda x: calc_homophily(scenario_record, x), 
+      lambda x: calc_homophily(scenario_record, x),
       0.01,
       0, scenario_record.max_step, max_interval=512,
   )
@@ -198,31 +199,33 @@ def interp(x0, x1, p):
 
 @c.selector
 def calc_active_step(
-  x_indices, g_index, 
-  active_threshold: float, min_inactive_value: float,
+    x_indices, g_index,
+    active_threshold: float, min_inactive_value: float,
 ):
-  active_step_crit_value: float = np.max([np.max(g_index) * active_threshold, min_inactive_value])
+  active_step_crit_value: float = np.max(
+      [np.max(g_index) * active_threshold, min_inactive_value])
   active_step_index = int(first_more_or_equal_than(
       np.array(g_index),
       active_step_crit_value,
   ))
   if active_step_index >= len(x_indices):
-    active_step_index = len(x_indices) - 1 # take last index
+    active_step_index = len(x_indices) - 1  # take last index
   elif active_step_index < 1:
     active_step_index = 1
-    
+
   # first inactive step
   post_active_step = x_indices[active_step_index]
   post_active_step_g = g_index[active_step_index]
   # last active step
   pre_active_step = x_indices[active_step_index - 1]
   pre_active_step_g = g_index[active_step_index - 1]
-  
-  interp_p = max(min((active_step_crit_value - pre_active_step_g) \
-    / (post_active_step_g - pre_active_step_g), 1), 0)
+
+  interp_p = max(min((active_step_crit_value - pre_active_step_g)
+                     / (post_active_step_g - pre_active_step_g), 1), 0)
   active_step = int(interp(pre_active_step, post_active_step, interp_p))
-  active_step_threshold = float(interp(pre_active_step_g, post_active_step_g, interp_p))
-  
+  active_step_threshold = float(
+      interp(pre_active_step_g, post_active_step_g, interp_p))
+
   g_index_active = g_index[:active_step_index]
   g_index_mean_active = np.mean(g_index_active)
 
@@ -239,8 +242,8 @@ def get_gradation_index_pat_diff(h_index, p_index, active_step):
 def calc_opinion_last(scenario_record: RawSimulationRecord):
   opinion_last = scenario_record.opinions[scenario_record.max_step]
   opinion_last_mean = float(np.mean(opinion_last))
-  opinion_last_diff = float(\
-      np.mean(opinion_last[opinion_last > opinion_last_mean]) - \
+  opinion_last_diff = float(
+      np.mean(opinion_last[opinion_last > opinion_last_mean]) -
       np.mean(opinion_last[opinion_last <= opinion_last_mean]))
   return opinion_last, opinion_last_mean, opinion_last_diff
 
@@ -259,9 +262,9 @@ def get_opinion_diff(scenario_record: RawSimulationRecord):
 def get_opinion_diff_mean(opinion_diff: NDArray, scenario_record: RawSimulationRecord):
   odm_raw = np.abs(opinion_diff).mean(axis=1)
   x_opinion_diff_mean, opinion_diff_mean_smpl = adaptive_discrete_sampling(
-    lambda x: float(odm_raw[x]),
-    0.01,
-    0, scenario_record.max_step, max_interval=512,
+      lambda x: float(odm_raw[x]),
+      0.01,
+      0, scenario_record.max_step, max_interval=512,
   )
   return x_opinion_diff_mean, opinion_diff_mean_smpl
 

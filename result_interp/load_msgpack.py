@@ -7,6 +7,7 @@ import lz4.frame
 import msgpack
 import networkx as nx
 
+
 def load_accumulative_model_state(path: str):
   with open(path, 'rb') as f:
     raw = f.read()
@@ -46,19 +47,22 @@ def load_accumulative_model_state(path: str):
     agent_opinion_sums.append(step_arr)
 
   return {
-    'steps': steps_p1 - 1,
-    'agents': agents,
-    'opinions': np.array(opinions),  # shape: (steps + 1, agents)
-    'agent_numbers': np.array(agent_numbers),  # shape: (steps + 1, agents, 4)
-    'agent_opinion_sums': np.array(agent_opinion_sums),  # shape: (steps + 1, agents, 4)
+      'steps': steps_p1 - 1,
+      'agents': agents,
+      'opinions': np.array(opinions),  # shape: (steps + 1, agents)
+      # shape: (steps + 1, agents, 4)
+      'agent_numbers': np.array(agent_numbers),
+      # shape: (steps + 1, agents, 4)
+      'agent_opinion_sums': np.array(agent_opinion_sums),
   }
 
 
-def load_gonum_graph_dump(filename: str):
+def load_gonum_graph_dump(filename: str, check_sanity=True):
   # 读取 msgpack 文件
   with open(filename, "rb") as f:
     nx_data = msgpack.unpack(f, raw=False, strict_map_key=False)
-  
+  assert isinstance(nx_data, dict)
+
   # 获取 adjacency 信息
   adjacency = nx_data["adjacency"]
   directed = nx_data.get("directed", True)
@@ -72,7 +76,12 @@ def load_gonum_graph_dump(filename: str):
     G = nx.Graph()
 
   # 添加节点属性
-  for n, attrs in nodes.items():
+  node_indices = sorted(list(nodes.keys()))
+  if check_sanity:
+    assert node_indices[0] == 0 and node_indices[-1] == len(
+        node_indices) - 1, ' Wrong graph format'
+  for n in node_indices:
+    attrs = nodes[n]
     G.add_node(n, **attrs)
 
   # 添加边和边属性

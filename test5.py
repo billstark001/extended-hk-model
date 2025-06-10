@@ -21,4 +21,5 @@ c.set_state(
 )
 
 _ = c.gradation_index_hp
+_ = c.x_mean_vars
 
