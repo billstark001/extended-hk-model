@@ -11,6 +11,8 @@ from utils.peewee import sync_peewee_table
 import works.config as cfg
 from works.stat.context import c
 from works.stat.task import ScenarioStatistics, get_statistics
+import multiprocessing.util
+
 
 
 # parameters
@@ -45,9 +47,12 @@ def stats_exist(name: str, origin: str) -> bool:
     return True
   except ScenarioStatistics.DoesNotExist:
     return False
-
-
+  
+  
 if __name__ == '__main__':
+  
+  logger = multiprocessing.util.log_to_stderr()
+  logger.setLevel('INFO')  # 可选: DEBUG/INFO/WARNING/ERROR
 
   stats_db = peewee.SqliteDatabase(stats_db_path)
   stats_db.connect()
@@ -64,7 +69,8 @@ if __name__ == '__main__':
   )
 
   with ProcessPoolExecutor(
-      max_workers=6, max_tasks_per_child=32,
+      max_workers=6, # max_tasks_per_child=32,
+      
   ) as executor:
     try:
 

@@ -93,8 +93,8 @@ def heatmap_diff():
     
   cmap_arr4, cmap_setter4 = get_colormap(
       axes_flattened, cmap='YlGnBu', fig=fig, anchor='W',
-      # vmin=0.7, vmax=1,
-      vmin = 1, vmax = 5,
+      vmin=0, vmax=1,
+      # vmin = 1, vmax = 5,
   )
   
   for i_rs, rs in enumerate(rs_keys):
@@ -107,8 +107,10 @@ def heatmap_diff():
       
       eval_func = create_heatmap_evaluator(rs, tw)
       heatmap = np.array(eval_func(
-        lambda x: x.active_step,
-        lambda x: np.log10(np.mean(x)),
+        # lambda x: x.active_step,
+        # lambda x: np.log10(np.mean(x)),
+        lambda x: x.grad_index,
+        lambda x: np.mean(x)
       ))
       axis.imshow(heatmap, **cmap_arr4) # type: ignore
         
@@ -161,14 +163,14 @@ def curve_diff():
       eval_func = create_heatmap_evaluator(rs, tw)
       heatmap = eval_func(
         # lambda x: (x.grad_index, x.p_index, x.h_index),
-        lambda x: (x.grad_index, x.x_indices / x.active_step, x.h_index),
-        # lambda x: (x.grad_index, x.x_mean_vars / x.active_step, x.mean_vars_smpl),
+        # lambda x: (x.grad_index, x.x_indices / x.active_step, x.h_index),
+        lambda x: (x.grad_index, x.x_mean_vars / x.active_step, x.mean_vars_smpl),
         lambda x: x,
       )
       for _h in heatmap:
         for __h in _h:
           for g, x, y in __h:
-            c_g = cmap((g - 0.7) / (1 - 0.7))
+            c_g = cmap((g - 0) / (1 - 0))
             axis.plot(x, y, color=c_g, linewidth=0.5)
         
 
@@ -177,7 +179,8 @@ def curve_diff():
   for axis in axes_flattened:
     eps = 0.1
     axis.set_xbound(-eps, 1 + eps)
-    axis.set_ybound(-eps, 1 + eps)
+    # axis.set_ybound(-eps, 1 + eps)
+    axis.set_ybound(-eps, 0.45 + eps)
     axis.grid(True)
   for axis in axes[3]:
     axis.set_xlabel('polarization')
