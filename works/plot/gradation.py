@@ -1,7 +1,8 @@
-from typing import Dict, List, Iterable, Callable, TypeVar
+from typing import Dict, List, Iterable, Callable, TypeVar, Tuple
 
 import os
 import copy
+import random
 
 import numpy as np
 import peewee
@@ -15,6 +16,7 @@ from utils.peewee import sync_peewee_table
 import works.config as cfg
 from works.stat.task import ScenarioStatistics
 from matplotlib.colors import LinearSegmentedColormap, Normalize
+from scipy import interpolate, integrate
 
 
 T = TypeVar("T")
@@ -29,6 +31,8 @@ stats_db_path = os.path.join(plot_path, 'stats.db')
 rs_keys = list(cfg.rs_names)
 tw_keys = cfg.retweet_rate_array.tolist()
 
+
+plt.rcParams.update({'font.size': 18})
 
 # utilities
 
@@ -47,7 +51,7 @@ for i, rw in enumerate(cfg.rewiring_rate_array):
     lst.append([])
   bc_inst_orig.append(lst)
 
-def create_heatmap_evaluator(
+def create_heatmap_evaluator_raw(
   rs_name: str,
   retweet_rate: float,
 ):
@@ -80,10 +84,26 @@ def create_heatmap_evaluator(
     return bc_inst_avg
     
   return eval_func
-  
+
+_heatmap_dict = {}
+def create_heatmap_evaluator(
+  rs_name: str,
+  retweet_rate: float,
+):
+  key = (rs_name, retweet_rate)
+  if key in _heatmap_dict:
+    return _heatmap_dict[key]
+  val = create_heatmap_evaluator_raw(*key)
+  _heatmap_dict[key] = val
+  return val
 
 
-def heatmap_diff():
+def heatmap_diff(
+  f_ext: Callable[[ScenarioStatistics], float],
+  f_sum: Callable[[List[float]], float],
+  v_min = 0.,
+  v_max = 1.,
+):
   fig, axes = plt_figure(
     n_row=4, n_col=4, hw_ratio=1
   )
@@ -93,8 +113,7 @@ def heatmap_diff():
     
   cmap_arr4, cmap_setter4 = get_colormap(
       axes_flattened, cmap='YlGnBu', fig=fig, anchor='W',
-      vmin=0, vmax=1,
-      # vmin = 1, vmax = 5,
+      vmin=v_min, vmax=v_max,
   )
   
   for i_rs, rs in enumerate(rs_keys):
@@ -107,10 +126,7 @@ def heatmap_diff():
       
       eval_func = create_heatmap_evaluator(rs, tw)
       heatmap = np.array(eval_func(
-        # lambda x: x.active_step,
-        # lambda x: np.log10(np.mean(x)),
-        lambda x: x.grad_index,
-        lambda x: np.mean(x)
+        f_ext, f_sum,
       ))
       axis.imshow(heatmap, **cmap_arr4) # type: ignore
         
@@ -135,15 +151,96 @@ def heatmap_diff():
   
   return fig
 
+def flatten_list(l: List[List[T1]]) -> List[T1]:
+  return [item for sublist in l for item in sublist]
 
-def curve_diff():
+def curve_diff(
+  f_ext: Callable[[ScenarioStatistics], Tuple[float, np.ndarray, np.ndarray]],
+  x_label = 'x',
+  y_label = "y",
+  f_0 = 0.,
+  f_1 = 1.,
+  eps = 0.1,
+  s_x = 1.,
+  s_y = 1.,
+):
   
   # build colormap
     
   c_a = (0, 0, 1, 0.1)    # 蓝色
   c_b = (1, 0, 0, 0.1)    # 红色
 
-  cmap = LinearSegmentedColormap.from_list('mycmap', [c_a, c_b])
+  cmap = LinearSegmentedColormap.from_list('my_cmap', [c_a, c_b])
+  
+  # s_y = 0.4
+  
+  fig, axes = plt_figure(
+    n_row=4, n_col=4, hw_ratio=1
+  )
+  axes_flattened: List[Axes] = []
+  for a in axes:
+    axes_flattened.extend(a)
+    
+  xyc_groups = []
+  for i_rs, rs in enumerate(rs_keys):
+    for i_tw, tw in enumerate(tw_keys):
+      print('#', i_rs * 4 + i_tw + 1, rs, tw)
+      axis = axes[i_rs][i_tw]
+      if i_rs == 0 or i_tw == 0:
+        title = f'{rs} / {tw}'
+        axis.set_title(title, loc='left')
+      
+      eval_func = create_heatmap_evaluator(rs, tw)
+      heatmap = eval_func(
+        f_ext,
+        lambda x: x,
+      )
+      for _h in heatmap:
+        for __h in _h:
+          for g, x, y in __h:
+            c_g = cmap((g - f_0) / (f_1 - f_0))
+            xyc_groups.append((axis, x, y, c_g))
+  
+  random.shuffle(xyc_groups)
+  for axis, x, y, c_g in xyc_groups:
+    axis.plot(x, y, color=c_g, linewidth=0.2)
+
+  fig.tight_layout()
+
+  for axis in axes_flattened:
+    axis.set_xbound(-eps * s_x, s_x + eps * s_x)
+    axis.set_ybound(-eps * s_y, s_y + eps * s_y)
+    axis.grid(True)
+  for axis in axes[3]:
+    axis.set_xlabel(x_label)
+  for axis, *_ in axes:
+    axis.set_ylabel(y_label)
+    
+  return fig
+
+
+def scatter_diff(
+  # c, x, y
+  f_ext: Callable[[ScenarioStatistics], Tuple[float, float, float]],
+  x_label = 'x',
+  y_label = "y",
+  f_0 = 0.,
+  f_1 = 1.,
+  eps = 0.05,
+  s_x = 1.,
+  s_y = 1.,
+  s_x_start = 0.,
+  s_y_start = 0.,
+):
+  
+  # build colormap
+    
+  c_a = (0, 0, 1, 0.1)    # 蓝色
+  c_b = (1, 0, 0, 0.1)    # 红色
+
+  cmap = LinearSegmentedColormap.from_list('my_cmap', [c_a, c_b])
+  
+  # s_y = 0.4
   
   fig, axes = plt_figure(
     n_row=4, n_col=4, hw_ratio=1
@@ -162,37 +259,113 @@ def curve_diff():
       
       eval_func = create_heatmap_evaluator(rs, tw)
       heatmap = eval_func(
-        # lambda x: (x.grad_index, x.p_index, x.h_index),
-        # lambda x: (x.grad_index, x.x_indices / x.active_step, x.h_index),
-        lambda x: (x.grad_index, x.x_mean_vars / x.active_step, x.mean_vars_smpl),
-        lambda x: x,
+        f_ext,
+        lambda x: np.array(x).T,
       )
-      for _h in heatmap:
-        for __h in _h:
-          for g, x, y in __h:
-            c_g = cmap((g - 0) / (1 - 0))
-            axis.plot(x, y, color=c_g, linewidth=0.5)
-        
+      heatmap_cat = np.concatenate(flatten_list(heatmap), axis=1)
+      g, x, y = heatmap_cat
+      c_g = cmap((g - f_0) / (f_1 - f_0))
+      # xyc_groups.append((axis, x, y, c_g))
+      axis.scatter(x, y, c=c_g, s=0.8)
 
   fig.tight_layout()
+  
+  s_x_int = s_x - s_x_start
+  s_y_int = s_y - s_y_start
 
   for axis in axes_flattened:
-    eps = 0.1
-    axis.set_xbound(-eps, 1 + eps)
-    # axis.set_ybound(-eps, 1 + eps)
-    axis.set_ybound(-eps, 0.45 + eps)
+    axis.set_xbound(s_x_start - eps * s_x_int, s_x + eps * s_x_int)
+    axis.set_ybound(s_y_start - eps * s_y_int, s_y + eps * s_y_int)
     axis.grid(True)
   for axis in axes[3]:
-    axis.set_xlabel('polarization')
+    axis.set_xlabel(x_label)
   for axis, *_ in axes:
-    axis.set_ylabel('homophily')
-  # for axis in axes[3]:
-  #   axis.set_xlabel('norm. time')
-  # for axis, *_ in axes:
-  #   axis.set_ylabel('env. index')
-  
+    axis.set_ylabel(y_label)
+    
   return fig
 
+
+def plot_diff(
+  # c, y
+  f_ext: Callable[[ScenarioStatistics], Tuple[float, float]],
+  x_label = 'x',
+  y_label = "y",
+  f_0 = 0.,
+  f_1 = 1.,
+  eps = 0.05,
+  s_x = 1.,
+  s_y = 1.,
+  s_x_start = 0.,
+  s_y_start = 0.,
+):
+  
+  # build colormap
+    
+  c_a = (0, 0, 1, 0.1)    # 蓝色
+  c_b = (1, 0, 0, 0.1)    # 红色
+
+  # s_y = 0.4
+  
+  fig, axes = plt_figure(
+    n_row=4, n_col=4, hw_ratio=1
+  )
+  axes_flattened: List[Axes] = []
+  for a in axes:
+    axes_flattened.extend(a)
+    
+  for i_rs, rs in enumerate(rs_keys):
+    for i_tw, tw in enumerate(tw_keys):
+      print('#', i_rs * 4 + i_tw + 1, rs, tw)
+      axis = axes[i_rs][i_tw]
+      if i_rs == 0 or i_tw == 0:
+        title = f'{rs} / {tw}'
+        axis.set_title(title, loc='left')
+      
+      eval_func = create_heatmap_evaluator(rs, tw)
+      heatmap = eval_func(
+        f_ext,
+        lambda x: np.array(x).T,
+      )
+      heatmap_cat = np.concatenate(flatten_list(heatmap), axis=1)
+      g, y = heatmap_cat
+      g_mask_p1 = g > 0.6
+      g_mask_p2 = g <= 0.6
+      y1, y2 = y[g_mask_p1], y[g_mask_p2]
+      axis.bar(1, np.mean(y1), yerr=np.std(y1), capsize=8, color=c_b, edgecolor='black')
+      axis.bar(0, np.mean(y2), yerr=np.std(y2), capsize=8, color=c_a, edgecolor='black')
+
+  fig.tight_layout()
+  
+  s_x_int = s_x - s_x_start
+  s_y_int = s_y - s_y_start
+
+  for axis in axes_flattened:
+    # axis.set_xbound(s_x_start - eps * s_x_int, s_x + eps * s_x_int)
+    axis.set_ybound(s_y_start - eps * s_y_int, s_y + eps * s_y_int)
+    axis.grid(True)
+  for axis in axes[3]:
+    axis.set_xlabel(x_label)
+  for axis, *_ in axes:
+    axis.set_ylabel(y_label)
+    
+  return fig
+
+def piecewise_linear_integral_trapz(x: np.ndarray, y: np.ndarray, a: float, b: float):
+  # 保证a < b
+  if a > b:
+      a, b = b, a
+
+  # 合并端点
+  x_new = np.sort(np.concatenate([x, [a, b]]))
+  y_new = np.interp(x_new, x, y, left=0, right=1)
+
+  # 只保留在[a, b]区间的点
+  mask = (x_new >= a) & (x_new <= b)
+  x_new = x_new[mask]
+  y_new = y_new[mask]
+
+  # 积分
+  return np.trapz(y_new, x_new)
 
 if __name__ == '__main__':
 
@@ -201,7 +374,93 @@ if __name__ == '__main__':
 
   ScenarioStatistics._meta.database = stats_db
   stats_db.create_tables([ScenarioStatistics])
-
-  # fig = heatmap_diff()
-  fig = curve_diff()
-  fig.show()
+  
+  base_stats = False
+  micro_stats = True
+  
+  if base_stats:
+  
+    fig_active_step = heatmap_diff(
+      lambda x: x.active_step,
+      lambda x: np.log10(np.mean(x)),
+      v_min = 1, v_max = 5,
+    )
+    fig_active_step.show()
+    
+    fig_grad_index = heatmap_diff(
+      lambda x: x.grad_index,
+      lambda x: float(np.mean(x))
+    )
+    fig_grad_index.show()
+    
+    fig_c_grad_index = curve_diff(
+      lambda x: (x.grad_index, x.p_index, x.h_index),
+      x_label='polarization', 
+      y_label='homophily',
+    )
+    fig_c_grad_index.show()
+    
+    fig_c_env_index = curve_diff(
+      lambda x: (x.grad_index, x.x_indices / x.active_step, x.g_index),
+      x_label='norm. time',
+      y_label='env. index',
+    )
+    fig_c_env_index.show()
+    
+    fig_c_mean_vars = curve_diff(
+      lambda x: (x.grad_index, x.x_mean_vars / x.active_step, x.mean_vars_smpl),
+      x_label='norm. time',
+      y_label='mean var.',
+      s_y = 0.4,
+    )
+    fig_c_mean_vars.show()
+    
+  if micro_stats:
+    
+    def f_ext_env_index(x: ScenarioStatistics):
+      f_init = piecewise_linear_integral_trapz(x.x_indices / x.active_step, x.g_index, 0, 1/3)
+      f_final = piecewise_linear_integral_trapz(x.x_indices / x.active_step, x.g_index, 0, 1)
+      return x.grad_index, f_init, f_final
+      
+    fig_s_env_index = scatter_diff(
+      f_ext_env_index,
+      s_x=0.3,
+      s_y=0.9,
+      s_y_start= 0.2,
+      x_label='int. (0~0.33)',
+      y_label='int. (0~1)',
+    )
+    
+    fig_s_env_index.show()
+    
+    def f_ext_event_count(x: ScenarioStatistics):
+      return x.grad_index, np.log10(x.event_count), x.event_step_mean / x.active_step,
+      
+    fig_s_event_count = scatter_diff(
+      f_ext_event_count,
+      s_x_start=3.25,
+      s_x=4.25,
+      s_y=0.4,
+      # s_y_start= 0.2,
+      x_label='event count (log 10)',
+      y_label='event time',
+    )
+    
+    fig_s_event_count.show()
+    
+    fig_mean_vars = plot_diff(
+      lambda x: (x.grad_index, piecewise_linear_integral_trapz(x.x_mean_vars / x.active_step, x.mean_vars_smpl, 0, 1)),
+      s_y=0.08,
+      x_label='grad. index',
+      y_label='mean var.',
+    )
+    fig_mean_vars.show()
+    
+    fig_triads = scatter_diff(
+      lambda x: (x.grad_index, x.grad_index, np.log10(x.triads)),
+      s_y=5,
+      s_y_start=3.5,
+      x_label='grad. index',
+      y_label='#closed triads (log 10)',
+      
+    )
