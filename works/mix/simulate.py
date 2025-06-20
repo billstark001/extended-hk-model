@@ -19,13 +19,13 @@ import ehk_model_old.stats as stats
 
 
 from utils.file import find_and_rename
-from utils.stat import get_logger
+from utils.stat import init_logger
 
 
 BASE_PATH = './run3'
 os.makedirs(BASE_PATH, exist_ok=True)
 
-logger = get_logger(__name__, os.path.join(BASE_PATH, 'logfile.log'))
+logger = init_logger(__name__, os.path.join(BASE_PATH, 'logfile.log'))
 
 # build scenarios
 

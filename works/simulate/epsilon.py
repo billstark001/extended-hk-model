@@ -1,7 +1,7 @@
 import os
 
 from utils.stat import init_logger
-from works.config import all_scenarios_grad, SIMULATION_RESULT_DIR
+from works.config import all_scenarios_eps, SIMULATION_RESULT_DIR
 from works.simulate.sim_utils import simulate
 
 os.makedirs(SIMULATION_RESULT_DIR, exist_ok=True)
@@ -12,9 +12,9 @@ if __name__ == '__main__':
 
   print(f'Result Directory: {SIMULATION_RESULT_DIR}')
 
-  total_count = len(all_scenarios_grad)
+  total_count = len(all_scenarios_eps)
   is_sim_halted = False
-  for i, params in enumerate(all_scenarios_grad):
+  for i, params in enumerate(all_scenarios_eps):
 
     is_sim_halted = simulate(SIMULATION_RESULT_DIR, params, i, total_count)
     if is_sim_halted:

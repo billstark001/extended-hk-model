@@ -10,10 +10,10 @@ import works.large.snapshots as ss
 snapshot_interval = 10 * 60
 max_snapshots = 3
 
-from utils.stat import get_logger
+from utils.stat import init_logger
 
 ss.init()
-logger = get_logger(__name__, os.path.join(ss.DEFAULT_ROOT_PATH, 'logfile.log'))
+logger = init_logger(__name__, os.path.join(ss.DEFAULT_ROOT_PATH, 'logfile.log'))
 set_logger(logger.debug)
 
 if __name__ == "__main__":

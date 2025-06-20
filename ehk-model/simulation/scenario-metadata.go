@@ -13,6 +13,7 @@ type ScenarioMetadata struct {
 	model.HKModelPureParams
 	model.CollectItemOptions
 
+	MaxSimulationStep int
 	RecsysFactoryType string
 	NetworkType       string // currently useless
 	NodeCount         int
@@ -23,7 +24,7 @@ func GetDefaultRecsysFactoryDefs() map[string]model.RecsysFactory {
 	ret := map[string]model.RecsysFactory{
 
 		"Random": func(h *model.HKModel) model.HKModelRecommendationSystem {
-			return recsys.NewRandom(h)
+			return recsys.NewRandom(h, nil)
 		},
 
 		"Opinion": func(h *model.HKModel) model.HKModelRecommendationSystem {

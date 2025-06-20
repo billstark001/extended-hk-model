@@ -11,6 +11,8 @@ import (
 	"syscall"
 )
 
+const MAX_SIM_COUNT = 15000
+
 func main() {
 	metadata := &simulation.ScenarioMetadata{
 
@@ -41,21 +43,23 @@ func main() {
 		NodeCount:         500,
 		NodeFollowCount:   15,
 
+		MaxSimulationStep: MAX_SIM_COUNT,
+
 		UniqueName: "test",
 	}
 
 	args := os.Args
 	basePath := args[1]
-	metadataPath := args[2]
-	metadataJson, err := os.ReadFile(metadataPath)
-	if err != nil {
-		log.Fatalf("Failed to load metadata file: %v", err)
-	}
+	metadataJson := []byte(args[2])
+	// metadataJson, err := os.ReadFile(metadataPath)
+	// if err != nil {
+	// 	log.Fatalf("Failed to load metadata file: %v", err)
+	// }
 
 	// basePath := "./run"
 	// metadataJson := []byte(`{}`)
 
-	err = json.Unmarshal(metadataJson, metadata)
+	err := json.Unmarshal(metadataJson, metadata)
 	if err != nil {
 		log.Fatalf("Failed to unmarshal metadata file: %v", err)
 	}

@@ -7,16 +7,23 @@ import (
 
 type Random struct {
 	model.BaseRecommendationSystem
-	model      *model.HKModel
-	agentCount int
+	Model                *model.HKModel
+	HistoricalTweetCount int
+	AgentCount           int
 }
 
 func NewRandom(
 	model *model.HKModel,
+	historicalTweetCount *int,
 ) *Random {
+	h := model.ModelParams.TweetRetainCount
+	if historicalTweetCount != nil {
+		h = *historicalTweetCount
+	}
 	return &Random{
-		model:      model,
-		agentCount: model.Graph.Nodes().Len(),
+		Model:                model,
+		AgentCount:           model.Graph.Nodes().Len(),
+		HistoricalTweetCount: h,
 	}
 }
 
@@ -26,11 +33,18 @@ func (r *Random) Recommend(
 	count int,
 ) []*model.TweetRecord {
 
-	generated := make(map[int]bool)
-	generated[int(agent.ID)] = true
+	generated := make(map[int64]bool)
+	generated[agent.ID] = true
 	for _, a := range neighbors {
-		generated[int(a.ID)] = true
+		generated[a.ID] = true
 	}
+	neighborIDs := make(map[int64]bool)
+	neighborIDs[agent.ID] = true
+	for _, n := range neighbors {
+		neighborIDs[n.ID] = true
+	}
+
+	visibleTweets := r.Model.Grid.TweetMap
 
 	// collect results that are not in neighbors
 	result := make([]*model.TweetRecord, 0)
@@ -40,11 +54,26 @@ func (r *Random) Recommend(
 		if i > count*10 {
 			break
 		}
-		num := rand.Intn(r.agentCount)
-		if !generated[num] {
-			generated[num] = true
-			el := r.model.Grid.AgentMap[int64(num)].CurTweet
-			if el != nil && el.AgentID != agent.ID {
+		agentPickedId := int64(rand.Intn(r.AgentCount))
+		if !generated[agentPickedId] {
+			// do not replace
+			generated[agentPickedId] = true
+			tweetPickedIndex := -1 // 0: newest
+			if r.HistoricalTweetCount > 0 {
+				tweetPickedIndex = rand.Intn(r.HistoricalTweetCount)
+			}
+			var el *model.TweetRecord
+			if tweetPickedIndex != -1 && tweetPickedIndex < len(visibleTweets[agentPickedId]) {
+				// since visibleTweets is declared as -1: newest, revert it
+				el = visibleTweets[agentPickedId][len(visibleTweets[agentPickedId])-tweetPickedIndex-1]
+			} else {
+				el = r.Model.Grid.AgentMap[agentPickedId].CurTweet
+			}
+			// skip:
+			cond := el != nil && // nil
+				el.AgentID != agent.ID && // itself
+				!neighborIDs[el.AgentID] // its neighbor
+			if cond {
 				result = append(result, el)
 			}
 		}

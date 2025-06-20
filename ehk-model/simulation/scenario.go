@@ -197,7 +197,6 @@ func (s *Scenario) IsFinished() bool {
 	return finished
 }
 
-const MAX_SIM_COUNT = 15000
 const NETWORK_CHANGE_THRESHOLD = 1
 const OPINION_CHANGE_THRESHOLD = 1e-7
 const STOP_SIM_STEPS = 60
@@ -205,12 +204,17 @@ const SAVE_INTERVAL = 300 // seconds
 
 func (s *Scenario) StepTillEnd(ctx context.Context) {
 
+	maxSimCount := s.metadata.MaxSimulationStep
+	if maxSimCount < 0 {
+		maxSimCount = 1
+	}
+
 	// if finished, jump this simulation
 	if s.IsFinished() {
 		return
 	}
 
-	bar := progressbar.Default(MAX_SIM_COUNT)
+	bar := progressbar.Default(int64(maxSimCount))
 	bar.Set(s.model.CurStep)
 
 	lastSaveTime := time.Now()
@@ -253,7 +257,7 @@ func (s *Scenario) StepTillEnd(ctx context.Context) {
 	didDump := false
 
 iterLoop:
-	for s.model.CurStep <= MAX_SIM_COUNT {
+	for s.model.CurStep <= maxSimCount {
 		select {
 		case <-ctx.Done():
 			isCtxDone = true
@@ -274,7 +278,7 @@ iterLoop:
 	}
 
 	// bar.Close()
-	if s.model.CurStep <= MAX_SIM_COUNT {
+	if s.model.CurStep <= maxSimCount {
 		fmt.Println("")
 	}
 
