@@ -14,7 +14,7 @@ from matplotlib.figure import Figure
 from utils.plot import plt_figure, get_colormap
 from utils.peewee import sync_peewee_table
 import works.config as cfg
-from works.stat.task import ScenarioStatistics
+from works.stat.types import ScenarioStatistics
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 from scipy import interpolate, integrate
 

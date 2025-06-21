@@ -35,13 +35,7 @@ def get_statistics(
       active_threshold=active_threshold,
       min_inactive_value=min_inactive_value,
   )
-
-  opinion_last_diff = c.opinion_last_diff
   event_step_mean = np.mean(c.event_step)
-
-  bc_hom_last = c.bc_hom_last
-  if np.isnan(bc_hom_last):
-    bc_hom_last = None
 
   pat_stats = ScenarioStatistics(
       name=scenario_name,
@@ -69,18 +63,11 @@ def get_statistics(
       event_step_mean=event_step_mean,
       triads=c.n_triads,
 
-      x_bc_hom=c.x_bc_hom,
-      bc_hom_smpl=c.bc_hom_smpl,
-
       x_mean_vars=c.x_mean_vars,
       mean_vars_smpl=c.mean_vars_smpl,
 
-      opinion_diff=opinion_last_diff if np.isfinite(
-          opinion_last_diff) else -1,
-
-      x_opinion_diff_mean=c.x_opinion_diff_mean,
-      opinion_diff_mean_smpl=c.opinion_diff_mean_smpl,
-
+      last_community_count=c.last_community_count,
+      last_community_sizes=c.last_community_sizes,
   )
 
   return pat_stats

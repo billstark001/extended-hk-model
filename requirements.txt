@@ -8,3 +8,5 @@ powerlaw
 scipy
 msgpack
 lz4
+igraph
+leidenalg

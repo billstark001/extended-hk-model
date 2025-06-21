@@ -12,11 +12,14 @@ def nullable(exclude=None):
   def decorator(cls):
     for key, value in cls.__dict__.items():
       if (
-          isinstance(value, peewee.Field)
+          isinstance(value, (peewee.Field, peewee.FieldAccessor))
           and not getattr(value, 'primary_key', False)
           and key not in exclude
       ):
-        value.null = True
+        if isinstance(value, (peewee.Field)):
+          value.null = True
+        else:
+          value.field.null = True
     return cls
   return decorator
 
@@ -86,18 +89,22 @@ class NumpyArrayField(peewee.BlobField):
 def sync_peewee_table(
     db: Optional[peewee.Database],
     model: Type[peewee.Model],
-    extra_columns: Literal['ignore', 'error', 'delete'] = 'ignore'
-) -> peewee.Database:
+    extra_columns: Literal['ignore', 'error', 'delete'] = 'ignore',
+    notnull_sync: Literal['ignore', 'error', 'warn', 'fix'] = 'fix',
+) -> peewee.Database | None:
+  import warnings
+
   db_is_none = db is None
   if db_is_none:
-    db = model._meta.database
-  table_name: str = model._meta.table_name
+    db = model._meta.database  # type: ignore
+  table_name: str = model._meta.table_name  # type: ignore
 
   # 1. 获取模型字段名
-  model_fields: Dict[str, Any] = model._meta.fields.copy()
+  model_fields: Dict[str, Any] = model._meta.fields.copy()  # type: ignore
   model_field_names = set(model_fields.keys())
 
   # 2. 获取数据库字段名
+  assert db is not None
   db.connect(reuse_if_open=True)
   cursor = db.execute_sql(f'PRAGMA table_info("{table_name}");')
   # row[1]: column name
@@ -120,75 +127,49 @@ def sync_peewee_table(
       for field_name in extra_db_fields:
         operations.append(migrator.drop_column(table_name, field_name))
 
-  # 5. 执行迁移
+  # 5. 检查并同步 NOT NULL 约束
+  mismatched_notnull = []
+  for field_name in model_field_names & db_field_names:
+    model_field = model_fields[field_name]
+    db_col_info = db_columns[field_name]
+    model_notnull = not getattr(model_field, 'null', False)
+    db_notnull = bool(db_col_info[3])
+    if model_notnull != db_notnull:
+      mismatched_notnull.append((field_name, model_notnull, db_notnull))
+
+  if mismatched_notnull:
+    msg = (
+        "Fields with mismatched NOT NULL constraint: " +
+        ", ".join([
+            f"{field} (model: {model_nn}, db: {db_nn})"
+            for field, model_nn, db_nn in mismatched_notnull]))
+    if notnull_sync == 'error':
+      raise ValueError(msg)
+    elif notnull_sync == 'warn':
+      warnings.warn(msg)
+    elif notnull_sync == 'fix':
+      for field_name, model_notnull, db_notnull in mismatched_notnull:
+        try:
+          # 尝试使用alter_column
+          # 主要适用: 只支持添加 NOT NULL，去除 NOT NULL 需要重建表
+          model_field = model_fields[field_name]
+          new_field = model_field.clone()
+          # 保证NOT NULL和model一致
+          new_field.null = not model_notnull
+          operations.append(migrator.alter_column_type(
+              table_name, field_name, new_field))
+        except Exception as e:
+          # 如果alter失败，抛异常告知
+          raise RuntimeError(
+              f"Cannot sync NOT NULL for column '{field_name}'. "
+              f"Model: {'NOT NULL' if model_notnull else 'NULLABLE'}, "
+              f"DB: {'NOT NULL' if db_notnull else 'NULLABLE'}. "
+              f"Reason: {e}\n"
+              "On SQLite, removing NOT NULL usually requires manual migration (copy table)."
+          )
+
+  # 6. 执行迁移
   if operations:
     migrate(*operations)
-
-  return db
-
-
-def sync_peewee_table_naive(
-    db: Optional[peewee.Database],
-    model: Type[peewee.Model],
-    extra_columns: Literal['ignore', 'error', 'delete'] = 'ignore'
-) -> peewee.Database:
-  """
-  同步 peewee 模型与数据库表结构。
-
-  :param model: peewee Model 子类
-  :param extra_columns: 多余列的处理方式
-  """
-  db_is_none = db is None
-  if db_is_none:
-    db = model._meta.database
-  table_name: str = model._meta.table_name
-  db.connect(reuse_if_open=True)
-
-  # 1. 冷启动：表不存在则直接创建
-  if not db.table_exists(table_name):
-    model.create_table()
-    print(f"Table {table_name} created (cold start).")
-    return
-
-  # 2. 获取模型字段和数据库字段
-  model_fields: Dict[str, Any] = model._meta.fields
-  db_fields = {row.name: row for row in db.get_columns(table_name)}
-
-  model_field_names = set(model_fields.keys())
-  db_field_names = set(db_fields.keys())
-
-  # 3. 多余字段
-  extra_in_db = db_field_names - model_field_names
-  if extra_in_db:
-    if extra_columns == 'error':
-      raise ValueError(f"Table {table_name} has extra columns: {extra_in_db}")
-    elif extra_columns == 'delete':
-      # 重建表并迁移数据
-      tmp_table = f"{table_name}_tmp_sync"
-      model.create_table(table_name=tmp_table)
-      # 只迁移交集字段
-      common_cols = list(model_field_names & db_field_names)
-      if 'id' in model_field_names:
-        # id字段优先
-        common_cols = ['id'] + [c for c in common_cols if c != 'id']
-      col_csv = ', '.join(common_cols)
-      db.execute_sql(
-          f'INSERT INTO "{tmp_table}" ({col_csv}) SELECT {col_csv} FROM "{table_name}"'
-      )
-      db.execute_sql(f'DROP TABLE "{table_name}"')
-      db.execute_sql(f'ALTER TABLE "{tmp_table}" RENAME TO "{table_name}"')
-      print(
-          f"Deleted extra columns {extra_in_db} from {table_name} by recreating table.")
-      db_fields = {row.name: row for row in db.get_columns(table_name)}
-      db_field_names = set(db_fields.keys())
-
-  # 4. 新增模型中有但表里没有的字段
-  missing_in_db = model_field_names - db_field_names
-  for field_name in missing_in_db:
-    field = model_fields[field_name]
-    db.add_column(table_name, field_name, field)
-    print(f"Added column: {field_name} ({field.get_column_type()})")
-
-  db.commit()
 
   return db

@@ -3,11 +3,6 @@
 from typing import Type, TYPE_CHECKING
 
 import numpy as np
-
-from result_interp.record import RawSimulationRecord
-
-from works.stat.context import c
-
 import peewee
 
 from utils.peewee import NumpyArrayField, nullable
@@ -63,6 +58,9 @@ class ScenarioStatistics(peewee.Model):
 
   x_opinion_diff_mean: np.ndarray = NumpyArrayField(dtype=np.int32)
   opinion_diff_mean_smpl: np.ndarray = NumpyArrayField(dtype=np.float64)
+  
+  last_community_count: int = peewee.IntegerField()
+  last_community_sizes: str = peewee.TextField()
 
 
 if TYPE_CHECKING:
@@ -100,85 +98,4 @@ def stats_from_dict(
 
       **_d,
   )
-  return pat_stats
-
-
-def get_statistics(
-    scenario_metadata: 'GoMetadataDict',
-    scenario_base_path: str,
-    origin: str,
-    active_threshold=0.98,
-    min_inactive_value=0.75,
-):
-
-  scenario_name = scenario_metadata['UniqueName']
-
-  # if stats_exist(scenario_name, origin):
-  #   return None
-
-  # load scenario
-
-  scenario_record = RawSimulationRecord(
-      scenario_base_path,
-      scenario_metadata,
-  )
-  scenario_record.load()
-  if not scenario_record.is_finished:
-    return None
-
-  assert scenario_record.is_sanitized, 'non-sanitized scenario'
-
-  c.set_state(
-      scenario_record=scenario_record,
-      active_threshold=active_threshold,
-      min_inactive_value=min_inactive_value,
-  )
-
-  opinion_last_diff = c.opinion_last_diff
-  event_step_mean = np.mean(c.event_step)
-
-  bc_hom_last = c.bc_hom_last
-  if np.isnan(bc_hom_last):
-    bc_hom_last = None
-
-  pat_stats = ScenarioStatistics(
-      name=scenario_name,
-      origin=origin,
-
-      tolerance=scenario_metadata['Tolerance'],
-      decay=scenario_metadata['Decay'],
-      rewiring=scenario_metadata['RewiringRate'],
-      retweet=scenario_metadata['RetweetRate'],
-      recsys_type=scenario_metadata['RecsysFactoryType'],
-      tweet_retain_count=scenario_metadata['TweetRetainCount'],
-
-      step=c.total_steps,
-      active_step=c.active_step,
-      active_step_threshold=c.active_step_threshold,
-      g_index_mean_active=c.g_index_mean_active,
-
-      x_indices=c.x_indices,
-      h_index=c.h_index,  # hom index
-      p_index=c.p_index,  # pol index
-      g_index=c.g_index,  # env index
-
-      grad_index=c.gradation_index_hp,
-      event_count=c.event_step.size,
-      event_step_mean=event_step_mean,
-      triads=c.n_triads,
-
-      x_bc_hom=c.x_bc_hom,
-      bc_hom_smpl=c.bc_hom_smpl,
-
-      x_mean_vars=c.x_mean_vars,
-      mean_vars_smpl=c.mean_vars_smpl,
-
-      opinion_diff=opinion_last_diff if np.isfinite(
-          opinion_last_diff) else -1,
-
-      x_opinion_diff_mean=c.x_opinion_diff_mean,
-      opinion_diff_mean_smpl=c.opinion_diff_mean_smpl,
-
-  )
-
   return pat_stats

@@ -277,6 +277,8 @@ def get_opinion_diff_mean(opinion_diff: NDArray, scenario_record: RawSimulationR
 #   return in_degree
 
 
+# region graph
+
 @c.selector
 def get_n_triads_and_bc_hom(scenario_record: RawSimulationRecord):
   last_graph = scenario_record.get_graph(scenario_record.max_step)
@@ -289,8 +291,38 @@ def get_n_triads_and_bc_hom(scenario_record: RawSimulationRecord):
 
   return n_triads, bc_hom_last
 
-# adjacency variances
 
+@c.selector
+def get_last_community_count(scenario_record: RawSimulationRecord):
+  import json
+  import igraph as ig
+  import leidenalg
+  from collections import Counter
+
+  last_graph = scenario_record.get_graph(scenario_record.max_step)
+  edges = list(last_graph.edges())
+  igraph_g = ig.Graph(directed=True)
+  igraph_g.add_vertices(list(last_graph.nodes()))
+  igraph_g.add_edges(edges)
+  
+  partition = leidenalg.find_partition(
+      igraph_g,
+      leidenalg.CPMVertexPartition
+  )
+
+  membership = partition.membership
+  result = dict(zip(last_graph.nodes(), membership))
+  
+  last_community_sizes_dict = dict(Counter(result.values()))
+  last_community_count = len(last_community_sizes_dict)
+  
+  last_community_sizes = json.dumps(last_community_sizes_dict)
+  
+  return last_community_count, last_community_sizes
+
+
+
+# endregion
 
 @c.selector
 def get_mean_vars_x_and_smpl(
