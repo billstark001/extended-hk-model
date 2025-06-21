@@ -20,6 +20,7 @@ tolerance_array = np.array([
 
 n_sims = 10
 n_sims_eps = 100
+n_sims_rep = 100
 
 rs_names = {
     'st': ('StructureM9', 0),
@@ -100,6 +101,24 @@ for i_sim in range(n_sims_eps):
         max_sim_step=20000,
     )
     all_scenarios_eps.append(x)
+
+
+all_scenarios_rep: List[GoMetadataDict] = []
+
+for i_sim in range(n_sims_rep):
+  for i_rs, rs in [('rn', 'Random'), ('st', 'StructureM9')]:
+    x = create_go_metadata_dict(
+        f's_rep_sim{i_sim}_{i_rs}',
+        rewiring=0.05,
+        decay=0.05,
+        retweet=0.1,
+        recsys_type=rs,
+        tweet_retain_count=3,
+        tolerance=0.45,
+        max_sim_step=20000,
+    )
+    all_scenarios_rep.append(x)
+  
 
 # assign paths
 dotenv.load_dotenv()
