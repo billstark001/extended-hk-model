@@ -307,7 +307,7 @@ def get_last_community_count(scenario_record: RawSimulationRecord):
   
   partition = leidenalg.find_partition(
       igraph_g,
-      leidenalg.CPMVertexPartition
+      leidenalg.ModularityVertexPartition,
   )
 
   membership = partition.membership
