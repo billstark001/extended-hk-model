@@ -57,6 +57,7 @@ def create_heatmap_evaluator_raw(
 ):
   rs_key, rs_retain = cfg.rs_names[rs_name]
   full_data_selector: Iterable[ScenarioStatistics] = ScenarioStatistics.select().where(
+    ScenarioStatistics.name.startswith('s_grad'),
     ScenarioStatistics.recsys_type == rs_key,
     ScenarioStatistics.tweet_retain_count == rs_retain,
     ScenarioStatistics.retweet == retweet_rate,

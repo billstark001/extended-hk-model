@@ -46,8 +46,7 @@ def get_random_stats(
   retweet: float | None = None,
 ):
   full_data_selector: Iterable[ScenarioStatistics] = ScenarioStatistics.select().where(
-    ScenarioStatistics.name.startswith('s_eps'),
-    ScenarioStatistics.recsys_type == 'Random',
+    ScenarioStatistics.name.startswith('s_rep'),
     *(x for x in (
       (ScenarioStatistics.decay == decay) if decay is not None else None,
       (ScenarioStatistics.rewiring == rewiring) if rewiring is not None else None,
@@ -83,24 +82,33 @@ if __name__ == '__main__':
   
   stats = get_random_stats()
   
-  all_epsilon_vals = set(x.tolerance for x in stats)
+  all_epsilon_vals = set(x.recsys_type for x in stats)
   vals = { x: [] for x in sorted(list(all_epsilon_vals)) }
   for x in stats:
-    vals[x.tolerance].append((x.grad_index, x.last_community_count))
+    vals[x.recsys_type].append((x.grad_index, x.last_community_count, x.triads))
     
   plt_x = np.array(list(vals.keys()))
-  plt_ig_avg, plt_cm_avg, plt_ig_std, plt_cm_std = np.array(
+  plt_ig_avg, plt_cm_avg, plt_ti_avg, plt_ig_std, plt_cm_std, plt_ti_std = np.array(
     [(np.mean(v, axis=0), np.std(v, axis=0)) for v in vals.values()]
-  ).reshape(-1, 4).T
+  ).reshape(-1, 6).T
   
   
-  fig, (ax1, ax2) = plt_figure(n_row=1, n_col=2)
+  fig, axes = plt_figure(n_row=1, n_col=3, hw_ratio=3/1, total_width=8)
   
-  ax1.errorbar(plt_x, plt_ig_avg, yerr=plt_ig_std)
-  ax2.errorbar(plt_x, plt_cm_avg, yerr=plt_cm_std)
+  (ax1, ax2, ax3) = axes
+  
+  ax1.bar(plt_x, plt_ig_avg, yerr=plt_ig_std)
+  ax2.bar(plt_x, plt_cm_avg, yerr=plt_cm_std)
+  ax3.bar(plt_x, plt_ti_avg, yerr=plt_ti_std)
+  
+  ax1.set_title('grad. index')
+  ax2.set_title('#community')
+  ax3.set_title('#triads')
 
-  ax1.grid(True)
-  ax2.grid(True)
+  for ax in axes:
+    ax.grid(True)
+    ax.set_xticklabels(plt_x, rotation=45)
 
+  fig.tight_layout()
   fig.show()  
   

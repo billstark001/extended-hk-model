@@ -1,6 +1,7 @@
 {
   "cSpell.words": [
     "ddof",
+    "edgecolor",
     "igraph",
     "leidenalg",
     "mattn",
@@ -13,6 +14,7 @@
     "xticklabels",
     "xticks",
     "yaxis",
+    "yerr",
     "yticklabels",
     "yticks"
   ]
