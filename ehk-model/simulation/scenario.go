@@ -26,7 +26,7 @@ func NewScenario(dir string, metadata *ScenarioMetadata) *Scenario {
 	return &Scenario{
 		dir:        dir,
 		metadata:   metadata,
-		serializer: NewSimulationSerializer(dir, metadata.UniqueName, 3),
+		serializer: NewSimulationSerializer(dir, metadata.UniqueName, 2),
 	}
 }
 

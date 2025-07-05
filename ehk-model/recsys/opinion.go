@@ -109,14 +109,7 @@ func (o *Opinion) PreStep() {
 }
 
 // Recommend implements model.HKModelRecommendationSystem
-func (o *Opinion) Recommend(agent *model.HKAgent, neighbors []*model.HKAgent, count int) []*model.TweetRecord {
-	// Create set of neighbor IDs
-	neighborIDs := make(map[int64]bool)
-	neighborIDs[agent.ID] = true
-	for _, n := range neighbors {
-		neighborIDs[n.ID] = true
-	}
-
+func (o *Opinion) Recommend(agent *model.HKAgent, neighborIDs map[int64]bool, count int) []*model.TweetRecord {
 	// Get adjusted opinion with noise
 	opinionWithNoise := agent.CurOpinion + o.Epsilon[agent.ID]
 

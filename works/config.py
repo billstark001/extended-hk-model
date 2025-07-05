@@ -53,7 +53,7 @@ def create_go_metadata_dict(
     recsys_type="Random",
     recsys_count=10,
     tweet_retain_count=3,
-    max_sim_step=15000,
+    max_sim_step=20000,
 ) -> GoMetadataDict:
   return {
       "UniqueName": name,

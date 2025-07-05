@@ -32,17 +32,17 @@ func GetDefaultRecsysFactoryDefs() map[string]model.RecsysFactory {
 		},
 
 		"Structure": func(h *model.HKModel) model.HKModelRecommendationSystem {
-			return recsys.NewStructure(h, 0.1, true, func(s string) {
+			return recsys.NewStructure(h, 0.1, nil, true, func(s string) {
 				fmt.Println(s)
 			})
 		},
 
 		"OpinionRandom": func(h *model.HKModel) model.HKModelRecommendationSystem {
-			return recsys.NewOpinionRandom(h, 0.4, 1, 2, 0)
+			return recsys.NewOpinionRandom(h, nil, 0.4, 1, 2, 0)
 		},
 
 		"StructureRandom": func(h *model.HKModel) model.HKModelRecommendationSystem {
-			return recsys.NewStructureRandom(h, 1, 0.1, 0, true, func(s string) {
+			return recsys.NewStructureRandom(h, nil, 1, 0.1, 0, true, func(s string) {
 				fmt.Println(s)
 			})
 		},

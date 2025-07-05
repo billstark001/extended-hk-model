@@ -207,13 +207,24 @@ func (m *HKModel) Step(doIncrementCurStep bool) (int, float64) {
 	return changedCount, changedOpinionMax
 }
 
+func makeSelfAndNeighborIDsMap(agentID int64, neighbors []*HKAgent) map[int64]bool {
+	neighborIDs := make(map[int64]bool)
+	neighborIDs[agentID] = true
+	for _, n := range neighbors {
+		neighborIDs[n.ID] = true
+	}
+	return neighborIDs
+}
+
 // GetRecommendation gets recommendations for an agent
 func (m *HKModel) GetRecommendation(agent *HKAgent, neighbors []*HKAgent) []*TweetRecord {
 	if m.Recsys == nil {
 		return []*TweetRecord{}
 	}
 
-	return m.Recsys.Recommend(agent, neighbors, m.ModelParams.RecsysCount)
+	neighborIDs := makeSelfAndNeighborIDsMap(agent.ID, neighbors)
+
+	return m.Recsys.Recommend(agent, neighborIDs, m.ModelParams.RecsysCount)
 }
 
 func (m *HKModel) CollectOpinions() []float64 {

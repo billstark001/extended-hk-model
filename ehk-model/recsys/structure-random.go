@@ -13,14 +13,15 @@ type StructureRandom struct {
 }
 
 // NewStructureRandom creates a new structure-based random recommendation system
-func NewStructureRandom(model *model.HKModel, steepness, noiseStd, randomRatio float64, matrixInit bool, logFunc func(string)) *StructureRandom {
+func NewStructureRandom(
+	model *model.HKModel,
+	historicalTweetCount *int,
+	steepness, noiseStd, randomRatio float64,
+	matrixInit bool,
+	logFunc func(string),
+) *StructureRandom {
 	return &StructureRandom{
-		Structure: Structure{
-			Model:      model,
-			NoiseStd:   noiseStd,
-			MatrixInit: matrixInit,
-			LogFunc:    logFunc,
-		},
+		Structure:   *NewStructure(model, noiseStd, historicalTweetCount, matrixInit, logFunc),
 		Steepness:   steepness,
 		RandomRatio: randomRatio,
 	}
@@ -62,14 +63,15 @@ func (s *StructureRandom) PreStep() {
 	}
 }
 
+// TODO this one is essentially identical to the `opinion-random`'s one, replace them with a common function
 // Recommend implements model.HKModelRecommendationSystem
-func (s *StructureRandom) Recommend(agent *model.HKAgent, neighbors []*model.HKAgent, count int) []*model.TweetRecord {
-	// Create set of neighbor IDs
-	neighborIDs := make(map[int64]bool)
-	neighborIDs[agent.ID] = true
-	for _, n := range neighbors {
-		neighborIDs[n.ID] = true
-	}
+func (s *StructureRandom) Recommend(
+	agent *model.HKAgent,
+	neighborIDs map[int64]bool,
+	count int,
+) []*model.TweetRecord {
+
+	visibleTweets := s.Model.Grid.TweetMap
 
 	// Create a copy of the rate vector
 	rateVec := make([]float64, s.NumNodes)
@@ -98,11 +100,19 @@ func (s *StructureRandom) Recommend(agent *model.HKAgent, neighbors []*model.HKA
 	// Collect tweets from selected agents
 	ret := make([]*model.TweetRecord, 0, len(candidates))
 	for _, idx := range candidates {
-		if a, ok := s.AgentMap[int64(idx)]; ok && a.CurTweet != nil && a.CurTweet.AgentID != agent.ID {
-			ret = append(ret, a.CurTweet)
-			if len(ret) >= len(candidates) {
-				break
-			}
+		if len(ret) >= len(candidates) {
+			break
+		}
+		agentPicked := s.AgentMap[int64(idx)]
+		tweet := selectTweet(
+			s.HistoricalTweetCount,
+			neighborIDs,
+			agentPicked.ID,
+			s.Model.Grid.AgentMap,
+			visibleTweets,
+		)
+		if tweet != nil {
+			ret = append(ret, tweet)
 		}
 	}
 

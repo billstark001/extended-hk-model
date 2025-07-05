@@ -16,7 +16,7 @@ type HKModelRecommendationSystem interface {
 	PostStep(changed []*RewiringEventBody)
 
 	// Recommend returns recommendations for an agent
-	Recommend(agent *HKAgent, neighbors []*HKAgent, count int) []*TweetRecord
+	Recommend(agent *HKAgent, neighborIDs map[int64]bool, count int) []*TweetRecord
 
 	// Dump returns internal data for debugging/analysis
 	Dump() []byte
@@ -43,7 +43,7 @@ func (rs *BaseRecommendationSystem) PreCommit() {
 func (rs *BaseRecommendationSystem) PostStep(changed []*RewiringEventBody) {
 }
 
-func (rs *BaseRecommendationSystem) Recommend(agent *HKAgent, neighbors []*HKAgent, count int) []*TweetRecord {
+func (rs *BaseRecommendationSystem) Recommend(agent *HKAgent, neighborIDs map[int64]bool, count int) []*TweetRecord {
 	return []*TweetRecord{}
 }
 

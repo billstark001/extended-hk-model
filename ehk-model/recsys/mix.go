@@ -57,17 +57,17 @@ func (rs *Mix) PostStep(changed []*model.RewiringEventBody) {
 
 func (rs *Mix) Recommend(
 	agent *model.HKAgent,
-	neighbors []*model.HKAgent,
+	neighborIDs map[int64]bool,
 	count int,
 ) []*model.TweetRecord {
 	r1Count := int(float64(count)*rs.RecSys1Rate + 0.5)
 	r2Count := count - r1Count
 	ret := make([]*model.TweetRecord, 0)
 	if r1Count > 0 {
-		ret = append(ret, rs.RecSys1.Recommend(agent, neighbors, r1Count)...)
+		ret = append(ret, rs.RecSys1.Recommend(agent, neighborIDs, r1Count)...)
 	}
 	if r2Count > 0 {
-		ret = append(ret, rs.RecSys2.Recommend(agent, neighbors, r2Count)...)
+		ret = append(ret, rs.RecSys2.Recommend(agent, neighborIDs, r2Count)...)
 	}
 	return ret
 }

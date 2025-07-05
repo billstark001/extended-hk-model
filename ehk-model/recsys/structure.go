@@ -16,7 +16,10 @@ import (
 // Structure implements a recommendation system based on network structure
 type Structure struct {
 	model.BaseRecommendationSystem
-	Model      *model.HKModel
+	Model                *model.HKModel
+	HistoricalTweetCount int
+	AgentCount           int
+
 	NoiseStd   float64
 	MatrixInit bool
 	LogFunc    func(string)
@@ -31,12 +34,24 @@ type Structure struct {
 }
 
 // NewStructure creates a structure-based recommendation system
-func NewStructure(model *model.HKModel, noiseStd float64, matrixInit bool, logFunc func(string)) *Structure {
+func NewStructure(
+	model *model.HKModel,
+	noiseStd float64,
+	historicalTweetCount *int,
+	matrixInit bool,
+	logFunc func(string),
+) *Structure {
+	h := model.ModelParams.TweetRetainCount
+	if historicalTweetCount != nil {
+		h = *historicalTweetCount
+	}
 	ret := &Structure{
-		Model:      model,
-		NoiseStd:   noiseStd,
-		MatrixInit: matrixInit,
-		LogFunc:    logFunc,
+		Model:                model,
+		AgentCount:           model.Graph.Nodes().Len(),
+		HistoricalTweetCount: h,
+		NoiseStd:             noiseStd,
+		MatrixInit:           matrixInit,
+		LogFunc:              logFunc,
 	}
 	// init top k finder
 	// TODO add to model parameters
@@ -193,34 +208,38 @@ func (s *Structure) PostStep(changed []*model.RewiringEventBody) {
 }
 
 // Recommend implements model.HKModelRecommendationSystem
-func (s *Structure) Recommend(agent *model.HKAgent, neighbors []*model.HKAgent, count int) []*model.TweetRecord {
-	// Create set of neighbor IDs
-	neighborIDs := make(map[int64]bool)
-	neighborIDs[agent.ID] = true
-	for _, n := range neighbors {
-		neighborIDs[n.ID] = true
-	}
+func (s *Structure) Recommend(agent *model.HKAgent, neighborIDs map[int64]bool, count int) []*model.TweetRecord {
+
+	visibleTweets := s.Model.Grid.TweetMap
 
 	// Get rate vector for agent
 	rateVec := s.RateMat[agent.ID]
 
 	// find largest elements
-	candidates := s.topKFinder.FindTopK(rateVec, len(neighbors)+count+1)
-
-	// Take top count
-	numToTake := min(count, len(candidates))
+	candidates := s.topKFinder.FindTopK(rateVec, len(neighborIDs)+count)
 
 	// Get tweets from selected agents
-	ret := make([]*model.TweetRecord, 0, numToTake)
-	for i := range numToTake {
-		if a, ok := s.AgentMap[int64(candidates[i])]; ok {
-			if a.CurTweet != nil && a.CurTweet.AgentID != agent.ID {
-				ret = append(ret, a.CurTweet)
+	result := make([]*model.TweetRecord, 0, count)
+	for i := range len(candidates) {
+		if len(result) >= count {
+			break
+		}
+		if agentPicked, ok := s.AgentMap[int64(candidates[i])]; ok {
+			// select and filter the agent
+			tweet := selectTweet(
+				s.HistoricalTweetCount,
+				neighborIDs,
+				agentPicked.ID,
+				s.Model.Grid.AgentMap,
+				visibleTweets,
+			)
+			if tweet != nil {
+				result = append(result, tweet)
 			}
 		}
 	}
 
-	return ret
+	return result
 }
 
 // Dump implements model.HKModelRecommendationSystem

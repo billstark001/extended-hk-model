@@ -2,6 +2,7 @@ package recsys
 
 import (
 	"ehk-model/model"
+	"maps"
 	"math/rand"
 )
 
@@ -29,52 +30,36 @@ func NewRandom(
 
 func (r *Random) Recommend(
 	agent *model.HKAgent,
-	neighbors []*model.HKAgent,
+	neighborIDs map[int64]bool,
 	count int,
 ) []*model.TweetRecord {
 
 	generated := make(map[int64]bool)
-	generated[agent.ID] = true
-	for _, a := range neighbors {
-		generated[a.ID] = true
-	}
-	neighborIDs := make(map[int64]bool)
-	neighborIDs[agent.ID] = true
-	for _, n := range neighbors {
-		neighborIDs[n.ID] = true
-	}
+	maps.Copy(generated, neighborIDs)
 
 	visibleTweets := r.Model.Grid.TweetMap
 
 	// collect results that are not in neighbors
-	result := make([]*model.TweetRecord, 0)
+	result := make([]*model.TweetRecord, 0, count)
 	i := 0
 	for len(result) < count {
 		// avoid dead loop
 		if i > count*10 {
 			break
 		}
-		agentPickedId := int64(rand.Intn(r.AgentCount))
-		if !generated[agentPickedId] {
+		agentPickedID := int64(rand.Intn(r.AgentCount))
+		if !generated[agentPickedID] {
 			// do not replace
-			generated[agentPickedId] = true
-			tweetPickedIndex := -1 // 0: newest
-			if r.HistoricalTweetCount > 0 {
-				tweetPickedIndex = rand.Intn(r.HistoricalTweetCount)
-			}
-			var el *model.TweetRecord
-			if tweetPickedIndex != -1 && tweetPickedIndex < len(visibleTweets[agentPickedId]) {
-				// since visibleTweets is declared as -1: newest, revert it
-				el = visibleTweets[agentPickedId][len(visibleTweets[agentPickedId])-tweetPickedIndex-1]
-			} else {
-				el = r.Model.Grid.AgentMap[agentPickedId].CurTweet
-			}
-			// skip:
-			cond := el != nil && // nil
-				el.AgentID != agent.ID && // itself
-				!neighborIDs[el.AgentID] // its neighbor
-			if cond {
-				result = append(result, el)
+			generated[agentPickedID] = true
+			tweet := selectTweet(
+				r.HistoricalTweetCount,
+				neighborIDs,
+				agentPickedID,
+				r.Model.Grid.AgentMap,
+				visibleTweets,
+			)
+			if tweet != nil {
+				result = append(result, tweet)
 			}
 		}
 		i++

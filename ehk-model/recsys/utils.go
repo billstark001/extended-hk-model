@@ -1,6 +1,7 @@
 package recsys
 
 import (
+	"ehk-model/model"
 	"math/rand"
 
 	"gonum.org/v1/gonum/graph"
@@ -45,6 +46,30 @@ func sampleWithoutReplacement(population []int, n int, probabilities []float64) 
 	}
 
 	return result
+}
+
+func selectTweet(
+	historicalTweetCount int,
+	selfAndNeighborIDs map[int64]bool,
+	agentPickedID int64,
+	agentMap map[int64]*model.HKAgent,
+	visibleTweets map[int64][]*model.TweetRecord,
+) *model.TweetRecord {
+	tweetPickedIndex := -1 // 0: newest
+	if historicalTweetCount > 0 {
+		tweetPickedIndex = rand.Intn(historicalTweetCount)
+	}
+	var el *model.TweetRecord
+	if tweetPickedIndex != -1 && tweetPickedIndex < len(visibleTweets[agentPickedID]) {
+		// since visibleTweets is declared as -1: newest, revert it
+		el = visibleTweets[agentPickedID][len(visibleTweets[agentPickedID])-tweetPickedIndex-1]
+	} else {
+		el = agentMap[agentPickedID].CurTweet
+	}
+	if el == nil || selfAndNeighborIDs[el.AgentID] {
+		return nil
+	}
+	return el
 }
 
 // commonNeighborsCount calculates the number of common neighbors between two nodes

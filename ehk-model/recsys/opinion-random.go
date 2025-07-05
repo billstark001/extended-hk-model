@@ -10,11 +10,13 @@ import (
 // OpinionRandom implements a recommendation system with random opinion preferences
 type OpinionRandom struct {
 	model.BaseRecommendationSystem
-	Model       *model.HKModel
-	Tolerance   float64
-	Steepness   float64
-	NoiseStd    float64
-	RandomRatio float64
+	Model                *model.HKModel
+	HistoricalTweetCount int
+	AgentCount           int
+	Tolerance            float64
+	Steepness            float64
+	NoiseStd             float64
+	RandomRatio          float64
 
 	NumNodes   int
 	Agents     []*model.HKAgent
@@ -23,13 +25,23 @@ type OpinionRandom struct {
 }
 
 // NewOpinionRandom creates a new random opinion-based recommendation system
-func NewOpinionRandom(model *model.HKModel, tolerance, steepness, noiseStd, randomRatio float64) *OpinionRandom {
+func NewOpinionRandom(
+	model *model.HKModel,
+	historicalTweetCount *int,
+	tolerance, steepness, noiseStd, randomRatio float64,
+) *OpinionRandom {
+	h := model.ModelParams.TweetRetainCount
+	if historicalTweetCount != nil {
+		h = *historicalTweetCount
+	}
 	return &OpinionRandom{
-		Model:       model,
-		Tolerance:   tolerance,
-		Steepness:   steepness,
-		NoiseStd:    noiseStd,
-		RandomRatio: randomRatio,
+		Model:                model,
+		AgentCount:           model.Graph.Nodes().Len(),
+		HistoricalTweetCount: h,
+		Tolerance:            tolerance,
+		Steepness:            steepness,
+		NoiseStd:             noiseStd,
+		RandomRatio:          randomRatio,
 	}
 }
 
@@ -113,15 +125,11 @@ func (o *OpinionRandom) PreStep() {
 // Recommend implements model.HKModelRecommendationSystem
 func (o *OpinionRandom) Recommend(
 	agent *model.HKAgent,
-	neighbors []*model.HKAgent,
+	neighborIDs map[int64]bool,
 	count int,
 ) []*model.TweetRecord {
-	// Create set of neighbor IDs
-	neighborIDs := make(map[int64]bool)
-	neighborIDs[agent.ID] = true
-	for _, n := range neighbors {
-		neighborIDs[n.ID] = true
-	}
+
+	visibleTweets := o.Model.Grid.TweetMap
 
 	// Create a copy of the rate vector
 	rateVec := make([]float64, o.NumNodes)
@@ -129,6 +137,7 @@ func (o *OpinionRandom) Recommend(
 
 	// Set rate to 0 for neighbors
 	sum := 0.0
+	rateVec[agent.ID] = 0
 	for id := range neighborIDs {
 		rateVec[id] = 0
 	}
@@ -144,14 +153,24 @@ func (o *OpinionRandom) Recommend(
 	}
 
 	// Sample agents based on probability
-	candidates := sampleWithoutReplacement(o.AllIndices, count, rateVec)
+	candidates := sampleWithoutReplacement(o.AllIndices, count+4, rateVec)
 
 	// Collect tweets from selected agents
 	ret := make([]*model.TweetRecord, 0, len(candidates))
 	for _, idx := range candidates {
-		a := o.Agents[idx]
-		if a.CurTweet != nil && a.CurTweet.AgentID != agent.ID {
-			ret = append(ret, a.CurTweet)
+		if len(ret) >= len(candidates) {
+			break
+		}
+		agentPicked := o.Agents[idx]
+		tweet := selectTweet(
+			o.HistoricalTweetCount,
+			neighborIDs,
+			agentPicked.ID,
+			o.Model.Grid.AgentMap,
+			visibleTweets,
+		)
+		if tweet != nil {
+			ret = append(ret, tweet)
 		}
 	}
 
