@@ -36,7 +36,6 @@ def get_statistics(
       min_inactive_value=min_inactive_value,
   )
 
-  opinion_last_diff = c.opinion_last_diff
   event_step_mean = np.mean(c.event_step)
 
   bc_hom_last = c.bc_hom_last
@@ -69,17 +68,23 @@ def get_statistics(
       event_step_mean=event_step_mean,
       triads=c.n_triads,
 
-      x_bc_hom=c.x_bc_hom,
-      bc_hom_smpl=c.bc_hom_smpl,
+      # x_bc_hom=c.x_bc_hom,
+      # bc_hom_smpl=c.bc_hom_smpl,
 
       x_mean_vars=c.x_mean_vars,
       mean_vars_smpl=c.mean_vars_smpl,
 
-      opinion_diff=opinion_last_diff if np.isfinite(
-          opinion_last_diff) else -1,
+      # opinion_diff=opinion_last_diff if np.isfinite(
+      #     opinion_last_diff) else -1,
 
-      x_opinion_diff_mean=c.x_opinion_diff_mean,
-      opinion_diff_mean_smpl=c.opinion_diff_mean_smpl,
+      # x_opinion_diff_mean=c.x_opinion_diff_mean,
+      # opinion_diff_mean_smpl=c.opinion_diff_mean_smpl,
+      
+      p_backdrop = c.p_backdrop,
+      h_backdrop = c.h_backdrop,
+      g_backdrop = c.g_backdrop,
+      
+      last_opinion_peak_count=c.last_opinion_peak_count,
 
   )
 

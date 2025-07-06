@@ -16,15 +16,15 @@ import multiprocessing.util
 short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
 
-def stats_exist(name: str, origin: str) -> bool:
+def try_get_stats(name: str, origin: str) -> ScenarioStatistics | None:
   try:
-    ScenarioStatistics.get(
+    ret = ScenarioStatistics.get(
         ScenarioStatistics.name == name,
         ScenarioStatistics.origin == origin,
     )
-    return True
+    return ret
   except ScenarioStatistics.DoesNotExist:
-    return False
+    return None
 
 
 StatisticsGetterFunc: TypeAlias = Callable[
@@ -55,7 +55,7 @@ def migrate_from_dict(
   # migrate
   for stat in tqdm(stats):
     sm = all_s_map[stat['name']]
-    if stats_exist(stat["name"], origin):
+    if try_get_stats(stat["name"], origin) is not None:
       continue
 
     try:
@@ -96,7 +96,9 @@ def generate_stats(
 
       futures: Dict[Future[ScenarioStatistics | None], str] = {}
       for s in tqdm(scenarios):
-        if stats_exist(s['UniqueName'], origin):
+        exist_stats = try_get_stats(s['UniqueName'], origin)
+        if exist_stats is not None:
+          # TODO add this to func
           continue
         f = executor.submit(get_statistics, s, scenario_base_path, origin)
         futures[f] = s['UniqueName']

@@ -65,13 +65,18 @@ def first_more_or_equal_than(arr: NDArray, k: float):
   return idx if mask[idx] else arr.size
 
 
-def moving_average(data: NDArray, window_size: int):
+def moving_average(
+  data: NDArray, 
+  window_size: int,
+  pad_mode = 'edge',
+  convolve_mode = 'valid',
+):
   if window_size < 2:
     return data
   pad_width = window_size // 2
-  pad_data = np.pad(data, pad_width, mode='edge')
+  pad_data = np.pad(data, pad_width, mode=pad_mode) # type: ignore
   window = np.ones(window_size) / window_size
-  moving_avg = np.convolve(pad_data, window, 'valid')
+  moving_avg = np.convolve(pad_data, window, convolve_mode) # type: ignore
   return moving_avg
 
 

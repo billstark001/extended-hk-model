@@ -58,9 +58,15 @@ class ScenarioStatistics(peewee.Model):
 
   x_opinion_diff_mean: np.ndarray = NumpyArrayField(dtype=np.int32)
   opinion_diff_mean_smpl: np.ndarray = NumpyArrayField(dtype=np.float64)
-  
+
   last_community_count: int = peewee.IntegerField()
   last_community_sizes: str = peewee.TextField()
+
+  last_opinion_peak_count: int = peewee.IntegerField()
+  
+  p_backdrop: float = peewee.DoubleField()
+  h_backdrop: float = peewee.DoubleField()
+  g_backdrop: float = peewee.DoubleField()
 
 
 if TYPE_CHECKING:

@@ -4,12 +4,12 @@ from numpy.typing import NDArray
 
 import numpy as np
 from scipy.stats import skew, kurtosis
+from scipy.signal import find_peaks
 import networkx as nx
-
 
 from result_interp.parse_events_db import get_events_by_step_range
 from result_interp.record import RawSimulationRecord
-from stats.distance_c import DistanceCollectorContinuous
+from stats.distance_c import DistanceCollectorContinuous, get_kde_pdf
 from utils.context import Context
 from utils.stat import adaptive_discrete_sampling, area_under_curve, first_more_or_equal_than, merge_data_with_axes
 
@@ -158,6 +158,7 @@ def calc_homophily(rec: RawSimulationRecord, step: int):
   eps = rec.metadata['Tolerance']
   clip_factor: float = eps - (eps ** 2) / 8
   h_index = (h_index_raw - clip_factor) / (1 - clip_factor)
+  h_index[h_index < 0] = 0
   return h_index
 
 
@@ -184,6 +185,23 @@ def get_indices(scenario_record: RawSimulationRecord):
   g_index = y_dist[:, 3].tolist()  # d-worst-s
 
   return x_indices, h_index, p_index, g_index
+
+
+@c.selector
+def get_backdrop_rates(
+    p_index: NDArray,
+    h_index: NDArray,
+    g_index: NDArray,
+):
+  p_index_abs = np.abs(p_index[1:] - p_index[:-1])
+  h_index_abs = np.abs(h_index[1:] - h_index[:-1])
+  g_index_abs = np.abs(g_index[1:] - g_index[:-1])
+
+  p_backdrop = np.sum(p_index_abs)
+  h_backdrop = np.sum(h_index_abs)
+  g_backdrop = np.sum(g_index_abs)
+
+  return p_backdrop, h_backdrop, g_backdrop
 
 
 # endregion
@@ -220,8 +238,11 @@ def calc_active_step(
   pre_active_step = x_indices[active_step_index - 1]
   pre_active_step_g = g_index[active_step_index - 1]
 
-  interp_p = max(min((active_step_crit_value - pre_active_step_g)
-                     / (post_active_step_g - pre_active_step_g), 1), 0)
+  interp_p = max(
+      min((active_step_crit_value - pre_active_step_g)
+          / (post_active_step_g - pre_active_step_g), 1),
+      0
+  )
   active_step = int(interp(pre_active_step, post_active_step, interp_p))
   active_step_threshold = float(
       interp(pre_active_step_g, post_active_step_g, interp_p))
@@ -229,13 +250,8 @@ def calc_active_step(
   g_index_active = g_index[:active_step_index]
   g_index_mean_active = np.mean(g_index_active)
 
-  return active_step, active_step_threshold, \
+  return active_step_index, active_step, active_step_threshold, \
       g_index_active, g_index_mean_active
-
-
-@c.selector
-def get_gradation_index_pat_diff(h_index, p_index, active_step):
-  return (h_index - p_index)[:active_step]
 
 
 @c.selector
@@ -304,7 +320,7 @@ def get_last_community_count(scenario_record: RawSimulationRecord):
   igraph_g = ig.Graph(directed=True)
   igraph_g.add_vertices(list(last_graph.nodes()))
   igraph_g.add_edges(edges)
-  
+
   partition = leidenalg.find_partition(
       igraph_g,
       leidenalg.ModularityVertexPartition,
@@ -312,17 +328,32 @@ def get_last_community_count(scenario_record: RawSimulationRecord):
 
   membership = partition.membership
   result = dict(zip(last_graph.nodes(), membership))
-  
+
   last_community_sizes_dict = dict(Counter(result.values()))
   last_community_count = len(last_community_sizes_dict)
-  
+
   last_community_sizes = json.dumps(last_community_sizes_dict)
-  
+
   return last_community_count, last_community_sizes
 
 
+@c.selector('last_opinion_peak_count')
+def get_last_opinion_peak_count(opinion_last: NDArray):
+
+  kde = get_kde_pdf(opinion_last, 0.1, -1, 1)
+
+  x_grid = np.linspace(-1, 1, 1001)
+  y_kde = kde(x_grid)
+
+  height_threshold = np.max(y_kde) * 0.1
+  peaks, _ = find_peaks(
+      y_kde, height=height_threshold, distance=50
+  )
+
+  return len(peaks)
 
 # endregion
+
 
 @c.selector
 def get_mean_vars_x_and_smpl(
