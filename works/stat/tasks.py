@@ -120,6 +120,9 @@ def generate_stats(
           raise  # again
         except Exception as e:
           print(f"Exception in worker: {e}")
+          print("Traceback:")
+          print(''.join(traceback.format_exception(type(e), e, e.__traceback__)))
+
           continue
 
     except KeyboardInterrupt:
