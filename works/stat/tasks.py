@@ -1,6 +1,7 @@
 from typing import Dict, List, Callable, TypeAlias
 
 import json
+import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed, Future
 
 import peewee

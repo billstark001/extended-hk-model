@@ -153,12 +153,13 @@ def calc_distance(rec: RawSimulationRecord, step: int):
 def calc_homophily(rec: RawSimulationRecord, step: int):
   f = rec.followers
   f_slice = rec.agent_numbers[step, :, 0]
-  h_index_raw: np.ndarray = np.mean(f_slice / f, dtype=float)
+  h_index_raw: float = np.mean(f_slice / f, dtype=float)
   # normalize: random state = 0, convergence state = 1
   eps = rec.metadata['Tolerance']
   clip_factor: float = eps - (eps ** 2) / 8
   h_index = (h_index_raw - clip_factor) / (1 - clip_factor)
-  h_index[h_index < 0] = 0
+  if h_index < 0:
+    return 0
   return h_index
 
 
@@ -179,10 +180,10 @@ def get_indices(scenario_record: RawSimulationRecord):
       g_distance, g_homophily,
   )
 
-  x_indices = x_indices_raw.tolist()
-  h_index = y_homo.tolist()
-  p_index = y_dist[:, 2].tolist()  # d-worst-o
-  g_index = y_dist[:, 3].tolist()  # d-worst-s
+  x_indices = x_indices_raw
+  h_index = y_homo
+  p_index = y_dist[:, 2]  # d-worst-o
+  g_index = y_dist[:, 3]  # d-worst-s
 
   return x_indices, h_index, p_index, g_index
 

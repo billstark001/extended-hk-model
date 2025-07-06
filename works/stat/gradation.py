@@ -132,6 +132,6 @@ if __name__ == '__main__':
     scenario_base_path,
     stats_db_path,
     cfg.SIMULATION_INSTANCE_NAME,
-    cfg.all_scenarios_eps,
+    cfg.all_scenarios_grad,
   )
   
