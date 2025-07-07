@@ -52,7 +52,7 @@ func SerializeGraph(g *simple.DirectedGraph) *NetworkXGraph {
 		}
 	}
 
-	// 添加图的元数据
+	// add graph metadata
 	nxGraph.Graph["name"] = "Generated from Gonum DirectedGraph"
 
 	return nxGraph

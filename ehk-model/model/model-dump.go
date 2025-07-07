@@ -43,9 +43,9 @@ func (d *HKModelDumpData) Load(
 	)
 
 	// recover agent numbers and opinion sums
-	for i, agent := range model.Schedule.Agents {
-		agent.AgentNumber = d.AgentNumbers[i]
-		agent.OpinionSum = d.AgentOpinionSums[i]
+	for _, agent := range model.Schedule.Agents {
+		agent.AgentNumber = d.AgentNumbers[int(agent.ID)]
+		agent.OpinionSum = d.AgentOpinionSums[int(agent.ID)]
 	}
 
 	// recover step

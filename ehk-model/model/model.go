@@ -108,7 +108,7 @@ func NewHKModel(
 
 		var opinion *float64
 		if i < len(opinionsVal) {
-			i2 := opinionsVal[int64(i)]
+			i2 := opinionsVal[nodeID]
 			opinion = &i2
 		}
 
