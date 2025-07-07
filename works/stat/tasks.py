@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 
 from utils.peewee import sync_peewee_table
-from works.config import GoMetadataDict
+from works.config import GoMetadataDict, STAT_THREAD_COUNT
 from works.stat.types import ScenarioStatistics, stats_from_dict
 import multiprocessing.util
 
@@ -75,7 +75,7 @@ def generate_stats(
 ):
 
   logger = multiprocessing.util.log_to_stderr()
-  logger.setLevel('INFO')  # 可选: DEBUG/INFO/WARNING/ERROR
+  logger.setLevel('INFO')
 
   stats_db = peewee.SqliteDatabase(stats_db_path)
   stats_db.connect()
@@ -90,7 +90,7 @@ def generate_stats(
   )
 
   with ProcessPoolExecutor(
-      max_workers=6,
+      max_workers=STAT_THREAD_COUNT,
       # max_tasks_per_child=32,
   ) as executor:
     try:

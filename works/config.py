@@ -118,7 +118,7 @@ for i_sim in range(n_sims_rep):
         max_sim_step=20000,
     )
     all_scenarios_rep.append(x)
-  
+
 
 # assign paths
 dotenv.load_dotenv()
@@ -136,17 +136,23 @@ def normalize_path(p: str):
   return p
 
 
+def normalize_int(p: str | None, default: int = 0):
+  if not p:
+    return default
+  try:
+    return int(p.strip())
+  except ValueError:
+    pass  # do nothing
+  return default
+
+
 GO_SIMULATOR_PATH = normalize_path('./ehk-model/main')
 SIMULATION_RESULT_DIR = normalize_path(os.environ["SIMULATION_RESULT_DIR"])
-SIMULATION_TEMP_FILE = os.path.join(
-    SIMULATION_RESULT_DIR,
-    os.environ['SIMULATION_TEMP_FILE_NAME']
-)
 
 SIMULATION_PLOT_DIR = normalize_path(os.environ['SIMULATION_PLOT_DIR'])
 
 SIMULATION_INSTANCE_NAME = os.environ['SIMULATION_INSTANCE_NAME']
 assert SIMULATION_INSTANCE_NAME is not None and SIMULATION_INSTANCE_NAME != '', 'SIMULATION_INSTANCE_NAME not defined'
 
-if __name__ == '__main__':
-  print(f'Simulation Instance: {SIMULATION_INSTANCE_NAME}')
+STAT_THREAD_COUNT = max(normalize_int(
+    os.environ.get('STAT_THREAD_COUNT', None), 6), 1)
