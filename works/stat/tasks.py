@@ -4,11 +4,10 @@ import json
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed, Future
 
-import peewee
 from tqdm import tqdm
 
 
-from utils.peewee import sync_peewee_table
+from utils.sqlalchemy import create_db_engine_and_session, create_db_session, sync_sqlite_table
 from works.config import GoMetadataDict, STAT_THREAD_COUNT
 from works.stat.types import ScenarioStatistics, stats_from_dict
 import multiprocessing.util
@@ -29,7 +28,7 @@ def try_get_stats(name: str, origin: str) -> ScenarioStatistics | None:
 
 
 StatisticsGetterFunc: TypeAlias = Callable[
-    [GoMetadataDict, str, str],
+    [GoMetadataDict, str, str, ScenarioStatistics | None],
     ScenarioStatistics | None,
 ]
 
@@ -41,11 +40,7 @@ def migrate_from_dict(
     scenarios: List[GoMetadataDict]
 ):
 
-  stats_db = peewee.SqliteDatabase(stats_db_path)
-  stats_db.connect()
-
-  ScenarioStatistics._meta.database = stats_db
-  stats_db.create_tables([ScenarioStatistics])
+  stats_session = create_db_session(stats_db_path, ScenarioStatistics.Base)
 
   # json
   with open(stats_path, "r", encoding="utf-8") as f:
@@ -61,7 +56,8 @@ def migrate_from_dict(
 
     try:
       obj = stats_from_dict(sm, stat, origin)
-      obj.save()
+      stats_session.add(obj)
+      stats_session.commit()
     except Exception as e:
       print(e)
 
@@ -72,19 +68,19 @@ def generate_stats(
     stats_db_path: str,
     origin: str,
     scenarios: List[GoMetadataDict],
+    ignore_exist: bool = True,
 ):
 
   logger = multiprocessing.util.log_to_stderr()
   logger.setLevel('INFO')
 
-  stats_db = peewee.SqliteDatabase(stats_db_path)
-  stats_db.connect()
+  stats_engine, stats_session = create_db_engine_and_session(
+      stats_db_path,
+      ScenarioStatistics.Base,
+  )
 
-  ScenarioStatistics._meta.database = stats_db
-  stats_db.create_tables([ScenarioStatistics])
-
-  sync_peewee_table(
-      stats_db,
+  sync_sqlite_table(
+      stats_engine,
       ScenarioStatistics,
       extra_columns='error',
   )
@@ -98,10 +94,10 @@ def generate_stats(
       futures: Dict[Future[ScenarioStatistics | None], str] = {}
       for s in tqdm(scenarios):
         exist_stats = try_get_stats(s['UniqueName'], origin)
-        if exist_stats is not None:
-          # TODO add this to func
+        if ignore_exist and exist_stats is not None:
           continue
-        f = executor.submit(get_statistics, s, scenario_base_path, origin)
+        # else, upsert
+        f = executor.submit(get_statistics, s, scenario_base_path, origin, exist_stats)
         futures[f] = s['UniqueName']
 
       n = len(futures)
@@ -113,7 +109,8 @@ def generate_stats(
         try:
           res = f.result()
           if res is not None:
-            res.save()
+            stats_session.merge(res) # this upserts the record
+            stats_session.commit()
         except KeyboardInterrupt:
           print("KeyboardInterrupt: shutting down executor")
           executor.shutdown(wait=False, cancel_futures=True)

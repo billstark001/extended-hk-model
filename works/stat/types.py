@@ -1,97 +1,117 @@
-# type: ignore
-
-from typing import Type, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import numpy as np
-import peewee
+from sqlalchemy import (
+    Integer, Float, String, Text
+)
+from sqlalchemy.orm import declarative_base, Mapped, mapped_column
+from typing import Optional
 
-from utils.peewee import NumpyArrayField, nullable
-
-
-@nullable(exclude=[
-    'name', 'origin',
-    'tolerance', 'decay', 'rewiring', 'retweet',
-    'recsys_type', 'tweet_retain_count',
-])
-class ScenarioStatistics(peewee.Model):
-  DoesNotExist: Type[peewee.DoesNotExist]
-
-  class Meta:
-    database: peewee.Database
-  _meta: Type[Meta]
-
-  # model metadata
-  name: str = peewee.CharField(max_length=255, index=True)
-  origin: str = peewee.CharField(max_length=255, index=True)
-
-  tolerance: float = peewee.DoubleField(index=True)  # epsilon
-  decay: float = peewee.DoubleField(index=True)  # alpha
-  rewiring: float = peewee.DoubleField(index=True)  # q
-  retweet: float = peewee.DoubleField(index=True)  # p
-  recsys_type: str = peewee.CharField(max_length=255, index=True)
-  tweet_retain_count: float = peewee.DoubleField(index=True)
-
-  # simulation result
-  step: int = peewee.IntegerField()
-  active_step: int = peewee.IntegerField()
-  active_step_threshold: float = peewee.DoubleField()
-
-  g_index_mean_active: float = peewee.DoubleField()
-
-  x_indices: np.ndarray = NumpyArrayField(dtype=np.int32)
-  h_index: np.ndarray = NumpyArrayField(dtype=np.float64)  # hom index
-  p_index: np.ndarray = NumpyArrayField(dtype=np.float64)  # pol index
-  g_index: np.ndarray = NumpyArrayField(dtype=np.float64)  # env index
-
-  grad_index: float = peewee.DoubleField()
-  event_count: int = peewee.IntegerField()
-  event_step_mean: float = peewee.DoubleField()
-  triads: int = peewee.IntegerField()
-
-  x_bc_hom: np.ndarray = NumpyArrayField(dtype=np.int32)
-  bc_hom_smpl: np.ndarray = NumpyArrayField(dtype=np.float64)
-
-  x_mean_vars: np.ndarray = NumpyArrayField(dtype=np.int32)
-  mean_vars_smpl: np.ndarray = NumpyArrayField(dtype=np.float64)
-
-  opinion_diff: float = peewee.DoubleField()
-
-  x_opinion_diff_mean: np.ndarray = NumpyArrayField(dtype=np.int32)
-  opinion_diff_mean_smpl: np.ndarray = NumpyArrayField(dtype=np.float64)
-
-  last_community_count: int = peewee.IntegerField()
-  last_community_sizes: str = peewee.TextField()
-
-  last_opinion_peak_count: int = peewee.IntegerField()
-  
-  p_backdrop: float = peewee.DoubleField()
-  h_backdrop: float = peewee.DoubleField()
-  g_backdrop: float = peewee.DoubleField()
-
+from utils.sqlalchemy import NumpyArrayType
 
 if TYPE_CHECKING:
   from works.config import GoMetadataDict
+
+Base = declarative_base()
+
+
+exclude = [
+    'name', 'origin',
+    'tolerance', 'decay', 'rewiring', 'retweet',
+    'recsys_type', 'tweet_retain_count',
+]
+
+
+class ScenarioStatistics(Base):
+  __tablename__ = 'scenariostatistics'
+  
+  Base = Base
+
+  # metadata fields
+  id: Mapped[int] = mapped_column(
+      Integer, primary_key=True, autoincrement=True)
+  name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+  origin: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+
+  tolerance: Mapped[float] = mapped_column(Float, index=True, nullable=False)
+  decay: Mapped[float] = mapped_column(Float, index=True, nullable=False)
+  rewiring: Mapped[float] = mapped_column(Float, index=True, nullable=False)
+  retweet: Mapped[float] = mapped_column(Float, index=True, nullable=False)
+  recsys_type: Mapped[str] = mapped_column(
+      String(255), index=True, nullable=False)
+  tweet_retain_count: Mapped[float] = mapped_column(
+      Float, index=True, nullable=False)
+
+  # simulation result fields
+  step: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+  active_step: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+  active_step_threshold: Mapped[Optional[float]
+                                ] = mapped_column(Float, nullable=True)
+
+  g_index_mean_active: Mapped[Optional[float]
+                              ] = mapped_column(Float, nullable=True)
+
+  x_indices: Mapped[Optional[np.ndarray]] = mapped_column(
+      NumpyArrayType(dtype=np.int32), nullable=True)
+  h_index: Mapped[Optional[np.ndarray]] = mapped_column(
+      NumpyArrayType(dtype=np.float64), nullable=True)
+  p_index: Mapped[Optional[np.ndarray]] = mapped_column(
+      NumpyArrayType(dtype=np.float64), nullable=True)
+  g_index: Mapped[Optional[np.ndarray]] = mapped_column(
+      NumpyArrayType(dtype=np.float64), nullable=True)
+
+  grad_index: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+  event_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+  event_step_mean: Mapped[Optional[float]
+                          ] = mapped_column(Float, nullable=True)
+  triads: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+  x_bc_hom: Mapped[Optional[np.ndarray]] = mapped_column(
+      NumpyArrayType(dtype=np.int32), nullable=True)
+  bc_hom_smpl: Mapped[Optional[np.ndarray]] = mapped_column(
+      NumpyArrayType(dtype=np.float64), nullable=True)
+
+  x_mean_vars: Mapped[Optional[np.ndarray]] = mapped_column(
+      NumpyArrayType(dtype=np.int32), nullable=True)
+  mean_vars_smpl: Mapped[Optional[np.ndarray]] = mapped_column(
+      NumpyArrayType(dtype=np.float64), nullable=True)
+
+  opinion_diff: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+  x_opinion_diff_mean: Mapped[Optional[np.ndarray]] = mapped_column(
+      NumpyArrayType(dtype=np.int32), nullable=True)
+  opinion_diff_mean_smpl: Mapped[Optional[np.ndarray]] = mapped_column(
+      NumpyArrayType(dtype=np.float64), nullable=True)
+
+  last_community_count: Mapped[Optional[int]
+                               ] = mapped_column(Integer, nullable=True)
+  last_community_sizes: Mapped[Optional[str]
+                               ] = mapped_column(Text, nullable=True)
+
+  last_opinion_peak_count: Mapped[Optional[int]
+                                  ] = mapped_column(Integer, nullable=True)
+
+  p_backdrop: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+  h_backdrop: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+  g_backdrop: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+# 4. stats_from_dict 函数重写
 
 
 def stats_from_dict(
     scenario_metadata: 'GoMetadataDict',
     stats_dict: dict,
     origin: str,
-):
-
-  _d: dict = {}
+) -> ScenarioStatistics:
+  _d = {}
   for k, v in stats_dict.items():
-    if k in [
-        'name', 'origin',
-        'tolerance', 'decay', 'rewiring', 'retweet',
-        'recsys_type', 'tweet_retain_count',
-    ]:
+    if k in exclude:
       continue
     if hasattr(ScenarioStatistics, k):
       _d[k] = v
 
   scenario_name = scenario_metadata['UniqueName']
-  pat_stats = ScenarioStatistics(
+  instance = ScenarioStatistics(
       name=scenario_name,
       origin=origin,
 
@@ -104,4 +124,4 @@ def stats_from_dict(
 
       **_d,
   )
-  return pat_stats
+  return instance

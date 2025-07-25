@@ -1,6 +1,5 @@
 numpy
 networkx
-mesa
 matplotlib
 seaborn
 tqdm
@@ -10,3 +9,4 @@ msgpack
 lz4
 igraph
 leidenalg
+sqlalchemy

@@ -1,36 +1,29 @@
 from typing import List
-
-import os
 import sys
 
-
-import peewee
-
-
-from works.stat.types import ScenarioStatistics, stats_from_dict
-import works.config as cfg
-
+from utils.sqlalchemy import create_db_session
+from works.stat.types import ScenarioStatistics
 
 if __name__ == "__main__":
-
   stats_db_path = sys.argv[1]
   flawed_path = sys.argv[2]
 
-  stats_db = peewee.SqliteDatabase(stats_db_path)
-  stats_db.connect()
+  # SQLite数据库连接
+  session = create_db_session(stats_db_path)
 
-  ScenarioStatistics._meta.database = stats_db
-
+  # 读取flawed name列表
   with open(flawed_path, 'r', encoding="utf-8") as f:
     flawed_name_list = [x.strip() for x in f.readlines()]
 
   for flawed_name in flawed_name_list:
     print(flawed_name)
-    ret: List[ScenarioStatistics] = ScenarioStatistics.select().where(
-        ScenarioStatistics.name.contains(flawed_name),  # type: ignore
-    )
+    # 使用like实现contains效果，%%用于转义%字符
+    ret: List[ScenarioStatistics] = session.query(ScenarioStatistics).filter(
+        ScenarioStatistics.name.like(f"%{flawed_name}%")
+    ).all()
     for s in ret:
-      s.delete_instance()
+      session.delete(s)
       print('Deleted:', s.name)
+    session.commit()  # 每个flawed_name都commit一次，或移到循环外批量commit
 
-  stats_db.close()
+  session.close()

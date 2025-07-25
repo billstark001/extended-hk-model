@@ -5,18 +5,16 @@ import copy
 import random
 
 import numpy as np
-import peewee
+from sqlalchemy.orm import Session
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
-from matplotlib.figure import Figure
 
 from utils.plot import plt_figure, get_colormap
-from utils.peewee import sync_peewee_table
+from utils.sqlalchemy import create_db_session
 import works.config as cfg
 from works.stat.types import ScenarioStatistics
-from matplotlib.colors import LinearSegmentedColormap, Normalize
-from scipy import interpolate, integrate
+from matplotlib.colors import LinearSegmentedColormap
 
 
 T = TypeVar("T")
@@ -52,11 +50,12 @@ for i, rw in enumerate(cfg.rewiring_rate_array):
   bc_inst_orig.append(lst)
 
 def create_heatmap_evaluator_raw(
+  session: Session,
   rs_name: str,
   retweet_rate: float,
 ):
   rs_key, rs_retain = cfg.rs_names[rs_name]
-  full_data_selector: Iterable[ScenarioStatistics] = ScenarioStatistics.select().where(
+  full_data_selector: Iterable[ScenarioStatistics] = session.query(ScenarioStatistics).filter(
     ScenarioStatistics.last_opinion_peak_count == 1,
     ScenarioStatistics.name.startswith('s_grad'),
     ScenarioStatistics.recsys_type == rs_key,
@@ -89,15 +88,24 @@ def create_heatmap_evaluator_raw(
 
 _heatmap_dict = {}
 def create_heatmap_evaluator(
+  session: Session,
   rs_name: str,
   retweet_rate: float,
 ):
-  key = (rs_name, retweet_rate)
+  key = (id(session), rs_name, retweet_rate)
   if key in _heatmap_dict:
     return _heatmap_dict[key]
-  val = create_heatmap_evaluator_raw(*key)
+  val = create_heatmap_evaluator_raw(session, rs_name, retweet_rate)
   _heatmap_dict[key] = val
   return val
+
+
+
+_session: Session | None = None
+def get_session() -> Session:
+  global _session
+  assert _session is not None, "Session is not initialized"
+  return _session
 
 
 def heatmap_diff(
@@ -126,7 +134,7 @@ def heatmap_diff(
         title = f'{rs} / {tw}'
         axis.set_title(title, loc='left')
       
-      eval_func = create_heatmap_evaluator(rs, tw)
+      eval_func = create_heatmap_evaluator(get_session(), rs, tw)
       heatmap = np.array(eval_func(
         f_ext, f_sum,
       ))
@@ -192,7 +200,7 @@ def curve_diff(
         title = f'{rs} / {tw}'
         axis.set_title(title, loc='left')
       
-      eval_func = create_heatmap_evaluator(rs, tw)
+      eval_func = create_heatmap_evaluator(get_session(), rs, tw)
       heatmap = eval_func(
         f_ext,
         lambda x: x,
@@ -264,7 +272,7 @@ def scatter_diff(
         title = f'{rs} / {tw}'
         axis.set_title(title, loc='left')
       
-      eval_func = create_heatmap_evaluator(rs, tw)
+      eval_func = create_heatmap_evaluator(get_session(), rs, tw)
       heatmap = eval_func(
         f_ext,
         lambda x: np.array(x).T,
@@ -328,7 +336,7 @@ def plot_diff(
         title = f'{rs} / {tw}'
         axis.set_title(title, loc='left')
       
-      eval_func = create_heatmap_evaluator(rs, tw)
+      eval_func = create_heatmap_evaluator(get_session(), rs, tw)
       heatmap = eval_func(
         f_ext,
         lambda x: np.array(x).T,
@@ -375,12 +383,10 @@ def piecewise_linear_integral_trapz(x: np.ndarray, y: np.ndarray, a: float, b: f
   return np.trapz(y_new, x_new)
 
 if __name__ == '__main__':
+  
+  # TODO type check
 
-  stats_db = peewee.SqliteDatabase(stats_db_path)
-  stats_db.connect()
-
-  ScenarioStatistics._meta.database = stats_db
-  stats_db.create_tables([ScenarioStatistics])
+  stats_session = create_db_session(stats_db_path, ScenarioStatistics.Base)
   
   base_stats = True
   micro_stats = False

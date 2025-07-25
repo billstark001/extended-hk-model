@@ -15,6 +15,7 @@ def get_statistics(
     scenario_metadata: 'cfg.GoMetadataDict',
     scenario_base_path: str,
     origin: str,
+    exist_stats: ScenarioStatistics | None,
     active_threshold=0.98,
     min_inactive_value=0.75,
 ):
@@ -36,6 +37,8 @@ def get_statistics(
       active_threshold=active_threshold,
       min_inactive_value=min_inactive_value,
   )
+  
+  # TODO push all exist states if needed
 
   event_step_mean = np.mean(c.event_step)
 
@@ -44,6 +47,7 @@ def get_statistics(
     bc_hom_last = None
 
   pat_stats = ScenarioStatistics(
+      id=exist_stats.id if exist_stats else None,
       name=scenario_name,
       origin=origin,
 
