@@ -1,2 +1,0 @@
-from ehk_model_old.env.random import RandomNetworkProvider
-from ehk_model_old.env.scale_free import ScaleFreeNetworkProvider
