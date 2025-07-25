@@ -8,7 +8,7 @@ import works.config as cfg
 from works.stat.context import c
 from works.stat.types import ScenarioStatistics
 
-from works.stat.tasks import generate_stats
+from works.stat.tasks import generate_stats, merge_stats_to_context
 
 
 def get_statistics(
@@ -26,56 +26,69 @@ def get_statistics(
       scenario_base_path,
       scenario_metadata,
   )
-  scenario_record.load()
-  if not scenario_record.is_finished:
-    return None
 
-  assert scenario_record.is_sanitized, 'non-sanitized scenario'
+  with scenario_record:
 
-  c.set_state(
-      scenario_record=scenario_record,
-      active_threshold=active_threshold,
-      min_inactive_value=min_inactive_value,
-  )
-  event_step_mean = np.mean(c.event_step)
+    if not scenario_record.is_finished:
+      return None
 
-  pat_stats = ScenarioStatistics(
-      id=exist_stats.id if exist_stats else None,
-      name=scenario_name,
-      origin=origin,
+    assert scenario_record.is_sanitized, 'non-sanitized scenario'
 
-      tolerance=scenario_metadata['Tolerance'],
-      decay=scenario_metadata['Decay'],
-      rewiring=scenario_metadata['RewiringRate'],
-      retweet=scenario_metadata['RetweetRate'],
-      recsys_type=scenario_metadata['RecsysFactoryType'],
-      tweet_retain_count=scenario_metadata['TweetRetainCount'],
+    c.set_state(
+        scenario_record=scenario_record,
+        active_threshold=active_threshold,
+        min_inactive_value=min_inactive_value,
+    )
 
-      step=c.total_steps,
-      active_step=c.active_step,
-      active_step_threshold=c.active_step_threshold,
-      g_index_mean_active=c.g_index_mean_active,
+    merge_stats_to_context(
+        exist_stats, c,
+        {
+            'total_steps': 'step',
+            'gradation_index_hp': 'grad_index',
+            'n_triads': 'triads',
+        },
+        exclude_names=['id', 'name', 'origin'],
+    )
 
-      x_indices=c.x_indices,
-      h_index=c.h_index,  # hom index
-      p_index=c.p_index,  # pol index
-      g_index=c.g_index,  # env index
+    event_step_mean = np.mean(c.event_step)
 
-      grad_index=c.gradation_index_hp,
-      event_count=c.event_step.size,
-      event_step_mean=event_step_mean,
-      triads=c.n_triads,
+    pat_stats = ScenarioStatistics(
+        id=exist_stats.id if exist_stats else None,
+        name=scenario_name,
+        origin=origin,
 
-      x_mean_vars=c.x_mean_vars,
-      mean_vars_smpl=c.mean_vars_smpl,
+        tolerance=scenario_metadata['Tolerance'],
+        decay=scenario_metadata['Decay'],
+        rewiring=scenario_metadata['RewiringRate'],
+        retweet=scenario_metadata['RetweetRate'],
+        recsys_type=scenario_metadata['RecsysFactoryType'],
+        tweet_retain_count=scenario_metadata['TweetRetainCount'],
 
-      last_community_count=c.last_community_count,
-      last_community_sizes=c.last_community_sizes,
+        step=c.total_steps,
+        active_step=c.active_step,
+        active_step_threshold=c.active_step_threshold,
+        g_index_mean_active=c.g_index_mean_active,
 
-      last_opinion_peak_count=c.last_opinion_peak_count,
-  )
+        x_indices=c.x_indices,
+        h_index=c.h_index,  # hom index
+        p_index=c.p_index,  # pol index
+        g_index=c.g_index,  # env index
 
-  return pat_stats
+        grad_index=c.gradation_index_hp,
+        event_count=c.event_step.size,
+        event_step_mean=event_step_mean,
+        triads=c.n_triads,
+
+        x_mean_vars=c.x_mean_vars,
+        mean_vars_smpl=c.mean_vars_smpl,
+
+        last_community_count=c.last_community_count,
+        last_community_sizes=c.last_community_sizes,
+
+        last_opinion_peak_count=c.last_opinion_peak_count,
+    )
+
+    return pat_stats
 
 
 # parameters

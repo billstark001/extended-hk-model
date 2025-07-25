@@ -19,25 +19,30 @@ key = 's_grad_sim9_rw7_dc0_rt1_op6'
 rc1 = [x for x in cfg.all_scenarios_grad if x['UniqueName'] == key][0]
 
 rec = RawSimulationRecord(
-  cfg.get_workspace_dir(), rc1,
+    cfg.get_workspace_dir(), rc1,
 )
 
-rec.load()
 
-c.set_state(
-    active_threshold=0.98,
-    min_inactive_value=0.75,
-    scenario_record=rec,
-)
+with rec:
 
-g = rec.get_graph(rec.max_step)
-opinion_last: np.ndarray = c.opinion_last
+  c.set_state(
+      active_threshold=0.98,
+      min_inactive_value=0.75,
+      scenario_record=rec,
+  )
 
-plot_network_snapshot(None, opinion_last, g)
-plt.show()
+  g = rec.get_graph(rec.max_step)
+  opinion_last: np.ndarray = c.opinion_last
 
-ls = np.linspace(0, 2, 1001)
+  plot_network_snapshot(None, opinion_last, g)
+  plt.show()
 
-o_slice_mat = np.tile(opinion_last.reshape((opinion_last.size, 1)), opinion_last.size)
-kde2 = get_kde_pdf(np.abs(o_slice_mat - o_slice_mat.T)[np.triu_indices(500, k=1)], 0.05, 0, 2)
-plt.plot(ls, kde2(ls))
+  ls = np.linspace(0, 2, 1001)
+
+  o_slice_mat = np.tile(opinion_last.reshape(
+      (opinion_last.size, 1)), opinion_last.size)
+  kde2 = get_kde_pdf(
+      np.abs(o_slice_mat - o_slice_mat.T)
+      [np.triu_indices(500, k=1)], 0.05, 0, 2
+  )
+  plt.plot(ls, kde2(ls))

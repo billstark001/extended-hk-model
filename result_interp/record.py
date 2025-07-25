@@ -39,18 +39,18 @@ class RawSimulationRecord:
     self.acc_state_path = os.path.join(full_path, acc_state_list[-1])
     self.graph_paths = {}
     for graph_name in graph_list:
-      step_index = int(re_graph.match(graph_name).group(1)) # type: ignore
+      step_index = int(re_graph.match(graph_name).group(1))  # type: ignore
       self.graph_paths[step_index] = os.path.join(full_path, graph_name)
 
     self.max_step: int = 0
-    self.metadata: 'GoMetadataDict' = dict(**metadata) # type: ignore
+    self.metadata: 'GoMetadataDict' = dict(**metadata)  # type: ignore
 
   def load(self):
     acc_state = load_accumulative_model_state(self.acc_state_path)
     events_db = load_events_db(self.events_db_path)
     graphs: Dict[int, nx.DiGraph] = {}
     for graph_name, graph_path in self.graph_paths.items():
-      graphs[graph_name] = load_gonum_graph_dump(graph_path) # type: ignore
+      graphs[graph_name] = load_gonum_graph_dump(graph_path)  # type: ignore
 
     self.acc_state = acc_state
     self.events_db = events_db
@@ -78,6 +78,13 @@ class RawSimulationRecord:
     self.graph_steps.extend(self.graphs_stored.keys())
     self.graph_steps.sort()
 
+  def __enter__(self):
+    self.load()
+    return self
+
+  def __exit__(self, exc_type, exc_value, traceback):
+    self.dispose()
+
   def get_graph(self, step: int):
     # the step is invalid
     if step > self.max_step or step < 0:
@@ -101,7 +108,7 @@ class RawSimulationRecord:
         self.graphs_stored[nearest_available_step]
         if nearest_available_step in self.graphs_stored else
         self.graphs[nearest_available_step]
-    ).copy() # type: ignore
+    ).copy()  # type: ignore
 
     # get events
     # since we want all events till the step ends, so step + 1
@@ -128,5 +135,5 @@ class RawSimulationRecord:
     self.graphs[step] = nearest_available_graph
     self.graph_steps.append(step)
     self.graph_steps.sort()
-    
+
     return nearest_available_graph

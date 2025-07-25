@@ -67,6 +67,9 @@ class Context:
 
     return G, state_vars, cycles
 
+  def get_state_names(self) -> List[str]:
+    return list(self.selectors.keys()) + list(self.multi_selectors.keys())
+
   def clone(self, state=False):
     c = Context(self.ignore_prefix)
     c.selectors = dict(**self.selectors)

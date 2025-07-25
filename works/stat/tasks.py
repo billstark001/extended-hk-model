@@ -7,10 +7,35 @@ from concurrent.futures import ProcessPoolExecutor, as_completed, Future
 from tqdm import tqdm
 
 
+from utils.context import Context
 from utils.sqlalchemy import create_db_engine_and_session, create_db_session, sync_sqlite_table
 from works.config import GoMetadataDict, STAT_THREAD_COUNT
 from works.stat.types import ScenarioStatistics, stats_from_dict
 import multiprocessing.util
+
+
+def merge_stats_to_context(
+    stats: ScenarioStatistics | None,
+    ctx: Context,
+    ctx_name_to_stat_name: dict[str, str] | None = None,
+    include_names: list[str] | None = None,
+    exclude_names: list[str] | None = None,
+):
+  if stats is None:
+    return
+
+  sel_names = set(include_names if include_names else ctx.get_state_names())
+  if exclude_names:
+    sel_names = sel_names - set(exclude_names)
+
+  state_dict = {}
+  for sel_name in sel_names:
+    stat_name = ctx_name_to_stat_name[sel_name] if ctx_name_to_stat_name else sel_name
+    if hasattr(stats, stat_name):
+      value = getattr(stats, stat_name)
+      if value is not None:
+        state_dict[sel_name] = value
+  ctx.set_state(**state_dict)
 
 
 short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
@@ -97,7 +122,8 @@ def generate_stats(
         if ignore_exist and exist_stats is not None:
           continue
         # else, upsert
-        f = executor.submit(get_statistics, s, scenario_base_path, origin, exist_stats)
+        f = executor.submit(
+            get_statistics, s, scenario_base_path, origin, exist_stats)
         futures[f] = s['UniqueName']
 
       n = len(futures)
@@ -109,7 +135,7 @@ def generate_stats(
         try:
           res = f.result()
           if res is not None:
-            stats_session.merge(res) # this upserts the record
+            stats_session.merge(res)  # this upserts the record
             stats_session.commit()
         except KeyboardInterrupt:
           print("KeyboardInterrupt: shutting down executor")

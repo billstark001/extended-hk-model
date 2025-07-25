@@ -1,13 +1,15 @@
-
+from typing import Dict, Tuple
 
 from numpy.typing import NDArray
+
+from collections import defaultdict
 
 import numpy as np
 from scipy.stats import skew, kurtosis
 from scipy.signal import find_peaks
 import networkx as nx
 
-from result_interp.parse_events_db import get_events_by_step_range
+from result_interp.parse_events_db import TweetEventBody, get_events_by_step_range
 from result_interp.record import RawSimulationRecord
 from stats.distance_c import DistanceCollectorContinuous, get_kde_pdf
 from utils.context import Context
@@ -100,7 +102,13 @@ def get_bc_hom(G: nx.DiGraph, opinion: NDArray):
 
 
 @c.selector
-def get_rewiring_events(
+def get_total_steps(scenario_record: RawSimulationRecord):
+  return scenario_record.max_step
+
+# region events
+
+@c.selector
+def get_rewiring_event_stats(
     scenario_record: RawSimulationRecord
 ):
   rewiring_events = get_events_by_step_range(
@@ -112,10 +120,43 @@ def get_rewiring_events(
   # TODO add other statistics when necessary
   return event_step
 
-
 @c.selector
-def get_total_steps(scenario_record: RawSimulationRecord):
-  return scenario_record.max_step
+def get_retweeted_tweets_lifecycle_raw_stats(
+    scenario_record: RawSimulationRecord,
+):
+  retweeted_tweets = get_events_by_step_range(
+      scenario_record.events_db,
+      0, scenario_record.max_step + 1,
+      "Tweet",
+  )
+  tweet_occurrence_steps = defaultdict(list)
+  tweet_opinions: Dict[Tuple[int, int], float] = {}
+  
+  for tweet in retweeted_tweets:
+    tweet_body: TweetEventBody | None = tweet.body
+    assert tweet_body is not None and tweet_body.is_retweet, 'Corrupted data!'
+    # this is the key
+    tweet_pair = tweet_body.record.agent_id, tweet_body.record.step
+    # add stats
+    tweet_occurrence_steps[tweet_pair].append(tweet.step)
+    tweet_opinions[tweet_pair] = tweet_body.record.opinion
+  
+  # calculate life span
+  lifespans = []
+  opinions = []
+  for tweet_pair, steps in tweet_occurrence_steps.items():
+    # here, steps must not be empty
+    init_step = tweet_pair[1]
+    last_step = max(steps)
+    lifespans.append([init_step, last_step])
+    opinions.append(tweet_opinions[tweet_pair])
+  
+  retweeted_lifespans = np.array(lifespans, dtype=int)
+  retweeted_opinions = np.array(opinions, dtype=float)
+  
+  return retweeted_lifespans, retweeted_opinions
+
+# endregion
 
 # region indices
 

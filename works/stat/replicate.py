@@ -26,54 +26,55 @@ def get_statistics(
       scenario_base_path,
       scenario_metadata,
   )
-  scenario_record.load()
-  if not scenario_record.is_finished:
-    return None
+  with scenario_record:
 
-  assert scenario_record.is_sanitized, 'non-sanitized scenario'
+    if not scenario_record.is_finished:
+      return None
 
-  c.set_state(
-      scenario_record=scenario_record,
-      active_threshold=active_threshold,
-      min_inactive_value=min_inactive_value,
-  )
-  event_step_mean = np.mean(c.event_step)
+    assert scenario_record.is_sanitized, 'non-sanitized scenario'
 
-  pat_stats = ScenarioStatistics(
-      id=exist_stats.id if exist_stats else None,
-      name=scenario_name,
-      origin=origin,
+    c.set_state(
+        scenario_record=scenario_record,
+        active_threshold=active_threshold,
+        min_inactive_value=min_inactive_value,
+    )
+    event_step_mean = np.mean(c.event_step)
 
-      tolerance=scenario_metadata['Tolerance'],
-      decay=scenario_metadata['Decay'],
-      rewiring=scenario_metadata['RewiringRate'],
-      retweet=scenario_metadata['RetweetRate'],
-      recsys_type=scenario_metadata['RecsysFactoryType'],
-      tweet_retain_count=scenario_metadata['TweetRetainCount'],
+    pat_stats = ScenarioStatistics(
+        id=exist_stats.id if exist_stats else None,
+        name=scenario_name,
+        origin=origin,
 
-      step=c.total_steps,
-      active_step=c.active_step,
-      active_step_threshold=c.active_step_threshold,
-      g_index_mean_active=c.g_index_mean_active,
+        tolerance=scenario_metadata['Tolerance'],
+        decay=scenario_metadata['Decay'],
+        rewiring=scenario_metadata['RewiringRate'],
+        retweet=scenario_metadata['RetweetRate'],
+        recsys_type=scenario_metadata['RecsysFactoryType'],
+        tweet_retain_count=scenario_metadata['TweetRetainCount'],
 
-      x_indices=c.x_indices,
-      h_index=c.h_index,  # hom index
-      p_index=c.p_index,  # pol index
-      g_index=c.g_index,  # env index
+        step=c.total_steps,
+        active_step=c.active_step,
+        active_step_threshold=c.active_step_threshold,
+        g_index_mean_active=c.g_index_mean_active,
 
-      grad_index=c.gradation_index_hp,
-      event_count=c.event_step.size,
-      event_step_mean=event_step_mean,
-      triads=c.n_triads,
+        x_indices=c.x_indices,
+        h_index=c.h_index,  # hom index
+        p_index=c.p_index,  # pol index
+        g_index=c.g_index,  # env index
 
-      x_mean_vars=c.x_mean_vars,
-      mean_vars_smpl=c.mean_vars_smpl,
+        grad_index=c.gradation_index_hp,
+        event_count=c.event_step.size,
+        event_step_mean=event_step_mean,
+        triads=c.n_triads,
 
-      last_community_count=c.last_community_count,
-      last_community_sizes=c.last_community_sizes,
-  )
+        x_mean_vars=c.x_mean_vars,
+        mean_vars_smpl=c.mean_vars_smpl,
 
-  return pat_stats
+        last_community_count=c.last_community_count,
+        last_community_sizes=c.last_community_sizes,
+    )
+
+    return pat_stats
 
 
 # parameters
