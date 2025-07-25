@@ -11,14 +11,16 @@ from matplotlib.figure import Figure
 
 
 def plot_network_snapshot(
-    pos: Mapping,
+    pos: Mapping | None,
     opinion: NDArray,
     G: nx.Graph,
     ax: Optional[Axes] = None,
     step: int = 0,
     cmap: str = 'coolwarm'
 ):
-  norm = mpl.colors.Normalize(vmin=-1, vmax=1)
+  if pos is None:
+      pos = nx.spring_layout(G, pos=pos)
+  norm = mpl.colors.Normalize(vmin=-1, vmax=1) # type: ignore
   sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
   sm.set_array([])
 
@@ -29,7 +31,7 @@ def plot_network_snapshot(
     ax.spines['right'].set_visible(False)
 
   nx.draw_networkx_nodes(
-      G, ax=ax, pos=pos, node_color=opinion,
+      G, ax=ax, pos=pos, node_color=opinion, # type: ignore
       cmap=cmap, vmin=-1, vmax=1, node_size=40
   )
   nx.draw_networkx_edges(
@@ -38,8 +40,9 @@ def plot_network_snapshot(
 
   if ax is not None:
     ax.set_xlabel(f'step = {step}')
-
-  plt.colorbar(sm, ticks=np.linspace(-1, 1, 5), ax=ax)
+  
+    plt.colorbar(sm, ticks=np.linspace(-1, 1, 5), ax=ax)
+  
   plt.tight_layout()
 
 @overload
@@ -95,7 +98,7 @@ def get_colormap(
     fig: Any = plt,
     **kwargs
 ):
-  norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+  norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax) # type: ignore
   sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
   sm.set_array([])
 

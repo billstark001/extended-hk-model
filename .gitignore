@@ -123,6 +123,7 @@ celerybeat.pid
 .env
 .venv
 .env.*
+sim_ws.json
 
 # Spyder project settings
 .spyderproject

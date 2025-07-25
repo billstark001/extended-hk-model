@@ -1,6 +1,8 @@
 from typing import Dict, List, TypedDict
 
 import os
+import sys
+import json
 
 import dotenv
 import numpy as np
@@ -121,6 +123,9 @@ for i_sim in range(n_sims_rep):
 
 
 # assign paths
+
+# path related
+
 dotenv.load_dotenv()
 
 
@@ -145,14 +150,31 @@ def normalize_int(p: str | None, default: int = 0):
     pass  # do nothing
   return default
 
-
-GO_SIMULATOR_PATH = normalize_path('./ehk-model/main')
-SIMULATION_RESULT_DIR = normalize_path(os.environ["SIMULATION_RESULT_DIR"])
-
-SIMULATION_PLOT_DIR = normalize_path(os.environ['SIMULATION_PLOT_DIR'])
-
-SIMULATION_INSTANCE_NAME = os.environ['SIMULATION_INSTANCE_NAME']
-assert SIMULATION_INSTANCE_NAME is not None and SIMULATION_INSTANCE_NAME != '', 'SIMULATION_INSTANCE_NAME not defined'
-
 STAT_THREAD_COUNT = max(normalize_int(
     os.environ.get('STAT_THREAD_COUNT', None), 6), 1)
+
+GO_SIMULATOR_PATH = normalize_path('./ehk-model/main')
+SIMULATION_WS_PATH = normalize_path(os.environ.get("SIMULATION_WS_PATH", './sim_ws.json'))
+SIMULATION_STAT_DIR = normalize_path(os.environ['SIMULATION_STAT_DIR'])
+
+with open(SIMULATION_WS_PATH, 'r', encoding='utf-8') as f:
+  workspace_def: Dict[str, str] = json.load(f)
+  
+def get_instance_name_raw(name: str | None = None, default: str | None = None) -> str | None:
+  if name is None:
+    name = sys.argv[1] if len(sys.argv) > 1 else None
+  if not name:
+    name = os.environ.get('SIMULATION_INSTANCE_NAME', None) or default
+  return name
+
+def get_instance_name(name: str | None = None, default: str | None = None) -> str:
+  instance_name = get_instance_name_raw(name, default)
+  if not instance_name:
+    raise ValueError(f"Simulation instance name not defined")
+  return instance_name
+
+def get_workspace_dir(name: str | None = None, default: str | None = None) -> str:
+  instance_name = get_instance_name(name, default)
+  if not instance_name or instance_name not in workspace_def:
+    raise ValueError(f"Workspace path for {instance_name or '<empty>'} not defined")
+  return normalize_path(workspace_def[instance_name])

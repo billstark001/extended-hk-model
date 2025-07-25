@@ -7,7 +7,7 @@ from works.stat.tasks import migrate_from_dict
 import works.config as cfg
 
 
-plot_path = cfg.SIMULATION_PLOT_DIR
+plot_path = cfg.SIMULATION_STAT_DIR
 os.makedirs(plot_path, exist_ok=True)
 stats_db_path = os.path.join(plot_path, 'stats.db')
 

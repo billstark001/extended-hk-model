@@ -10,6 +10,7 @@ from works.stat.types import ScenarioStatistics
 
 from works.stat.tasks import generate_stats
 
+
 def get_statistics(
     scenario_metadata: 'cfg.GoMetadataDict',
     scenario_base_path: str,
@@ -79,11 +80,11 @@ def get_statistics(
 
       # x_opinion_diff_mean=c.x_opinion_diff_mean,
       # opinion_diff_mean_smpl=c.opinion_diff_mean_smpl,
-      
-      p_backdrop = c.p_backdrop,
-      h_backdrop = c.h_backdrop,
-      g_backdrop = c.g_backdrop,
-      
+
+      p_backdrop=c.p_backdrop,
+      h_backdrop=c.h_backdrop,
+      g_backdrop=c.g_backdrop,
+
       last_opinion_peak_count=c.last_opinion_peak_count,
 
   )
@@ -93,8 +94,8 @@ def get_statistics(
 
 # parameters
 
-scenario_base_path = cfg.SIMULATION_RESULT_DIR
-plot_path = cfg.SIMULATION_PLOT_DIR
+scenario_base_path = cfg.get_workspace_dir()
+plot_path = cfg.SIMULATION_STAT_DIR
 
 os.makedirs(scenario_base_path, exist_ok=True)
 os.makedirs(plot_path, exist_ok=True)
@@ -123,15 +124,14 @@ def stats_exist(name: str, origin: str) -> bool:
     return True
   except ScenarioStatistics.DoesNotExist:
     return False
-  
-  
+
+
 if __name__ == '__main__':
-  
+
   generate_stats(
-    get_statistics,
-    scenario_base_path,
-    stats_db_path,
-    cfg.SIMULATION_INSTANCE_NAME,
-    cfg.all_scenarios_grad,
+      get_statistics,
+      scenario_base_path,
+      stats_db_path,
+      cfg.get_instance_name(),
+      cfg.all_scenarios_grad,
   )
-  

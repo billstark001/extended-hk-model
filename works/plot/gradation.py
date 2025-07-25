@@ -25,7 +25,7 @@ T2 = TypeVar("T2")
 
 # parameters
 
-plot_path = cfg.SIMULATION_PLOT_DIR
+plot_path = cfg.SIMULATION_STAT_DIR
 stats_db_path = os.path.join(plot_path, 'stats.db')
 
 rs_keys = list(cfg.rs_names)
@@ -57,6 +57,7 @@ def create_heatmap_evaluator_raw(
 ):
   rs_key, rs_retain = cfg.rs_names[rs_name]
   full_data_selector: Iterable[ScenarioStatistics] = ScenarioStatistics.select().where(
+    ScenarioStatistics.last_opinion_peak_count == 1,
     ScenarioStatistics.name.startswith('s_grad'),
     ScenarioStatistics.recsys_type == rs_key,
     ScenarioStatistics.tweet_retain_count == rs_retain,
@@ -77,7 +78,7 @@ def create_heatmap_evaluator_raw(
     bc_inst_num: List[List[List[T1]]] = []
     for l_rw in bc_inst:
       bc_inst_num.append(
-        [[f_ext(x) for x in y] for y in l_rw]
+        [[xx for xx in (f_ext(x) for x in y) if xx is not None] for y in l_rw]
       )
     bc_inst_avg = [
       [f_sum(y) for y in x] for x in bc_inst_num
@@ -156,7 +157,7 @@ def flatten_list(l: List[List[T1]]) -> List[T1]:
   return [item for sublist in l for item in sublist]
 
 def curve_diff(
-  f_ext: Callable[[ScenarioStatistics], Tuple[float, np.ndarray, np.ndarray]],
+  f_ext: Callable[[ScenarioStatistics], Tuple[float, np.ndarray, np.ndarray] | None],
   x_label = 'x',
   y_label = "y",
   f_0 = 0.,
@@ -198,7 +199,12 @@ def curve_diff(
       )
       for _h in heatmap:
         for __h in _h:
-          for g, x, y in __h:
+          for __h_el in __h:
+            if __h_el is None:
+              continue
+            g, x, y = __h_el
+            if g is None or x is None or y is None:
+              continue
             c_g = cmap((g - f_0) / (f_1 - f_0))
             xyc_groups.append((axis, x, y, c_g))
   
@@ -222,7 +228,7 @@ def curve_diff(
 
 def scatter_diff(
   # c, x, y
-  f_ext: Callable[[ScenarioStatistics], Tuple[float, float, float]],
+  f_ext: Callable[[ScenarioStatistics], Tuple[float, float, float] | None],
   x_label = 'x',
   y_label = "y",
   f_0 = 0.,
@@ -263,7 +269,7 @@ def scatter_diff(
         f_ext,
         lambda x: np.array(x).T,
       )
-      heatmap_cat = np.concatenate(flatten_list(heatmap), axis=1)
+      heatmap_cat = np.concatenate(flatten_list(heatmap), axis=1, dtype=float)
       g, x, y = heatmap_cat
       c_g = cmap((g - f_0) / (f_1 - f_0))
       # xyc_groups.append((axis, x, y, c_g))
@@ -376,8 +382,8 @@ if __name__ == '__main__':
   ScenarioStatistics._meta.database = stats_db
   stats_db.create_tables([ScenarioStatistics])
   
-  base_stats = False
-  micro_stats = True
+  base_stats = True
+  micro_stats = False
   
   if base_stats:
   
@@ -401,6 +407,14 @@ if __name__ == '__main__':
     )
     fig_c_grad_index.show()
     
+    
+    fig_c_homo_index = curve_diff(
+      lambda x: (x.grad_index, x.x_indices / x.active_step, x.h_index),
+      x_label='norm. time',
+      y_label='homo. index',
+    )
+    fig_c_homo_index.show()
+    
     fig_c_env_index = curve_diff(
       lambda x: (x.grad_index, x.x_indices / x.active_step, x.g_index),
       x_label='norm. time',
@@ -421,6 +435,8 @@ if __name__ == '__main__':
     def f_ext_env_index(x: ScenarioStatistics):
       f_init = piecewise_linear_integral_trapz(x.x_indices / x.active_step, x.g_index, 0, 1/3)
       f_final = piecewise_linear_integral_trapz(x.x_indices / x.active_step, x.g_index, 0, 1)
+      if x.grad_index is None:
+        return None
       return x.grad_index, f_init, f_final
       
     fig_s_env_index = scatter_diff(
@@ -435,6 +451,8 @@ if __name__ == '__main__':
     fig_s_env_index.show()
     
     def f_ext_event_count(x: ScenarioStatistics):
+      if x.grad_index is None:
+        return None
       return x.grad_index, np.log10(x.event_count), x.event_step_mean / x.active_step,
       
     fig_s_event_count = scatter_diff(
@@ -450,7 +468,7 @@ if __name__ == '__main__':
     fig_s_event_count.show()
     
     fig_mean_vars = plot_diff(
-      lambda x: (x.grad_index, piecewise_linear_integral_trapz(x.x_mean_vars / x.active_step, x.mean_vars_smpl, 0, 1)),
+      lambda x: (x.grad_index, piecewise_linear_integral_trapz(x.x_mean_vars / x.active_step, x.mean_vars_smpl, 0, 1)) if x.grad_index is not None else None,
       s_y=0.08,
       x_label='grad. index',
       y_label='mean var.',
@@ -458,7 +476,7 @@ if __name__ == '__main__':
     fig_mean_vars.show()
     
     fig_triads = scatter_diff(
-      lambda x: (x.grad_index, x.grad_index, np.log10(x.triads)),
+      lambda x: (x.grad_index, x.grad_index, np.log10(x.triads)) if x.grad_index is not None else None,
       s_y=5,
       s_y_start=3.5,
       x_label='grad. index',

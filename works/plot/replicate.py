@@ -25,7 +25,7 @@ T2 = TypeVar("T2")
 
 # parameters
 
-plot_path = cfg.SIMULATION_PLOT_DIR
+plot_path = cfg.SIMULATION_STAT_DIR
 stats_db_path = os.path.join(plot_path, 'stats.db')
 
 rs_keys = list(cfg.rs_names)

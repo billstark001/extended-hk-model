@@ -14,7 +14,7 @@ dis = DistanceCollectorContinuous(
 )
 
 rec = RawSimulationRecord(
-    c.SIMULATION_RESULT_DIR,
+    c.get_workspace_dir(),
     c.all_scenarios_grad[10]
 )
 rec.load()

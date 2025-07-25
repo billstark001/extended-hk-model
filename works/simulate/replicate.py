@@ -1,8 +1,10 @@
 import os
 
 from utils.stat import init_logger
-from works.config import all_scenarios_rep, SIMULATION_RESULT_DIR
+from works.config import all_scenarios_rep, get_workspace_dir
 from works.simulate.sim_utils import simulate
+
+SIMULATION_RESULT_DIR = get_workspace_dir()
 
 os.makedirs(SIMULATION_RESULT_DIR, exist_ok=True)
 init_logger(None, os.path.join(

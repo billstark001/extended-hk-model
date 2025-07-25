@@ -78,8 +78,8 @@ def get_statistics(
 
 # parameters
 
-scenario_base_path = cfg.SIMULATION_RESULT_DIR
-plot_path = cfg.SIMULATION_PLOT_DIR
+scenario_base_path = cfg.get_workspace_dir()
+plot_path = cfg.SIMULATION_STAT_DIR
 
 os.makedirs(scenario_base_path, exist_ok=True)
 os.makedirs(plot_path, exist_ok=True)
@@ -116,6 +116,6 @@ if __name__ == '__main__':
       get_statistics,
       scenario_base_path,
       stats_db_path,
-      cfg.SIMULATION_INSTANCE_NAME,
+      cfg.get_instance_name(),
       cfg.all_scenarios_eps,
   )
