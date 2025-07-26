@@ -9,7 +9,7 @@ from matplotlib.colors import LinearSegmentedColormap
 
 from utils.stat import adaptive_moving_stats
 
-from works.plot.utils import linear_func, scale_array
+from works.plot.data_utils import linear_func, scale_array
 
 
 def plot_line(

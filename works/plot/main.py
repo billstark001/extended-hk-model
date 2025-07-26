@@ -14,7 +14,7 @@ from works.plot.visuals import (
     scatter_heatmap, add_colorbar_legend, heatmap_diff,
     draw_bar_plot, draw_adaptive_moving_stats, plt_figure, plt_save_and_close
 )
-from works.plot.utils import partition_data
+from works.plot.data_utils import partition_data
 
 
 def initialize_plotting():

@@ -79,19 +79,31 @@ if __name__ == '__main__':
   all_epsilon_vals = set(x.tolerance for x in stats)
   vals = {x: [] for x in sorted(list(all_epsilon_vals))}
   for x in stats:
-    vals[x.tolerance].append((x.grad_index, x.last_community_count))
+    vals[x.tolerance].append((x.grad_index, x.last_community_count, x.last_opinion_peak_count))
 
   plt_x = np.array(list(vals.keys()))
-  plt_ig_avg, plt_cm_avg, plt_ig_std, plt_cm_std = np.array(
+  plt_ig_avg, plt_cm_avg, plt_cp_avg, \
+    plt_ig_std, plt_cm_std, plt_cp_std = np.array(
       [(np.mean(v, axis=0), np.std(v, axis=0)) for v in vals.values()]
-  ).reshape(-1, 4).T
+  ).reshape(-1, 6).T
 
-  fig, (ax1, ax2) = plt_figure(n_row=1, n_col=2)
+  fig, (ax1, ax2, ax3) = plt_figure(n_row=1, n_col=3, total_width=24)
+  
+  ax1.errorbar(plt_x, plt_ig_avg, yerr=plt_ig_std, zorder=1)
+  ax2.errorbar(plt_x, plt_cm_avg, yerr=plt_cm_std, zorder=1)
+  ax3.errorbar(plt_x, plt_cp_avg, yerr=plt_cp_std, zorder=1)
+  
+  ax1.scatter(plt_x, plt_ig_avg, marker='x', c='black', zorder=2)
+  ax2.scatter(plt_x, plt_cm_avg, marker='x', c='black', zorder=2)
+  ax3.scatter(plt_x, plt_cp_avg, marker='x', c='black', zorder=2)
 
-  ax1.errorbar(plt_x, plt_ig_avg, yerr=plt_ig_std)
-  ax2.errorbar(plt_x, plt_cm_avg, yerr=plt_cm_std)
 
   ax1.grid(True)
   ax2.grid(True)
+  ax3.grid(True)
+  
+  ax1.set_title('(a) Gradation Index')
+  ax2.set_title('(b) #Community (Leiden)')
+  ax3.set_title('(c) #Opinion Peaks')
 
   fig.show()

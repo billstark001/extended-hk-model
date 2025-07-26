@@ -22,6 +22,7 @@ c = Context(
 c.set_state(
     active_threshold=0.98,
     min_inactive_value=0.75,
+    opinion_peak_distance=50,
 )
 
 # from nx.floyd_warshall_numpy
@@ -383,7 +384,7 @@ def get_last_community_count(scenario_record: RawSimulationRecord):
 
 
 @c.selector('last_opinion_peak_count')
-def get_last_opinion_peak_count(opinion_last: NDArray):
+def get_last_opinion_peak_count(opinion_last: NDArray, opinion_peak_distance: int):
 
   kde = get_kde_pdf(opinion_last, 0.1, -1, 1)
 
@@ -392,7 +393,7 @@ def get_last_opinion_peak_count(opinion_last: NDArray):
 
   height_threshold = np.max(y_kde) * 0.1
   peaks, _ = find_peaks(
-      y_kde, height=height_threshold, distance=50
+      y_kde, height=height_threshold, distance=opinion_peak_distance
   )
 
   return len(peaks)
@@ -453,7 +454,8 @@ _, state_vars, cycles = c.get_dep_graph()
 valid_state_vars = {
     'scenario_record',
     'active_threshold',
-    'min_inactive_value'
+    'min_inactive_value',
+    'opinion_peak_distance',
 }
 
 invalid_state_vars = [x for x in state_vars if x not in valid_state_vars]

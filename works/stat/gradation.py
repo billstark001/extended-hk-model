@@ -38,6 +38,7 @@ def get_statistics(
         scenario_record=scenario_record,
         active_threshold=active_threshold,
         min_inactive_value=min_inactive_value,
+        opinion_peak_distance=50,
     )
 
     merge_stats_to_context(

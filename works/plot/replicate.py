@@ -79,24 +79,26 @@ if __name__ == '__main__':
   vals = {x: [] for x in sorted(list(all_epsilon_vals))}
   for x in stats:
     vals[x.recsys_type].append(
-        (x.grad_index, x.last_community_count, x.triads))
+        (x.grad_index, x.last_community_count, x.last_opinion_peak_count, x.triads))
 
   plt_x = np.array(list(vals.keys()))
-  plt_ig_avg, plt_cm_avg, plt_ti_avg, plt_ig_std, plt_cm_std, plt_ti_std = np.array(
+  plt_ig_avg, plt_cm_avg, plt_cp_avg, plt_ti_avg, plt_ig_std, plt_cm_std, plt_cp_std, plt_ti_std = np.array(
       [(np.mean(v, axis=0), np.std(v, axis=0)) for v in vals.values()]
-  ).reshape(-1, 6).T
+  ).reshape(-1, 8).T
 
-  fig, axes = plt_figure(n_row=1, n_col=3, hw_ratio=3/1, total_width=8)
+  fig, axes = plt_figure(n_row=1, n_col=4, hw_ratio=2/1, total_width=12)
 
-  (ax1, ax2, ax3) = axes
+  (ax1, ax2, ax3, ax4) = axes
 
-  ax1.bar(plt_x, plt_ig_avg, yerr=plt_ig_std)
-  ax2.bar(plt_x, plt_cm_avg, yerr=plt_cm_std)
-  ax3.bar(plt_x, plt_ti_avg, yerr=plt_ti_std)
+  ax1.bar(plt_x, plt_ig_avg, yerr=plt_ig_std, color='skyblue', edgecolor='black', alpha=0.5)
+  ax2.bar(plt_x, plt_cm_avg, yerr=plt_cm_std, color='skyblue', edgecolor='black', alpha=0.5)
+  ax3.bar(plt_x, plt_cp_avg, yerr=plt_cp_std, color='skyblue', edgecolor='black', alpha=0.5)
+  ax4.bar(plt_x, plt_ti_avg, yerr=plt_ti_std, color='skyblue', edgecolor='black', alpha=0.5)
 
-  ax1.set_title('grad. index')
-  ax2.set_title('#community')
-  ax3.set_title('#triads')
+  ax1.set_title('(a) Grad. index')
+  ax2.set_title('(b) #Community')
+  ax3.set_title('(c) #Op. Peaks')
+  ax4.set_title('(d) #Triads')
 
   for ax in axes:
     ax.grid(True)
