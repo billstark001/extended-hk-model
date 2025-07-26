@@ -64,7 +64,8 @@ func main() {
 		log.Fatalf("Failed to unmarshal metadata file: %v", err)
 	}
 
-	scenario := simulation.NewScenario(basePath, metadata)
+	// TODO install output parsable progress in python script
+	scenario := simulation.NewScenario(basePath, metadata, false)
 
 	if !scenario.Load() {
 		scenario.Init()

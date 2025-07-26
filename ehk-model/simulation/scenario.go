@@ -20,13 +20,16 @@ type Scenario struct {
 	AccState   *AccumulativeModelState
 	Serializer *SimulationSerializer
 	DB         *EventDB
+
+	OutputParsableProgress bool
 }
 
-func NewScenario(dir string, metadata *ScenarioMetadata) *Scenario {
+func NewScenario(dir string, metadata *ScenarioMetadata, outputParsableProgress bool) *Scenario {
 	return &Scenario{
-		BaseDir:    dir,
-		Metadata:   metadata,
-		Serializer: NewSimulationSerializer(dir, metadata.UniqueName, 2),
+		BaseDir:                dir,
+		Metadata:               metadata,
+		Serializer:             NewSimulationSerializer(dir, metadata.UniqueName, 2),
+		OutputParsableProgress: outputParsableProgress,
 	}
 }
 
@@ -214,8 +217,14 @@ func (s *Scenario) StepTillEnd(ctx context.Context) {
 		return
 	}
 
-	bar := progressbar.Default(int64(maxSimCount))
-	bar.Set(s.Model.CurStep)
+	var bar *progressbar.ProgressBar
+	lastPrintTime := time.Now()
+	if s.OutputParsableProgress {
+		fmt.Printf("TASK:%s;TYPE:INIT;STEP:%d;\n", s.Metadata.UniqueName, s.Model.CurStep)
+	} else {
+		bar = progressbar.Default(int64(maxSimCount))
+		bar.Set(s.Model.CurStep)
+	}
 
 	lastSaveTime := time.Now()
 	successiveThresholdMet := 0
@@ -225,7 +234,15 @@ func (s *Scenario) StepTillEnd(ctx context.Context) {
 		didDump := false
 
 		// step
-		bar.Set(s.Model.CurStep)
+		if s.OutputParsableProgress {
+			if time.Since(lastPrintTime).Milliseconds() > 250 {
+				fmt.Printf("TASK:%s;TYPE:PROGRESS;STEP:%d;\n", s.Metadata.UniqueName, s.Model.CurStep)
+				lastPrintTime = time.Now()
+			}
+		} else {
+			bar.Set(s.Model.CurStep)
+		}
+
 		nwChange, opChange := s.Step()
 
 		// if threshold is met, end in prior
@@ -278,7 +295,7 @@ iterLoop:
 	}
 
 	// bar.Close()
-	if s.Model.CurStep <= maxSimCount {
+	if !s.OutputParsableProgress && s.Model.CurStep <= maxSimCount {
 		fmt.Println("")
 	}
 
@@ -290,14 +307,26 @@ iterLoop:
 	st := s.Model.CurStep - 1
 
 	if isCtxDone {
-		log.Printf("Simulation ended (`ctx.Done()` received, step: %d)", st)
+		if s.OutputParsableProgress {
+			fmt.Printf("TASK:%s;TYPE:DONE;DONE_TYPE:SIG;STEP:%d;\n", s.Metadata.UniqueName, s.Model.CurStep)
+		} else {
+			log.Printf("Simulation ended (`ctx.Done()` received, step: %d)", st)
+		}
 		// the simulation is halted
 		// do nothing
 	} else {
 		if !isShouldNotContinue {
-			log.Printf("Simulation ended (max iteration reached), step: %d", st)
+			if s.OutputParsableProgress {
+				fmt.Printf("TASK:%s;TYPE:DONE;DONE_TYPE:ITER;STEP:%d;\n", s.Metadata.UniqueName, s.Model.CurStep)
+			} else {
+				log.Printf("Simulation ended (max iteration reached, step: %d)", st)
+			}
 		} else {
-			log.Printf("Simulation ended (shouldContinue == false, step: %d)", st)
+			if s.OutputParsableProgress {
+				fmt.Printf("TASK:%s;TYPE:DONE;DONE_TYPE:HALT;STEP:%d;\n", s.Metadata.UniqueName, s.Model.CurStep)
+			} else {
+				log.Printf("Simulation ended (shouldContinue == false, step: %d)", st)
+			}
 		}
 		// the simulation is finished
 		s.Serializer.MarkFinished()

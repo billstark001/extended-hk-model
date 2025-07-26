@@ -108,13 +108,13 @@ func TestSerializeAndDeserializeScenario(t *testing.T) {
 	}
 
 	// sim 1000 steps and end
-	scenario1 := simulation.NewScenario(basePath, metadata)
+	scenario1 := simulation.NewScenario(basePath, metadata, false)
 	scenario1.Init()
 	ctx := context.Background()
 	scenario1.StepTillEnd(ctx)
 
 	// load it to a new scenario
-	scenario2 := simulation.NewScenario(basePath, metadata)
+	scenario2 := simulation.NewScenario(basePath, metadata, false)
 	if !scenario2.Load() {
 		t.Errorf("Failed to load scenario")
 	}
