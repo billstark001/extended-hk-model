@@ -1,3 +1,4 @@
+import time
 from functools import wraps
 from inspect import signature, Parameter
 from typing import Callable, Dict, Any, List, Optional, Union, Tuple, Iterable, TypeAlias
@@ -21,6 +22,9 @@ class Context:
     self.cache: Dict[str, Any] = {}
     self._dep_graph: nx.DiGraph | None = None
     self._dep_cyclic = False
+    
+    self.debug = False
+    self.debug_time_threshold = 0.01
 
   def set_state(self, **state: Any) -> None:
     for key, value in state.items():
@@ -130,7 +134,15 @@ class Context:
         del self.cache[n]
 
   def __getattr__(self, name: str) -> Any:
-    return self.get(name)
+    if self.debug:
+      tstart = time.time()
+    val = self.get(name)
+    if self.debug:
+      tdelta = time.time() - tstart
+      if tdelta > self.debug_time_threshold:
+        print(f'Evaluation of state "{name}" costs {tdelta}s')
+    
+    return val
 
   def __delattr__(self, name: str) -> None:
     self.invalidate(name, recursive=True)

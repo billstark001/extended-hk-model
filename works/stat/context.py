@@ -9,7 +9,7 @@ from scipy.stats import skew, kurtosis
 from scipy.signal import find_peaks
 import networkx as nx
 
-from result_interp.parse_events_db import TweetEventBody, get_events_by_step_range
+from result_interp.parse_events_db import TweetEventBody, batch_load_event_bodies, get_events_by_step_range
 from result_interp.record import RawSimulationRecord
 from stats.distance_c import DistanceCollectorContinuous, get_kde_pdf
 from utils.context import Context
@@ -129,7 +129,10 @@ def get_retweeted_tweets_lifecycle_raw_stats(
       0, scenario_record.max_step + 1,
       "Tweet",
   )
-  tweet_occurrence_steps = defaultdict(list)
+  batch_load_event_bodies(
+      scenario_record.events_db, retweeted_tweets,
+  )
+  tweet_occurrence_step = defaultdict(int)
   tweet_opinions: Dict[Tuple[int, int], float] = {}
   
   for tweet in retweeted_tweets:
@@ -138,16 +141,16 @@ def get_retweeted_tweets_lifecycle_raw_stats(
     # this is the key
     tweet_pair = tweet_body.record.agent_id, tweet_body.record.step
     # add stats
-    tweet_occurrence_steps[tweet_pair].append(tweet.step)
+    # tweet_occurrence_steps[tweet_pair].append(tweet.step)
+    tweet_occurrence_step[tweet_pair] = max(tweet_occurrence_step[tweet_pair], tweet.step)
     tweet_opinions[tweet_pair] = tweet_body.record.opinion
   
   # calculate life span
   lifespans = []
   opinions = []
-  for tweet_pair, steps in tweet_occurrence_steps.items():
+  for tweet_pair, last_step in tweet_occurrence_step.items():
     # here, steps must not be empty
     init_step = tweet_pair[1]
-    last_step = max(steps)
     lifespans.append([init_step, last_step])
     opinions.append(tweet_opinions[tweet_pair])
   
