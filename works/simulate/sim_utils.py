@@ -1,3 +1,4 @@
+from typing import Dict
 
 import logging
 import os
@@ -8,6 +9,18 @@ import time
 from works.config import GO_SIMULATOR_PATH, GoMetadataDict
 
 logger = logging.getLogger(__name__)
+
+
+def parse_kv_string(s: str) -> Dict[str, str]:
+  """
+  Parse K1:V1;K2:V2; string to a dictionary
+  """
+  result = {}
+  for pair in s.split(';'):
+    if pair:
+      k, v = pair.split(':', 1)
+      result[k] = v
+  return result
 
 
 def simulate(

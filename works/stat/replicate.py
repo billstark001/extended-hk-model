@@ -8,7 +8,7 @@ import works.config as cfg
 from works.stat.context import c
 from works.stat.types import ScenarioStatistics
 
-from works.stat.tasks import generate_stats
+from works.stat.tasks import generate_stats, merge_stats_to_context
 
 
 def get_statistics(
@@ -20,12 +20,17 @@ def get_statistics(
     min_inactive_value=0.75,
 ):
 
+  if exist_stats is not None and exist_stats.last_opinion_peak_count is not None:
+    # skip if already processed
+    return
+  
   scenario_name = scenario_metadata['UniqueName']
 
   scenario_record = RawSimulationRecord(
       scenario_base_path,
       scenario_metadata,
   )
+  
   with scenario_record:
 
     if not scenario_record.is_finished:
@@ -37,6 +42,16 @@ def get_statistics(
         scenario_record=scenario_record,
         active_threshold=active_threshold,
         min_inactive_value=min_inactive_value,
+    )
+
+    merge_stats_to_context(
+        exist_stats, c,
+        {
+            'total_steps': 'step',
+            'gradation_index_hp': 'grad_index',
+            'n_triads': 'triads',
+        },
+        exclude_names=['id', 'name', 'origin'],
     )
     event_step_mean = np.mean(c.event_step)
 
@@ -72,6 +87,8 @@ def get_statistics(
 
         last_community_count=c.last_community_count,
         last_community_sizes=c.last_community_sizes,
+
+        last_opinion_peak_count=c.last_opinion_peak_count,
     )
 
     return pat_stats
@@ -108,4 +125,5 @@ if __name__ == '__main__':
       stats_db_path,
       cfg.get_instance_name(),
       cfg.all_scenarios_rep,
+      ignore_exist=False,
   )

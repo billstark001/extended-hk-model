@@ -5,7 +5,7 @@ import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed, Future
 
 from tqdm import tqdm
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer
 
 from utils.context import Context
 from utils.sqlalchemy import create_db_engine_and_session, create_db_session, sync_sqlite_table
@@ -29,8 +29,10 @@ def merge_stats_to_context(
     sel_names = sel_names - set(exclude_names)
 
   state_dict = {}
+  if ctx_name_to_stat_name is None:
+    ctx_name_to_stat_name = {}
   for sel_name in sel_names:
-    stat_name = ctx_name_to_stat_name[sel_name] if ctx_name_to_stat_name else sel_name
+    stat_name = ctx_name_to_stat_name[sel_name] if sel_name in ctx_name_to_stat_name else sel_name
     if hasattr(stats, stat_name):
       value = getattr(stats, stat_name)
       if value is not None:
@@ -40,13 +42,21 @@ def merge_stats_to_context(
 
 short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
+class AnyAttr:
+    pass
 
 def try_get_stats(sess: Session, name: str, origin: str) -> ScenarioStatistics | None:
   ret = sess.query(ScenarioStatistics).filter(
       ScenarioStatistics.name == name,
       ScenarioStatistics.origin == origin,
-  ).first()
-  return ret
+  ).options(undefer('*')).first()
+  if not ret:
+    return None
+  ret2 = AnyAttr()
+  for column in ScenarioStatistics.__table__.columns:
+    attr = getattr(ret, column.name)
+    setattr(ret2, column.name, attr)
+  return ret2 # type: ignore
 
 
 StatisticsGetterFunc: TypeAlias = Callable[

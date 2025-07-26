@@ -19,14 +19,13 @@ def get_column_names(conn: sqlite3.Connection, table_name: str) -> List[str]:
   return [row[1] for row in cur.fetchall()]
 
 
-def get_data_except_id(
-    conn: sqlite3.Connection, table_name: str, column_names: List[str]
+def get_data(
+    conn: sqlite3.Connection, table_name: str, columns: List[str]
 ) -> Tuple[List[Tuple], List[str]]:
   """Get data excluding the primary key 'id' and return column names"""
-  columns_without_id = [col for col in column_names if col.lower() != 'id']
-  select_cols = ', '.join(columns_without_id)
+  select_cols = ', '.join(columns)
   cur = conn.execute(f"SELECT {select_cols} FROM {table_name}")
-  return cur.fetchall(), columns_without_id
+  return cur.fetchall(), columns
 
 
 def merge_tables(
@@ -43,8 +42,14 @@ def merge_tables(
 
   column_names = get_column_names(conn1, table_name)
   columns_without_id = [col for col in column_names if col.lower() != 'id']
+  # column_names_map = {c: i for i, c in enumerate(columns_without_id)}
   placeholder = ', '.join('?' for _ in columns_without_id)
   insert_sql = f"INSERT INTO {table_name} ({', '.join(columns_without_id)}) VALUES ({placeholder})"
+  
+  keys = set()
+  # for row in get_data(conn1, table_name, columns_without_id)[0]:
+  #   key = (row[column_names_map['name']], row[column_names_map['origin']])
+  #   keys.add(key)
 
   # Create the merged database
   merged_conn = sqlite3.connect(merged_db_path)
@@ -54,8 +59,19 @@ def merge_tables(
   # Merge data from each database
   for db_path in db_paths:
     conn = sqlite3.connect(db_path)
-    data, _ = get_data_except_id(conn, table_name, column_names)
-    merged_conn.executemany(insert_sql, data)
+    
+    column_names_local = get_column_names(conn, table_name)
+    columns_without_id_local = [col for col in column_names_local if col.lower() != 'id']
+    column_names_map_local = {c: i for i, c in enumerate(columns_without_id_local)}
+    
+    data_local, _ = get_data(conn, table_name, columns_without_id_local)
+    data_orig = []
+    for row in data_local:
+      key = (row[column_names_map_local['name']], row[column_names_map_local['origin']])
+      if key not in keys:
+        data_orig.append(tuple(row[column_names_map_local[c]] if c in column_names_map_local else None for c in columns_without_id))
+        keys.add(key)
+    merged_conn.executemany(insert_sql, data_orig)
     conn.close()
 
   merged_conn.commit()
