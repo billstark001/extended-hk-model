@@ -14,6 +14,9 @@ if TYPE_CHECKING:
 
 Base = declarative_base()
 
+def _():
+  pass
+
 
 exclude = [
     'name', 'origin',

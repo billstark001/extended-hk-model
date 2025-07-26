@@ -131,17 +131,6 @@ c.set_state(
 )
 
 
-def stats_exist(name: str, origin: str) -> bool:
-  try:
-    ScenarioStatistics.get(
-        ScenarioStatistics.name == name,
-        ScenarioStatistics.origin == origin,
-    )
-    return True
-  except ScenarioStatistics.DoesNotExist:
-    return False
-
-
 if __name__ == '__main__':
 
   generate_stats(

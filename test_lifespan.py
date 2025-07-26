@@ -4,10 +4,11 @@ from result_interp.record import RawSimulationRecord
 import works.config as cfg
 from works.stat.context import c
 import numpy as np
+import matplotlib.pyplot as plt
 
 # key = 's_grad_sim1_rw7_dc0_rt3_op6'
 
-key = 's_grad_sim9_rw7_dc0_rt3_op6'
+key = 's_grad_sim9_rw7_dc0_rt1_op6'
 
 # key = 's_grad_sim8_rw0_dc2_rt1_op6'
 # key = 's_grad_sim8_rw0_dc0_rt1_op2'
@@ -36,5 +37,17 @@ with rec:
 
   print(retweeted_lifespans, retweeted_lifespans.size)
   
+  lifespan_abs = retweeted_lifespans[:, 1] - retweeted_lifespans[:, 0]
+  lifespan_values, counts = np.unique(lifespan_abs, return_counts=True)
   
-  c.gradation_index_hp
+  for i in range(lifespan_values.size):
+    print(f'{lifespan_values[i]}: {np.log10(counts[i])}')
+    
+  # estimate p
+  avg_lifespan = np.sum(counts.astype(np.float64) * lifespan_values) / np.sum(counts, dtype=np.float64)
+  print(f'Estimated average lifespan: {avg_lifespan}')
+    
+  plt.plot(lifespan_values, np.log10(counts), marker='o')
+  plt.title(key)
+  plt.grid(True)
+  plt.show()

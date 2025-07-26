@@ -10,6 +10,8 @@ from works.stat.types import ScenarioStatistics
 
 from works.stat.tasks import generate_stats, merge_stats_to_context
 
+def _():
+  pass
 
 def get_statistics(
     scenario_metadata: 'cfg.GoMetadataDict',
@@ -19,6 +21,9 @@ def get_statistics(
     active_threshold=0.98,
     min_inactive_value=0.75,
 ):
+  if exist_stats is not None and exist_stats.last_opinion_peak_count is not None:
+    # skip if already processed
+    return
 
   scenario_name = scenario_metadata['UniqueName']
 
@@ -114,17 +119,6 @@ c.set_state(
 )
 
 
-def stats_exist(name: str, origin: str) -> bool:
-  try:
-    ScenarioStatistics.get(
-        ScenarioStatistics.name == name,
-        ScenarioStatistics.origin == origin,
-    )
-    return True
-  except ScenarioStatistics.DoesNotExist:
-    return False
-
-
 if __name__ == '__main__':
 
   generate_stats(
@@ -133,4 +127,5 @@ if __name__ == '__main__':
       stats_db_path,
       cfg.get_instance_name(),
       cfg.all_scenarios_eps,
+      ignore_exist=False,
   )

@@ -5,7 +5,7 @@ import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed, Future
 
 from tqdm import tqdm
-
+from sqlalchemy.orm import Session
 
 from utils.context import Context
 from utils.sqlalchemy import create_db_engine_and_session, create_db_session, sync_sqlite_table
@@ -41,15 +41,12 @@ def merge_stats_to_context(
 short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
 
-def try_get_stats(name: str, origin: str) -> ScenarioStatistics | None:
-  try:
-    ret = ScenarioStatistics.get(
-        ScenarioStatistics.name == name,
-        ScenarioStatistics.origin == origin,
-    )
-    return ret
-  except ScenarioStatistics.DoesNotExist:
-    return None
+def try_get_stats(sess: Session, name: str, origin: str) -> ScenarioStatistics | None:
+  ret = sess.query(ScenarioStatistics).filter(
+      ScenarioStatistics.name == name,
+      ScenarioStatistics.origin == origin,
+  ).first()
+  return ret
 
 
 StatisticsGetterFunc: TypeAlias = Callable[
@@ -76,7 +73,7 @@ def migrate_from_dict(
   # migrate
   for stat in tqdm(stats):
     sm = all_s_map[stat['name']]
-    if try_get_stats(stat["name"], origin) is not None:
+    if try_get_stats(stats_session, stat["name"], origin) is not None:
       continue
 
     try:
@@ -118,7 +115,7 @@ def generate_stats(
 
       futures: Dict[Future[ScenarioStatistics | None], str] = {}
       for s in tqdm(scenarios):
-        exist_stats = try_get_stats(s['UniqueName'], origin)
+        exist_stats = try_get_stats(stats_session, s['UniqueName'], origin)
         if ignore_exist and exist_stats is not None:
           continue
         # else, upsert
