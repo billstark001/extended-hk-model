@@ -90,10 +90,14 @@ if __name__ == '__main__':
 
   (ax1, ax2, ax3, ax4) = axes
 
-  ax1.bar(plt_x, plt_ig_avg, yerr=plt_ig_std, color='skyblue', edgecolor='black', alpha=0.5)
-  ax2.bar(plt_x, plt_cm_avg, yerr=plt_cm_std, color='skyblue', edgecolor='black', alpha=0.5)
-  ax3.bar(plt_x, plt_cp_avg, yerr=plt_cp_std, color='skyblue', edgecolor='black', alpha=0.5)
-  ax4.bar(plt_x, plt_ti_avg, yerr=plt_ti_std, color='skyblue', edgecolor='black', alpha=0.5)
+  ax1.bar(plt_x, plt_ig_avg, yerr=plt_ig_std,
+          color='skyblue', edgecolor='black', alpha=0.5)
+  ax2.bar(plt_x, plt_cm_avg, yerr=plt_cm_std,
+          color='skyblue', edgecolor='black', alpha=0.5)
+  ax3.bar(plt_x, plt_cp_avg, yerr=plt_cp_std,
+          color='skyblue', edgecolor='black', alpha=0.5)
+  ax4.bar(plt_x, plt_ti_avg, yerr=plt_ti_std,
+          color='skyblue', edgecolor='black', alpha=0.5)
 
   ax1.set_title('(a) Grad. index')
   ax2.set_title('(b) #Community')

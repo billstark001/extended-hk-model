@@ -65,3 +65,21 @@ def partition_data(
   means = np.array([np.mean(dd) for dd in d])
   std_devs = np.array([np.std(dd) for dd in d])
   return means, std_devs
+
+
+def piecewise_linear_integral_trapz(x: np.ndarray, y: np.ndarray, a: float, b: float):
+  # 保证a < b
+  if a > b:
+    a, b = b, a
+
+  # 合并端点
+  x_new = np.sort(np.concatenate([x, [a, b]]))
+  y_new = np.interp(x_new, x, y, left=0, right=1)
+
+  # 只保留在[a, b]区间的点
+  mask = (x_new >= a) & (x_new <= b)
+  x_new = x_new[mask]
+  y_new = y_new[mask]
+
+  # 积分
+  return np.trapz(y_new, x_new)
