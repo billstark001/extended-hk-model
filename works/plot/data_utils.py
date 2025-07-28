@@ -21,14 +21,15 @@ def scale_array(
 
 
 def transform_kde(
-        data: NDArray,
-        lower: float | None = None,
-        upper: float | None = None):
+    data: NDArray,
+    lower: float | None = None,  # pyright: ignore[reportRedeclaration]
+    upper: float | None = None,  # pyright: ignore[reportRedeclaration]
+):
   """Transform data using KDE with arctanh transformation"""
   if lower is None:
-    lower = data.min()
+    lower: float = data.min()
   if upper is None:
-    upper = data.max()
+    upper: float = data.max()
 
   scaled_data = scale_array(data, (lower, upper), (-1, 1))
   transformed_data = np.arctanh(scaled_data)

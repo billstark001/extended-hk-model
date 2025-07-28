@@ -47,7 +47,7 @@ for i, rw in enumerate(cfg.rewiring_rate_array):
     lst.append([])
   bc_inst_orig.append(lst)
 
-k_filters = [
+k_filters_1 = [
     (
         ScenarioStatistics.recsys_type == 'StructureM9',
         ScenarioStatistics.retweet == 0,
@@ -66,12 +66,56 @@ k_filters = [
     ),
 ]
 
-k_labels = [
-    'St / !R',
-    'St / R',
-    'Op / !R',
-    'Op / R',
+k_labels_1 = [
+    'St, !R',
+    'St, R',
+    'Op, !R',
+    'Op, R',
 ]
+
+k_filters_2 = [
+  (
+    ScenarioStatistics.recsys_type == 'OpinionM9',
+    ScenarioStatistics.tweet_retain_count == 0,
+        ScenarioStatistics.retweet == 0,
+  ),
+  (
+    ScenarioStatistics.recsys_type == 'OpinionM9',
+    ScenarioStatistics.tweet_retain_count == 2,
+        ScenarioStatistics.retweet == 0,
+  ),
+  (
+    ScenarioStatistics.recsys_type == 'OpinionM9',
+    ScenarioStatistics.tweet_retain_count == 6,
+        ScenarioStatistics.retweet == 0,
+  ),
+  (
+    ScenarioStatistics.recsys_type == 'OpinionM9',
+    ScenarioStatistics.tweet_retain_count == 0,
+        ScenarioStatistics.retweet != 0,
+  ),
+  (
+    ScenarioStatistics.recsys_type == 'OpinionM9',
+    ScenarioStatistics.tweet_retain_count == 2,
+        ScenarioStatistics.retweet != 0,
+  ),
+  (
+    ScenarioStatistics.recsys_type == 'OpinionM9',
+    ScenarioStatistics.tweet_retain_count == 6,
+        ScenarioStatistics.retweet != 0,
+  ),
+]
+
+k_labels_2 = [
+  'k=0, !R',
+  'k=2',
+  'k=6',
+  'k=0, R',
+  'k=2',
+  'k=6',
+]
+
+
 
 m_filters = [
     (
@@ -112,8 +156,12 @@ def evaluate_bar_on_filters(
 
 def plot_bar(
     ax: Axes,
-    f: Callable[[ScenarioStatistics], float]
+    f: Callable[[ScenarioStatistics], float],
+    compare_op = False,
 ):
+  
+  k_filters = k_filters_2 if compare_op else k_filters_1
+  k_labels = k_labels_2 if compare_op else k_labels_1
 
   k = len(k_filters)
   m = len(m_filters)
@@ -208,32 +256,40 @@ if __name__ == '__main__':
   
   # triads
   
-  fig2, ax3 = plt_figure(n_row=1, n_col=1, total_width=8)
+  fig2, (ax2_1, ax2_2) = plt_figure(n_row=1, n_col=2, total_width=16)
   
   def f_triads(x: ScenarioStatistics) -> float:
     assert x.triads is not None
     return np.log10(x.triads)
   
-  plot_bar(ax3, f=f_triads)
-  ax3.set_title('log10(#closed triads)', loc='left')
-  ax3.legend()
+  plot_bar(ax2_1, f=f_triads)
+  ax2_1.set_title('(a) gross', loc='left')
+  ax2_1.legend()
   
-  ax3.grid(True, linestyle='--', alpha=0.5)
-  ax3.set_ylim(3.5, 5)
+  ax2_1.grid(True, linestyle='--', alpha=0.5)
+  ax2_1.set_ylim(3.5, 5)
+  ax2_1.set_ylabel('log10(#closed triads)')
+  
+  plot_bar(ax2_2, f=f_triads, compare_op=True)
+  ax2_2.set_title('(b) opinion-based', loc='left')
+  ax2_2.legend()
+  
+  ax2_2.grid(True, linestyle='--', alpha=0.5)
+  ax2_2.set_ylim(3.5, 5)
   
   fig2.show()
   
   # ext env index
   
-  fig3, ax4 = plt_figure(n_row=1, n_col=1, total_width=8)
+  fig3, ax3_1 = plt_figure(n_row=1, n_col=1, total_width=8)
   
-  plot_bar(ax4, f_ext_env_index)
+  plot_bar(ax3_1, f_ext_env_index)
   
-  ax4.set_title('TODO what title should we use?')
-  ax4.legend()
-  ax4.grid(True, linestyle='--', alpha=0.5)
+  ax3_1.set_title('TODO what title should we use?')
+  ax3_1.legend()
+  ax3_1.grid(True, linestyle='--', alpha=0.5)
   
-  ax4.set_ylim(0.3, 0.7)
+  ax3_1.set_ylim(0.3, 0.7)
   
   fig3.show()
 
