@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 
-from utils.plot import plt_figure
+from utils.plot import plt_figure, plt_save_and_close
 from utils.sqlalchemy import create_db_engine_and_session
 import works.config as cfg
 from works.plot.data_utils import piecewise_linear_integral_trapz
@@ -252,7 +252,7 @@ if __name__ == '__main__':
   ax2.legend()
   ax2.set_ylim(0, 0.4)
   
-  fig.show()
+  plt_save_and_close(fig, 'fig/f_event_count')
   
   # triads
   
@@ -277,7 +277,7 @@ if __name__ == '__main__':
   ax2_2.grid(True, linestyle='--', alpha=0.5)
   ax2_2.set_ylim(3.5, 5)
   
-  fig2.show()
+  plt_save_and_close(fig2, 'fig/f_triads')
   
   # ext env index
   
@@ -291,7 +291,7 @@ if __name__ == '__main__':
   
   ax3_1.set_ylim(0.3, 0.7)
   
-  fig3.show()
+  plt_save_and_close(fig3, 'fig/f_ext_env')
 
   session.close()
   engine.dispose()

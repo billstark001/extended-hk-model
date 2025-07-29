@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-from utils.plot import plt_figure
+from utils.plot import plt_figure, plt_save_and_close
 from utils.sqlalchemy import create_db_engine_and_session
 import works.config as cfg
 from works.stat.types import ScenarioStatistics
@@ -177,9 +177,18 @@ if __name__ == '__main__':
     assert x.p_backdrop is not None
     return x.p_backdrop
 
-  # plot_heatmap(peaks=None, f=f_grad, stats_name='grad. index').show()
+  plt_save_and_close(
+    plot_heatmap(
+      peaks=None, f=f_grad, stats_name='grad. index'
+    ), 'fig/f_grad_index'
+  )
 
-  plot_heatmap(peaks=1, f=f_p_backdrop,
-               stats_name='PBD, #P=1', heatmap_max=2).show()
-  plot_heatmap(peaks=2, f=f_p_backdrop,
-               stats_name='PBD, #P=2', heatmap_max=2).show()
+  plt_save_and_close(
+    plot_heatmap(
+      peaks=1, f=f_p_backdrop,
+               stats_name='PBD, #P=1', heatmap_max=2, diff_range=1,
+    ), 'fig/f_p_backdrop_1_peak'
+  )
+  
+  # plot_heatmap(peaks=2, f=f_p_backdrop,
+  #              stats_name='PBD, #P=2', heatmap_max=2).show()

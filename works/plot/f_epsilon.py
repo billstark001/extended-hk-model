@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 from sqlalchemy.orm import Session
 
-from utils.plot import plt_figure
+from utils.plot import plt_figure, plt_save_and_close
 from utils.sqlalchemy import create_db_session
 import works.config as cfg
 from works.stat.types import ScenarioStatistics
@@ -20,7 +20,7 @@ T2 = TypeVar("T2")
 # parameters
 
 plot_path = cfg.SIMULATION_STAT_DIR
-stats_db_path = os.path.join(plot_path, 'stats.db')
+stats_db_path = os.path.join(plot_path, 'stats.eps.db')
 
 rs_keys = list(cfg.rs_names)
 tw_keys = cfg.retweet_rate_array.tolist()
@@ -88,4 +88,4 @@ if __name__ == '__main__':
   ax2.set_title('(b) #Community (Leiden)')
   ax3.set_title('(c) #Opinion Peaks')
 
-  fig.show()
+  plt_save_and_close(fig, 'fig/f_eps_select')

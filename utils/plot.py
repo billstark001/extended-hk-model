@@ -101,11 +101,15 @@ def plt_figure(
   return plt.subplots(n_row, n_col, figsize=(total_width, total_height), **kwargs) # type: ignore
 
 
-def plt_save_and_close(path: str):
+def plt_save_and_close(fig: Figure | None, path: str):
   """Save figure to path and close it"""
-  plt.savefig(path + ".pdf", dpi=300, bbox_inches="tight")
-  plt.savefig(path + ".png", dpi=300, bbox_inches="tight")
-  return plt.close()
+  _fig = fig if fig is not None else plt
+  _fig.savefig(path + ".pdf", dpi=300, bbox_inches="tight")
+  _fig.savefig(path + ".png", dpi=300, bbox_inches="tight")
+  if fig is not None:
+    plt.close(fig)
+  else:
+    plt.close()
 
 
 def get_colormap(

@@ -12,7 +12,7 @@ from matplotlib.axes import Axes
 
 from scipy.stats import gaussian_kde
 
-from utils.plot import plt_figure
+from utils.plot import plt_figure, plt_save_and_close
 from utils.sqlalchemy import create_db_engine_and_session
 import works.config as cfg
 from works.plot.data_utils import piecewise_linear_integral_trapz
@@ -158,8 +158,7 @@ if __name__ == '__main__':
   ax2.set_title('(b) no retweet', loc='left')
   ax3.set_title('(c) with retweet', loc='left')
   
-  
-  fig.show()
+  plt_save_and_close(fig, 'fig/f_n_cluster')
 
   session.close()
   engine.dispose()
