@@ -103,6 +103,7 @@ def plt_figure(
 
 def plt_save_and_close(fig: Figure | None, path: str):
   """Save figure to path and close it"""
+  plt.show()
   _fig = fig if fig is not None else plt
   _fig.savefig(path + ".pdf", dpi=300, bbox_inches="tight")
   _fig.savefig(path + ".png", dpi=300, bbox_inches="tight")
