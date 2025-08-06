@@ -118,7 +118,7 @@ def plot_heatmap_by_rec(
     stats_name='grad. index',
     with_diff=True,
     with_std=True,
-    cmap='RdYlBu',
+    cmap='RdYlBu_r',
 
     heatmap_min=0,
     heatmap_max=1,

@@ -34,6 +34,9 @@ plt.rcParams.update({'font.size': 18})
 short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
 
+def _():
+  pass
+
 def get_random_stats(
     session: Session,
     decay: float | None = None,
@@ -70,7 +73,8 @@ if __name__ == '__main__':
           [(np.mean(v, axis=0), np.std(v, axis=0)) for v in vals.values()]
       ).reshape(-1, 6).T
 
-  fig, (ax1, ax2, ax3) = plt_figure(n_row=1, n_col=3, total_width=24)
+  fig, axes = plt_figure(n_row=1, n_col=3, total_width=24)
+  (ax1, ax2, ax3) = axes
 
   ax1.errorbar(plt_x, plt_ig_avg, yerr=plt_ig_std, zorder=1)
   ax2.errorbar(plt_x, plt_cm_avg, yerr=plt_cm_std, zorder=1)
@@ -80,12 +84,13 @@ if __name__ == '__main__':
   ax2.scatter(plt_x, plt_cm_avg, marker='x', c='black', zorder=2)
   ax3.scatter(plt_x, plt_cp_avg, marker='x', c='black', zorder=2)
 
-  ax1.grid(True)
-  ax2.grid(True)
-  ax3.grid(True)
+  for ax in axes:
+    ax.grid(True)
+    ax.set_xlabel('epsilon')
 
-  ax1.set_title('(a) Gradation Index')
-  ax2.set_title('(b) #Community (Leiden)')
-  ax3.set_title('(c) #Opinion Peaks')
+  ax1.set_title('(a) gradation Index', loc='left')
+  ax2.set_title('(b) #community (Leiden)', loc='left')
+  ax3.set_title('(c) #opinion Peaks', loc='left')
+  
 
   plt_save_and_close(fig, 'fig/f_eps_select')
