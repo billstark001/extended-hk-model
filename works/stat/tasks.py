@@ -139,6 +139,7 @@ def generate_stats(
       for f in tqdm(
           as_completed(futures), total=n, bar_format=short_progress_bar,
       ):
+        f_name = futures[f]
         try:
           res = f.result()
           if res is not None:
@@ -150,6 +151,7 @@ def generate_stats(
           raise  # again
         except Exception as e:
           print(f"Exception in worker: {e}")
+          print(f"Scenario: {f_name}")
           print("Traceback:")
           print(''.join(traceback.format_exception(type(e), e, e.__traceback__)))
 

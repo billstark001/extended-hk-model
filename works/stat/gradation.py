@@ -12,6 +12,10 @@ from works.stat.types import ScenarioStatistics
 from works.stat.tasks import generate_stats, merge_stats_to_context
 
 
+def _():
+  pass
+
+
 def get_statistics(
     scenario_metadata: 'cfg.GoMetadataDict',
     scenario_base_path: str,
@@ -20,6 +24,9 @@ def get_statistics(
     active_threshold=0.98,
     min_inactive_value=0.75,
 ):
+  if exist_stats is not None and exist_stats.retweet not in (0, 0.5):
+    # skip points with no necessity to calculate
+    return
 
   scenario_name = scenario_metadata['UniqueName']
 
@@ -103,6 +110,9 @@ def get_statistics(
         g_backdrop=c.g_backdrop,
 
         last_opinion_peak_count=c.last_opinion_peak_count,
+        
+        opinion_diff_seg_mean=c.opinion_diff_seg_mean,
+        opinion_diff_seg_std=c.opinion_diff_seg_std,
 
     )
 
@@ -140,4 +150,5 @@ if __name__ == '__main__':
       stats_db_path,
       cfg.get_instance_name(),
       cfg.all_scenarios_grad,
+      ignore_exist=False,
   )

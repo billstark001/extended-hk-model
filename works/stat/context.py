@@ -330,6 +330,27 @@ def get_opinion_diff_mean(opinion_diff: NDArray, scenario_record: RawSimulationR
   )
   return x_opinion_diff_mean, opinion_diff_mean_smpl
 
+@c.selector
+def get_opinion_decrease_speed(opinion_diff: NDArray, active_step: float):
+  opinions_diff_abs = np.abs(opinion_diff)
+
+  step_mask = np.arange(opinions_diff_abs.shape[0], dtype=int)
+
+  points = []
+  seg = 0.2
+  x_seg = np.arange(0, 1, seg)
+  for seg_start in x_seg:
+    seg_end = seg_start + seg
+    step_mask_seg = np.logical_and(
+        step_mask >= seg_start * active_step, step_mask < seg_end * active_step)
+    sum_seg = np.sum(opinions_diff_abs[step_mask_seg], axis=0)
+    mean_seg = np.mean(sum_seg)
+    std_seg = np.std(sum_seg)
+    points.append((mean_seg, std_seg))
+
+  opinion_diff_seg_mean, opinion_diff_seg_std = np.array(points).T
+  
+  return opinion_diff_seg_mean, opinion_diff_seg_std
 
 # @c.selector
 # def get_in_degree(model__stats):
