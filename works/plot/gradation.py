@@ -351,8 +351,8 @@ def plot_diff(
       )
       heatmap_cat = np.concatenate(flatten_list(heatmap), axis=1)
       g, y = heatmap_cat
-      g_mask_p1 = g > 0.6
-      g_mask_p2 = g <= 0.6
+      g_mask_p1 = g >= 0.6
+      g_mask_p2 = g < 0.6
       y1, y2 = y[g_mask_p1], y[g_mask_p2]
       axis.bar(1, np.mean(y1), yerr=np.std(y1),
                capsize=8, color=c_b, edgecolor='black')

@@ -124,7 +124,7 @@ m_filters = [
     ),
     (
         ScenarioStatistics.grad_index.is_not(None),
-        ScenarioStatistics.grad_index > 0.6,
+        ScenarioStatistics.grad_index >= 0.6,
     ),
 ]
 
