@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 
-from utils.plot import plt_figure, plt_save_and_close
+from utils.plot import plt_figure, plt_save_and_close, setup_paper_params
 from utils.sqlalchemy import create_db_engine_and_session
 import works.config as cfg
 from works.plot.data_utils import piecewise_linear_integral_trapz
@@ -28,7 +28,7 @@ rs_keys = list(cfg.rs_names)
 tw_keys = cfg.retweet_rate_array.tolist()
 
 
-plt.rcParams.update({'font.size': 18})
+setup_paper_params()
 
 # utilities
 
@@ -129,8 +129,8 @@ m_filters = [
 ]
 
 m_labels = [
-    'polarized',
-    'homogenized',
+    'polarizing',
+    'homogenizing',
 ]
 
 m_colors = [
@@ -158,7 +158,10 @@ def plot_bar(
     ax: Axes,
     f: Callable[[ScenarioStatistics], float],
     compare_op = False,
-):
+    plot_title: str = "",
+) -> List[str]:
+  
+  ret: List[str] = []
   
   k_filters = k_filters_2 if compare_op else k_filters_1
   k_labels = k_labels_2 if compare_op else k_labels_1
@@ -180,6 +183,13 @@ def plot_bar(
   means = all_data_arr[:, :, 0]
   stds = all_data_arr[:, :, 1]
 
+  # Print data for each bar
+  if plot_title:
+    ret.append(f"\n=== {plot_title} ===")
+  for k_idx in range(k):
+    for m_idx in range(m):
+      ret.append(f"{k_labels[k_idx]} - {m_labels[m_idx]}: {means[k_idx, m_idx]:.4f} ± {stds[k_idx, m_idx]:.4f}")
+
   width = 0.6 / m  # width of the bars
   x = np.arange(k)
 
@@ -199,7 +209,7 @@ def plot_bar(
   ax.set_xticks(x + width*(m-1)/2)
   ax.set_xticklabels(k_labels)
 
-  return ax
+  return ret
 
 
 if __name__ == '__main__':
@@ -207,13 +217,17 @@ if __name__ == '__main__':
   engine, session = create_db_engine_and_session(
       stats_db_path, ScenarioStatistics.Base)
   
-  # rewiring events
+  # Create figure with 2 rows: first row with 2 subplots, second row with 3 subplots
+  fig, axes = plt_figure(n_row=2, n_col=3)
+  ax1, ax2 = axes[0][0], axes[0][1]
+  ax3, ax4, ax5 = axes[1][0], axes[1][1], axes[1][2]
   
-  fig, (ax1, ax2) = plt_figure(n_row=1, n_col=2, total_width=16)
+  # Hide the unused subplot in the first row
+  axes[0][2].set_visible(False)
 
   def f_ev_count(x: ScenarioStatistics) -> float:
     assert x.event_count is not None
-    return np.log10(x.event_count)
+    return x.event_count
 
   def f_ev_step(x: ScenarioStatistics) -> float:
     assert x.event_step_mean is not None
@@ -237,61 +251,55 @@ if __name__ == '__main__':
     
     return f_proj
 
-  plot_bar(ax1, f=f_ev_count)
-  plot_bar(ax2, f=f_ev_step)
-  
-  ax1.set_title('(a) log10(event count)', loc='left')
-  ax2.set_title('(b) avg. event time', loc='left')
-  
+  def f_triads(x: ScenarioStatistics) -> float:
+    assert x.triads is not None
+    return x.triads
+
+  # Plot 1: Event count (1_1)
+  data_1 = plot_bar(ax1, f=f_ev_count, plot_title="Event Count")
+  ax1.set_title('(a) #rewiring events', loc='left')
   ax1.grid(True, linestyle='--', alpha=0.5)
-  ax2.grid(True, linestyle='--', alpha=0.5)
-  
   ax1.legend()
-  ax1.set_ylim(2.5, 4.5)
+  ax1.set_yscale('log')
+  ax1.set_ylim(100, 50000)
   
+  # Plot 2: Event step (1_2)
+  data_2 = plot_bar(ax2, f=f_ev_step, plot_title="Event Step")
+  ax2.set_title('(b) norm. occurrence time', loc='left')
+  ax2.grid(True, linestyle='--', alpha=0.5)
   ax2.legend()
   ax2.set_ylim(0, 0.4)
   
-  plt_save_and_close(fig, 'fig/f_event_count')
+  # Plot 3: Front-loading environment index (3_1)
+  data_3 = plot_bar(ax3, f_ext_env_index, plot_title="Front-loading Environment Index")
+  ax3.set_title(r"(c) front-loading env. index $I_e'$", loc='left')
+  ax3.grid(True, linestyle='--', alpha=0.5)
+  ax3.legend()
+  ax3.set_ylim(0.3, 0.7)
   
-  # triads
+  # Plot 4: Triads (2_1)
+  data_4 = plot_bar(ax4, f=f_triads, plot_title="Triads")
+  ax4.set_title('(d) #triads', loc='left')
+  ax4.grid(True, linestyle='--', alpha=0.5)
+  ax4.legend()
+  ax4.set_yscale('log')
+  ax4.set_ylim(1000, 200000)
   
-  fig2, (ax2_1, ax2_2) = plt_figure(n_row=1, n_col=2, total_width=16)
+  # Plot 5: Triads for Opinion (2_2)
+  data_5 = plot_bar(ax5, f=f_triads, compare_op=True, plot_title="Triads (Opinion)")
+  ax5.set_title('(e) #triads, Op.', loc='left')
+  ax5.grid(True, linestyle='--', alpha=0.5)
+  ax5.legend()
+  ax5.set_yscale('log')
+  ax5.set_ylim(1000, 200000)
   
-  def f_triads(x: ScenarioStatistics) -> float:
-    assert x.triads is not None
-    return np.log10(x.triads)
+  # Save the combined figure
+  fig.tight_layout()
+  plt_save_and_close(fig, 'fig/f_grad_index_interpret_raw')
   
-  plot_bar(ax2_1, f=f_triads)
-  ax2_1.set_title('(a) gross', loc='left')
-  ax2_1.legend()
-  
-  ax2_1.grid(True, linestyle='--', alpha=0.5)
-  ax2_1.set_ylim(3.5, 5)
-  ax2_1.set_ylabel('log10(#closed triads)')
-  
-  plot_bar(ax2_2, f=f_triads, compare_op=True)
-  ax2_2.set_title('(b) opinion-based', loc='left')
-  ax2_2.legend()
-  
-  ax2_2.grid(True, linestyle='--', alpha=0.5)
-  ax2_2.set_ylim(3.5, 5)
-  
-  plt_save_and_close(fig2, 'fig/f_triads')
-  
-  # ext env index
-  
-  fig3, ax3_1 = plt_figure(n_row=1, n_col=1, total_width=8)
-  
-  plot_bar(ax3_1, f_ext_env_index)
-  
-  ax3_1.set_title('TODO what title should we use?')
-  ax3_1.legend()
-  ax3_1.grid(True, linestyle='--', alpha=0.5)
-  
-  ax3_1.set_ylim(0.3, 0.7)
-  
-  plt_save_and_close(fig3, 'fig/f_ext_env')
+  with open('fig/f_grad_index_interpret_raw_data.txt', 'w') as f:
+    for line in data_1 + data_2 + data_3 + data_4 + data_5:
+      f.write(line + '\n')
 
   session.close()
   engine.dispose()

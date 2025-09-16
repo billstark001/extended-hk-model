@@ -10,6 +10,31 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from utils.stat import adaptive_moving_stats
+import matplotlib.pyplot as plt
+
+PAPER_WIDTH = 12.0  # inches
+DEFAULT_HW_RATIO = 4 / 5  # height / width
+
+def setup_paper_params():
+  """Setup matplotlib parameters optimized for paper publication"""
+  plt.rcParams.update({
+      'font.size': 12,
+      'font.family': 'serif',
+      'text.usetex': False,  # Set to True if LaTeX is available
+      'mathtext.fontset': 'cm',  # Computer Modern for math text
+      'mathtext.rm': 'serif',
+      'mathtext.it': 'serif:italic',
+      'mathtext.bf': 'serif:bold',
+      'axes.linewidth': 1.2,
+      'axes.labelsize': 12,
+      'axes.titlesize': 12,
+      'xtick.labelsize': 10,
+      'ytick.labelsize': 10,
+      'legend.fontsize': 10,
+      'figure.titlesize': 14,
+      'savefig.dpi': 300,
+      'savefig.bbox': 'tight',
+  })
 
 
 def plot_network_snapshot(
@@ -52,8 +77,8 @@ def plot_network_snapshot(
 def plt_figure(
     n_row: Literal[1],
     n_col: Literal[1],
-    hw_ratio: float = 3/4,
-    total_width: float = 16,
+    hw_ratio: float = DEFAULT_HW_RATIO,
+    total_width: float = PAPER_WIDTH,
     **kwargs
 ) -> Tuple[Figure, Axes]: ...
 
@@ -62,8 +87,8 @@ def plt_figure(
 def plt_figure(
     n_row: Literal[1],
     n_col: int,
-    hw_ratio: float = 3/4,
-    total_width: float = 16,
+    hw_ratio: float = DEFAULT_HW_RATIO,
+    total_width: float = PAPER_WIDTH,
     **kwargs
 ) -> Tuple[Figure, Sequence[Axes]]: ...
 
@@ -72,8 +97,8 @@ def plt_figure(
 def plt_figure(
     n_row: int,
     n_col: Literal[1],
-    hw_ratio: float = 3/4,
-    total_width: float = 16,
+    hw_ratio: float = DEFAULT_HW_RATIO,
+    total_width: float = PAPER_WIDTH,
     **kwargs
 ) -> Tuple[Figure, Sequence[Axes]]: ...
 
@@ -82,8 +107,8 @@ def plt_figure(
 def plt_figure(
     n_row: int,
     n_col: int,
-    hw_ratio: float = 3/4,
-    total_width: float = 16,
+    hw_ratio: float = DEFAULT_HW_RATIO,
+    total_width: float = PAPER_WIDTH,
     **kwargs
 ) -> Tuple[Figure, Sequence[Sequence[Axes]]]: ...
 
@@ -91,14 +116,17 @@ def plt_figure(
 def plt_figure(
     n_row: int = 1,
     n_col: int = 1,
-    hw_ratio: float = 3/4,
-    total_width: float = 16,
+    hw_ratio: float = DEFAULT_HW_RATIO,
+    total_width: float = PAPER_WIDTH,
     **kwargs
 ) -> Tuple[Figure, Union[Axes, Sequence[Axes], Sequence[Sequence[Axes]]]]:
   width = total_width / n_col
   height = width * hw_ratio
   total_height = height * n_row
-  return plt.subplots(n_row, n_col, figsize=(total_width, total_height), **kwargs) # type: ignore
+  kwargs.setdefault('constrained_layout', True)
+  return plt.subplots(
+    n_row, n_col, figsize=(total_width, total_height), **kwargs
+  )  # type: ignore
 
 
 def plt_save_and_close(fig: Figure | None, path: str):

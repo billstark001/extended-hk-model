@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 from sqlalchemy.orm import Session
 
-from utils.plot import plt_figure, plt_save_and_close
+from utils.plot import plt_figure, plt_save_and_close, setup_paper_params
 from utils.sqlalchemy import create_db_session
 import works.config as cfg
 from works.stat.types import ScenarioStatistics
@@ -26,7 +26,7 @@ rs_keys = list(cfg.rs_names)
 tw_keys = cfg.retweet_rate_array.tolist()
 
 
-plt.rcParams.update({'font.size': 18})
+setup_paper_params()
 
 # utilities
 
@@ -86,11 +86,11 @@ if __name__ == '__main__':
 
   for ax in axes:
     ax.grid(True)
-    ax.set_xlabel('epsilon')
+    ax.set_xlabel(r'$\epsilon$')
 
-  ax1.set_title('(a) gradation Index', loc='left')
-  ax2.set_title('(b) #community (Leiden)', loc='left')
-  ax3.set_title('(c) #opinion Peaks', loc='left')
+  ax1.set_title(r'(a) $I_g$', loc='left')
+  ax2.set_title(r'(b) \#community (Leiden)', loc='left')
+  ax3.set_title(r'(c) \#peaks', loc='left')
   
 
   plt_save_and_close(fig, 'fig/f_eps_select')

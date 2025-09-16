@@ -1,4 +1,5 @@
-from typing import Dict, List, Iterable, Callable, TypeVar, Tuple
+from typing import Dict, List, Iterable, Callable, Sequence, TypeVar, Tuple
+from matplotlib.axes import Axes
 from numpy.typing import NDArray
 
 import os
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-from utils.plot import plt_figure, plt_save_and_close
+from utils.plot import plt_figure, plt_save_and_close, setup_paper_params, PAPER_WIDTH
 from utils.sqlalchemy import create_db_engine_and_session
 import works.config as cfg
 from works.stat.types import ScenarioStatistics
@@ -28,7 +29,7 @@ rs_keys = list(cfg.rs_names)
 tw_keys = cfg.retweet_rate_array.tolist()
 
 
-plt.rcParams.update({'font.size': 18})
+setup_paper_params()
 
 # utilities
 
@@ -111,89 +112,144 @@ def create_heatmap_evaluator_retweet(
   return _create_evaluator(full_data_selector)
 
 
-def plot_heatmap_by_rec(
-    peaks: int | None = None,
-    f: Callable[[ScenarioStatistics],
-                float] = lambda x: x.grad_index,  # type: ignore
-    stats_name='grad. index',
-    with_diff=True,
-    with_std=True,
-    cmap='RdYlBu_r',
+def _plot_single_heatmap(ax, data_mean, data_std, title, cmap, vmin, vmax, with_std=True):
+  """Helper function to plot a single heatmap with optional standard deviation circles."""
+  im = ax.imshow(data_mean, cmap=cmap, vmin=vmin, vmax=vmax)
+  ax.set_title(title, loc='left')
 
-    heatmap_min=0,
-    heatmap_max=1,
+  # Add standard deviation circles
+  if with_std:
+    for i in range(data_std.shape[0]):
+      for j in range(data_std.shape[1]):
+        std_val = data_std[i, j]
+        if not np.isnan(std_val):
+          ax.scatter(j, i, s=std_val * 1000, facecolors='none',
+                     edgecolors='midnightblue', linewidths=2, alpha=0.6)
 
-    diff_range=0.6,
-):
-  engine, session = create_db_engine_and_session(
-      stats_db_path, ScenarioStatistics.Base)
-  evaluator_st = create_heatmap_evaluator(session, "StructureM9", peaks)
-  evaluator_op = create_heatmap_evaluator(session, "OpinionM9", peaks)
+  return im
 
-  grad_index_mean_st, grad_index_std_st = evaluator_st(f)
-  grad_index_mean_op, grad_index_std_op = evaluator_op(f)
 
-  grad_index_diff = grad_index_mean_op - grad_index_mean_st
+def _setup_heatmap_axes(axes: Sequence[Axes], layout='1row'):
+  """Helper function to setup common properties for heatmap axes.
 
-  fig, axes = plt_figure(
-      n_row=1,
-      n_col=3 if with_diff else 2,
-      hw_ratio=1,
-      total_width=18 if with_diff else 12,
-  )
-
-  if with_diff:
-    ax1, ax2, ax3 = axes
-  else:
-    ax1, ax2 = axes
-
-  im1 = ax1.imshow(grad_index_mean_st, cmap=cmap,
-                   vmin=heatmap_min, vmax=heatmap_max)
-  ax1.set_title(f'(a) {stats_name} (structure)', loc='left')
-  fig.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
-
-  # 在ax1上添加标准差圆圈
-  for i in range(grad_index_std_st.shape[0]) if with_std else ():
-    for j in range(grad_index_std_st.shape[1]):
-      std_val = grad_index_std_st[i, j]
-      if not np.isnan(std_val):
-        ax1.scatter(j, i, s=std_val * 1000, facecolors='none',
-                    edgecolors='midnightblue', linewidths=2, alpha=0.6)
-
-  im2 = ax2.imshow(grad_index_mean_op, cmap=cmap,
-                   vmin=heatmap_min, vmax=heatmap_max)
-  ax2.set_title(f'(b) {stats_name} (opinion)', loc='left')
-  fig.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04)
-
-  # 在ax2上添加标准差圆圈
-  for i in range(grad_index_std_op.shape[0]) if with_std else ():
-    for j in range(grad_index_std_op.shape[1]):
-      std_val = grad_index_std_op[i, j]
-      if not np.isnan(std_val):
-        ax2.scatter(j, i, s=std_val * 1000, facecolors='none',
-                    edgecolors='midnightblue', linewidths=2, alpha=0.6)
-
-  if with_diff:
-    im3 = ax3.imshow(grad_index_diff, cmap='RdBu',
-                     vmin=-diff_range, vmax=diff_range)
-    ax3.set_title('(c) difference', loc='left')
-    fig.colorbar(im3, ax=ax3, fraction=0.046, pad=0.04)
-
-  for ax in axes:
+  Args:
+    axes: List of axes to setup
+    layout: '1row' for single row layout, '2row' for 2x3 layout
+  """
+  for i, ax in enumerate(axes):
     ax.invert_yaxis()
     ax.set_xticks(np.arange(cfg.decay_rate_array.size))
     ax.set_yticks(np.arange(cfg.rewiring_rate_array.size))
 
-    ax.set_xlabel('influence')
-    ax.set_xticklabels(cfg.decay_rate_array, rotation=90)
+    # For 2x3 layout, show y-axis labels on leftmost columns (indices 0 and 3)
+    # For 1-row layout, show y-axis labels only on the first axis
+    if layout == '2row':
+      show_ylabel = (i % 3 == 0)  # First column of each row
+      show_xlabel = (i // 3 == 1)  # Only bottom row
+    else:
+      show_ylabel = (i == 0)  # Only first axis
+      show_xlabel = True
 
-    if ax is ax1:
-      ax.set_ylabel('rewiring')
+    if show_xlabel:
+      ax.set_xlabel(r'influence ($\alpha$)')
+      ax.set_xticklabels(cfg.decay_rate_array, rotation=90)
+    else:
+      ax.set_xlabel('')
+      ax.set_xticklabels([])
+
+    if show_ylabel:
+      ax.set_ylabel(r'rewiring ($q$)')
       ax.set_yticklabels(cfg.rewiring_rate_array)
     else:
       ax.set_ylabel('')
       ax.set_yticklabels([])
 
+
+def plot_combined_heatmaps(
+    metrics: List[Tuple[Callable[[ScenarioStatistics], float], str, dict]],
+    with_diff=True,
+    with_std=True,
+):
+  """Plot multiple metrics in a combined figure.
+
+  Args:
+    metrics: List of tuples (function, stats_name, plot_kwargs)
+    peaks: Peak count filter
+    with_diff: Whether to show difference plots
+    with_std: Whether to show standard deviation circles
+  """
+  engine, session = create_db_engine_and_session(
+      stats_db_path, ScenarioStatistics.Base)
+
+  # Calculate data for all metrics
+  all_data = []
+  for f, stats_name, kwargs in metrics:
+    peaks = kwargs.get('peaks', None)
+    evaluator_st = create_heatmap_evaluator(session, "StructureM9", peaks)
+    evaluator_op = create_heatmap_evaluator(session, "OpinionM9", peaks)
+    mean_st, std_st = evaluator_st(f)
+    mean_op, std_op = evaluator_op(f)
+    diff = mean_op - mean_st
+    all_data.append(
+        (mean_st, std_st, mean_op, std_op, diff, stats_name, kwargs))
+
+  # Setup figure
+  n_metrics = len(metrics)
+  n_cols_per_metric = 3 if with_diff else 2
+  total_cols = n_metrics * n_cols_per_metric
+
+  # Use 2x3 layout instead of 1x6
+  fig, axes_orig = plt_figure(
+      n_row=2,
+      n_col=3,
+      hw_ratio=1,
+      constrained_layout=False,
+  )
+
+  # Flatten axes for easier indexing
+  axes = np.array(axes_orig).flatten().tolist()
+
+  for metric_idx, (mean_st, std_st, mean_op, std_op, diff, stats_name, kwargs) in enumerate(all_data):
+    base_idx = metric_idx * n_cols_per_metric
+
+    # Get plot parameters
+    cmap = kwargs.get('cmap', 'RdYlBu_r')
+    heatmap_min = kwargs.get('heatmap_min', 0)
+    heatmap_max = kwargs.get('heatmap_max', 1)
+    diff_range = kwargs.get('diff_range', 0.6)
+
+    # Generate subplot labels
+    label_prefix = chr(ord('a') + metric_idx * n_cols_per_metric)
+
+    # Plot structure heatmap
+    ax_st = axes[base_idx]
+    im_st = _plot_single_heatmap(
+        ax_st, mean_st, std_st,
+        f'({chr(ord(label_prefix) + 0)}) {stats_name} (structure)',
+        cmap, heatmap_min, heatmap_max, with_std)
+    fig.colorbar(im_st, ax=ax_st, fraction=0.046, pad=0.04)
+
+    # Plot opinion heatmap
+    ax_op = axes[base_idx + 1]
+    im_op = _plot_single_heatmap(
+        ax_op, mean_op, std_op,
+        f'({chr(ord(label_prefix) + 1)}) {stats_name} (opinion)',
+        cmap, heatmap_min, heatmap_max, with_std)
+    fig.colorbar(im_op, ax=ax_op, fraction=0.046, pad=0.04)
+
+    # Plot difference heatmap if requested
+    if with_diff:
+      ax_diff = axes[base_idx + 2]
+      cur_chr = chr(ord(label_prefix) + 2)
+      sub1_chr = chr(ord(label_prefix) + 0)
+      sub2_chr = chr(ord(label_prefix) + 1)
+      im_diff = _plot_single_heatmap(
+          ax_diff, diff, np.zeros_like(diff),
+          f'({cur_chr}) difference ({sub2_chr} - {sub1_chr})',
+          'RdBu_r', -diff_range, diff_range, False)
+      fig.colorbar(im_diff, ax=ax_diff, fraction=0.046, pad=0.04)
+
+  _setup_heatmap_axes(axes, layout='2row')
   fig.tight_layout()
 
   session.close()
@@ -205,7 +261,7 @@ def plot_heatmap_by_rec(
 def plot_heatmap_by_retweet(
     f: Callable[[ScenarioStatistics],
                 float] = lambda x: x.grad_index,  # type: ignore
-    stats_name='grad. index',
+    stats_name='$I_g$',
     heatmap_min=0,
     heatmap_max=1,
 ):
@@ -227,7 +283,8 @@ def plot_heatmap_by_retweet(
   stats = [e(f) for e in evaluators]
 
   fig, axes = plt_figure(
-      n_row=1, n_col=4, hw_ratio=1, total_width=24,
+      n_row=1, n_col=4, hw_ratio=1,
+      constrained_layout=False,
   )
 
   for i, ax in enumerate(axes):
@@ -239,24 +296,16 @@ def plot_heatmap_by_retweet(
     ax.set_title(f'(a) {stats_name} ({labels[i]})', loc='left')
     fig.colorbar(im1, ax=ax, fraction=0.046, pad=0.04)
 
-    # 在ax1上添加标准差圆圈
-    # for i in range(grad_index_std_st.shape[0]):
-    #   for j in range(grad_index_std_st.shape[1]):
-    #     std_val = grad_index_std_st[i, j]
-    #     if not np.isnan(std_val):
-    #       ax.scatter(j, i, s=std_val * 1000, facecolors='none',
-    #                   edgecolors='midnightblue', linewidths=2, alpha=0.6)
-
-  for ax in axes:
+  for i, ax in enumerate(axes):
     ax.invert_yaxis()
     ax.set_xticks(np.arange(cfg.decay_rate_array.size))
     ax.set_yticks(np.arange(cfg.rewiring_rate_array.size))
 
-    ax.set_xlabel('influence')
+    ax.set_xlabel(r'influence ($\alpha$)')
     ax.set_xticklabels(cfg.decay_rate_array, rotation=90)
 
-    if ax is ax:
-      ax.set_ylabel('rewiring')
+    if i == 0:
+      ax.set_ylabel(r'rewiring ($q$)')
       ax.set_yticklabels(cfg.rewiring_rate_array)
     else:
       ax.set_ylabel('')
@@ -283,26 +332,27 @@ if __name__ == '__main__':
     assert x.active_step is not None
     return np.log10(x.active_step)
 
-  plt_save_and_close(
-      plot_heatmap_by_rec(
-          peaks=None, f=f_grad, stats_name='grad. index'
-      ), 'fig/f_grad_index'
-  )
+  # Create combined plot for gradient index and polarization backdrop index
+  metrics = [
+      (f_grad, '$I_g$', {
+          'cmap': 'RdYlBu_r', 'heatmap_min': 0,
+          'heatmap_max': 1, 'diff_range': 0.6
+      }),
+      (f_p_backdrop, r"$I_p'$, #P=1", {
+          'cmap': 'YlGnBu', 'heatmap_min': 1, 'heatmap_max': 8, 'diff_range': 4, 'peaks': 1}),
+  ]
 
   plt_save_and_close(
-      plot_heatmap_by_rec(
-          peaks=1, f=f_p_backdrop,
-          stats_name='MPI, #P=1', heatmap_min=1, heatmap_max=8, diff_range=1,
-          with_diff=False, cmap='YlGnBu', with_std=False,
-      ), 'fig/f_p_backdrop_1_peak'
+      plot_combined_heatmaps(
+          metrics=metrics,
+          with_diff=True,
+          with_std=False,  # Disable std for cleaner look as in original f_p_backdrop plot
+      ), 'fig/f_grad_and_pol_trad_index'
   )
 
   plt_save_and_close(
       plot_heatmap_by_retweet(
           f=f_active_step,
-          stats_name='log10(t_a)', heatmap_max=5, heatmap_min=1,
+          stats_name=r'$\log_{10}(t_a)$', heatmap_max=5, heatmap_min=1,
       ), 'fig/f_p_active_step'
   )
-
-  # plot_heatmap(peaks=2, f=f_p_backdrop,
-  #              stats_name='PBD, #P=2', heatmap_max=2).show()
