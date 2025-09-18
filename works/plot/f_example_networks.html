@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>五种网络状态的可配置示例</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      margin: 0;
+    }
+
+    .container {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-rows: auto auto;
+      gap: 60px 100px;
+      justify-items: center;
+      align-items: center;
+      width: min-content;
+      margin: 0 auto;
+    }
+
+    .control-panel {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .save-btn {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    .save-btn:hover {
+      background-color: #0056b3;
+    }
+
+    .regenerate-btn {
+      background-color: #28a745;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 0 5px;
+    }
+
+    .regenerate-btn:hover {
+      background-color: #218838;
+    }
+
+    .chart-container {
+      background-color: #fff;
+      position: relative;
+    }
+
+    /* 特定位置定位 */
+    #graph1 {
+      grid-column: 1;
+      grid-row: 1 / 3;
+      align-self: center;
+    }
+
+    #graph2 {
+      grid-column: 2;
+      grid-row: 1;
+    }
+
+    #graph3 {
+      grid-column: 2;
+      grid-row: 2;
+    }
+
+    #graph4 {
+      grid-column: 3;
+      grid-row: 1;
+    }
+
+    #graph5 {
+      grid-column: 3;
+      grid-row: 2;
+    }
+
+    /* 箭头样式 */
+    .arrow {
+      position: absolute;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .arrow-line {
+      stroke: #333;
+      stroke-width: 4px;
+      fill: none;
+    }
+
+    .arrow-line.dashed {
+      stroke-dasharray: 5, 5;
+    }
+
+    .arrow-head {
+      fill: #333;
+    }
+
+    h3 {
+      text-align: center;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      font-size: xx-large;
+      font-weight: 400;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="control-panel">
+    <div style="margin-bottom: 15px;">
+      <button class="regenerate-btn" onclick="regenerateGraph('random')">重新生成随机网络</button>
+      <button class="regenerate-btn" onclick="regenerateGraph('homogenized')">重新生成同质化网络</button>
+      <button class="regenerate-btn" onclick="regenerateGraph('polarized')">重新生成极化网络</button>
+      <button class="regenerate-btn" onclick="regenerateGraph('consensual')">重新生成共识网络</button>
+      <button class="regenerate-btn" onclick="regenerateGraph('furtherPolarized')">重新生成进一步极化网络</button>
+    </div>
+    <button class="save-btn" onclick="saveToPDF()">保存为 PDF</button>
+  </div>
+
+  <div class="container" id="main-container">
+    <div id="graph1" class="chart-container"><svg></svg>
+      <h3>1. Random</h3>
+    </div>
+    <div id="graph2" class="chart-container"><svg></svg>
+      <h3>2. Homogenizing</h3>
+    </div>
+    <div id="graph3" class="chart-container"><svg></svg>
+      <h3>3. Polarizing</h3>
+    </div>
+    <div id="graph4" class="chart-container"><svg></svg>
+      <h3>4. Consensual</h3>
+    </div>
+    <div id="graph5" class="chart-container"><svg></svg>
+      <h3>5. Segregated</h3>
+    </div>
+
+    <!-- 箭头SVG覆盖层 -->
+    <svg class="arrow" id="arrows-svg">
+      <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon class="arrow-head" points="0 0, 10 3.5, 0 7" />
+        </marker>
+        <marker id="arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon class="arrow-head" points="0 0, 10 3.5, 0 7" />
+        </marker>
+      </defs>
+    </svg>
+  </div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+  <!-- 本地模块化脚本 -->
+  <script src="./scripts/arrow-drawer.js"></script>
+  <script src="./scripts/pdf-saver.js"></script>
+  <script src="./scripts/app.js"></script>
+  <script>
+    // 简化的PDF保存函数
+    async function saveToPDF() {
+      try {
+        const element = document.getElementById('main-container');
+        if (!element) {
+          alert('找不到要保存的内容');
+          return;
+        }
+
+        // 更新按钮状态
+        const button = document.querySelector('.save-btn');
+        const originalText = button.textContent;
+        button.textContent = '保存中...';
+        button.disabled = true;
+
+        // 使用html2canvas截图
+        const canvas = await html2canvas(element, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff',
+          logging: false
+        });
+
+        // 创建PDF
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF({
+          orientation: 'landscape',
+          unit: 'mm',
+          format: 'a3'
+        });
+
+        const imgWidth = 420; // A3 landscape width in mm
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgWidth, imgHeight);
+        pdf.save('network_examples.pdf');
+
+        // 恢复按钮状态
+        button.textContent = originalText;
+        button.disabled = false;
+
+      } catch (error) {
+        console.error('PDF generation failed:', error);
+        alert('PDF生成失败，请查看控制台了解详细错误信息。');
+        
+        // 恢复按钮状态
+        const button = document.querySelector('.save-btn');
+        button.textContent = '保存为 PDF';
+        button.disabled = false;
+      }
+    }
+
+    const width = 400;
+    const height = 400;
+
+    // --- 可配置参数 ---
+    // 您可以在这里轻松修改每个图的节点和边的数量
+    const nodes = 40;
+    const edges = 80;
+    const graphConfigs = {
+      random: { nodes, edges },
+      homogenized: { nodes, edges, colorGap: 0.6 },
+      // 对于极化图, edges 指的是社群内部的总边数, interLinks 是社群之间的边数
+      polarized: { nodes, edges: edges - 5, interLinks: 5, colorGap: 0.6 },
+      consensual: { nodes, edges },
+      furtherPolarized: { nodes, edges: edges - 2, interLinks: 2, colorGap: 0.8 }
+    };
+
+    // --- 颜色定义与新的色谱 ---
+    const red = "#d62728";
+    const blue = "#1f77b4";
+    const grey = "#aaaaaa";
+    // 定义一个从红到蓝，中间经过灰色的色谱
+    const customColorScale = d3.scaleLinear().domain([0, 0.5, 1]).range([red, grey, blue]);
+
+    // --- 数据生成函数 ---
+
+    function stripSmallComponents({ nodes, links }) {
+      // 构建邻接表
+      const adjacencyList = {};
+      nodes.forEach(node => adjacencyList[node.id] = []);
+      links.forEach(link => {
+        adjacencyList[link.source].push(link.target);
+        adjacencyList[link.target].push(link.source);
+      });
+
+      // 使用DFS找到所有连通分量
+      const visited = new Set();
+      const components = [];
+
+      function dfs(nodeId, component) {
+        visited.add(nodeId);
+        component.push(nodeId);
+        adjacencyList[nodeId].forEach(neighbor => {
+          if (!visited.has(neighbor)) {
+            dfs(neighbor, component);
+          }
+        });
+      }
+
+      nodes.forEach(node => {
+        if (!visited.has(node.id)) {
+          const component = [];
+          dfs(node.id, component);
+          components.push(component);
+        }
+      });
+
+      // 过滤掉小于3个节点的连通分量
+      const largeComponents = components.filter(c => c.length >= 3);
+      const largeNodeIds = new Set(largeComponents.flat());
+
+      // 过滤节点和边
+      const filteredNodes = nodes.filter(node => largeNodeIds.has(node.id));
+      const filteredLinks = links.filter(link => largeNodeIds.has(link.source) && largeNodeIds.has(link.target));
+
+      return { nodes: filteredNodes, links: filteredLinks };
+    }
+
+    // 1. 随机
+    function generateRandomData(config) {
+      const nodes = Array.from({ length: config.nodes }, (_, i) => ({
+        id: i,
+        color: customColorScale(Math.random()) // 颜色在色谱上随机取
+      }));
+      const links = Array.from({ length: config.edges }, () => ({
+        source: Math.floor(Math.random() * config.nodes),
+        target: Math.floor(Math.random() * config.nodes)
+      }));
+      return { nodes, links };
+    }
+
+    // 2. 同质化
+    function generateHomogenizedData(config) {
+      const nodes = Array.from({ length: config.nodes }, (_, i) => ({
+        id: i,
+        color: customColorScale(i / (config.nodes - 1) * config.colorGap + (0.5 - config.colorGap / 2)) // 颜色沿色谱平滑过渡
+      }));
+      const links = [];
+      while (links.length < config.edges) {
+        const i = Math.floor(Math.random() * config.nodes);
+        const j = Math.floor(Math.random() * config.nodes);
+        // 颜色相近的节点更容易连接
+        if (i !== j && Math.abs(i - j) < config.nodes / 6) {
+          links.push({ source: i, target: j });
+        }
+      }
+      return { nodes, links };
+    }
+
+    // 3 & 5. 极化 (通用函数)
+    function generatePolarizedData(config) {
+      const group1_size = Math.floor(config.nodes / 2);
+      const group2_size = config.nodes - group1_size;
+
+      const reddishColor = 0.5 - (config.colorGap ? config.colorGap / 2 : 0.3);
+      const bluishColor = 0.5 + (config.colorGap ? config.colorGap / 2 : 0.3);
+
+      const nodes = Array.from({ length: config.nodes }, (_, i) => ({
+        id: i,
+        group: i < group1_size ? 0 : 1,
+        color: customColorScale(i < group1_size ? reddishColor : bluishColor)
+      }));
+      const links = [];
+      // 内部连接
+      for (let i = 0; i < config.edges; i++) {
+        const group_start = Math.random() < (group1_size / config.nodes) ? 0 : group1_size;
+        const group_size = group_start === 0 ? group1_size : group2_size;
+        links.push({
+          source: Math.floor(Math.random() * group_size) + group_start,
+          target: Math.floor(Math.random() * group_size) + group_start
+        });
+      }
+      // 外部连接
+      for (let i = 0; i < config.interLinks; i++) {
+        links.push({
+          source: Math.floor(Math.random() * group1_size),
+          target: Math.floor(Math.random() * group2_size) + group1_size
+        });
+      }
+      return { nodes, links };
+    }
+
+    // 4. 共识
+    function generateConsensualData(config) {
+      const nodes = Array.from({ length: config.nodes }, (_, i) => ({
+        id: i,
+        // 大部分是灰色，少数是偏灰的蓝色或红色
+        color: Math.random() > 0.85 ? customColorScale(0.3 + Math.random() * 0.4) : grey
+      }));
+      const links = Array.from({ length: config.edges }, () => ({
+        source: Math.floor(Math.random() * config.nodes),
+        target: Math.floor(Math.random() * config.nodes)
+      }));
+      return { nodes, links };
+    }
+
+    const datasets = [
+      { id: '#graph1', data: generateRandomData(graphConfigs.random), linkDistance: 70 },
+      { id: '#graph2', data: generateHomogenizedData(graphConfigs.homogenized), linkDistance: 50 },
+      { id: '#graph3', data: generatePolarizedData(graphConfigs.polarized), linkDistance: 60 },
+      { id: '#graph4', data: generateConsensualData(graphConfigs.consensual), linkDistance: 80 },
+      { id: '#graph5', data: generatePolarizedData(graphConfigs.furtherPolarized), linkDistance: 50 }
+    ].map(d => {
+      d.data = stripSmallComponents(d.data);
+      return d;
+    });
+
+    // --- 绘图函数 ---
+    function createGraph(containerId, graphData, linkDist, isRegeneration = false) {
+      const svg = d3.select(`${containerId} svg`);
+
+      // 如果是重新生成，清除之前的内容
+      if (isRegeneration) {
+        svg.selectAll("*").remove();
+      }
+
+      svg.attr("width", width)
+        .attr("height", height);
+
+      svg.append("defs").append("marker")
+        .attr("id", `arrow-${containerId.slice(1)}`)
+        .attr("viewBox", "0 -5 10 10")
+        .attr("refX", 18)
+        .attr("refY", 0)
+        .attr("markerWidth", 6)
+        .attr("markerHeight", 6)
+        .attr("orient", "auto")
+        .append("path")
+        .attr("d", "M0,-5L10,0L0,5")
+        .attr("fill", "#999");
+
+      const simulation = d3.forceSimulation(graphData.nodes)
+        .force("link", d3.forceLink(graphData.links).id(d => d.id).distance(linkDist))
+        .force("charge", d3.forceManyBody().strength(-60))
+        .force("center", d3.forceCenter(0, 0))
+        .force("collision", d3.forceCollide().radius(10))
+        .force("radial", d3.forceRadial(60, 0, 0).strength(0.1));
+
+      const link = svg.append("g")
+        .attr("stroke", "#999")
+        .attr("stroke-opacity", 0.6)
+        .selectAll("line")
+        .data(graphData.links)
+        .join("line")
+        .attr("stroke-width", 1.5)
+        .attr("marker-end", `url(#arrow-${containerId.slice(1)})`);
+
+      const node = svg.append("g")
+        .selectAll("circle")
+        .data(graphData.nodes)
+        .join("circle")
+        .attr("r", 8)
+        .attr("fill", d => d.color)
+        .attr("stroke", "#fff")
+        .attr("stroke-width", 1.5)
+        .call(drag(simulation));
+
+      // 自适应视图框调整函数
+      function updateViewBox() {
+        const padding = 5; // 边缘留白
+        const nodeRadius = 8;
+
+        if (graphData.nodes.length === 0) return;
+
+        const xExtent = d3.extent(graphData.nodes, d => d.x);
+        const yExtent = d3.extent(graphData.nodes, d => d.y);
+
+        const minX = (xExtent[0] || 0) - nodeRadius - padding;
+        const maxX = (xExtent[1] || 0) + nodeRadius + padding;
+        const minY = (yExtent[0] || 0) - nodeRadius - padding;
+        const maxY = (yExtent[1] || 0) + nodeRadius + padding;
+
+        const viewWidth = maxX - minX;
+        const viewHeight = maxY - minY;
+
+        svg.attr("viewBox", `${minX} ${minY} ${viewWidth} ${viewHeight}`);
+      }
+
+      simulation.on("tick", () => {
+        link
+          .attr("x1", d => d.source.x)
+          .attr("y1", d => d.source.y)
+          .attr("x2", d => d.target.x)
+          .attr("y2", d => d.target.y);
+
+        node
+          .attr("cx", d => d.x)
+          .attr("cy", d => d.y);
+
+        // 每次tick都更新视图框
+        updateViewBox();
+      });
+
+      // 模拟结束后也更新一次视图框
+      simulation.on("end", updateViewBox);
+    }
+
+    // --- 重新生成网络函数 ---
+    function regenerateGraph(type) {
+      let data, linkDistance, containerId;
+
+      switch (type) {
+        case 'random':
+          data = stripSmallComponents(generateRandomData(graphConfigs.random));
+          linkDistance = 70;
+          containerId = '#graph1';
+          break;
+        case 'homogenized':
+          data = stripSmallComponents(generateHomogenizedData(graphConfigs.homogenized));
+          linkDistance = 50;
+          containerId = '#graph2';
+          break;
+        case 'polarized':
+          data = stripSmallComponents(generatePolarizedData(graphConfigs.polarized));
+          linkDistance = 60;
+          containerId = '#graph3';
+          break;
+        case 'consensual':
+          data = stripSmallComponents(generateConsensualData(graphConfigs.consensual));
+          linkDistance = 80;
+          containerId = '#graph4';
+          break;
+        case 'furtherPolarized':
+          data = stripSmallComponents(generatePolarizedData(graphConfigs.furtherPolarized));
+          linkDistance = 50;
+          containerId = '#graph5';
+          break;
+        default:
+          return;
+      }
+
+      // 更新对应的数据集
+      const datasetIndex = datasets.findIndex(d => d.id === containerId);
+      if (datasetIndex !== -1) {
+        datasets[datasetIndex].data = data;
+        datasets[datasetIndex].linkDistance = linkDistance;
+      }
+
+      // 重新创建图表
+      createGraph(containerId, data, linkDistance, true);
+    }
+
+    function drag(simulation) {
+      function dragstarted(event) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        event.subject.fx = event.subject.x;
+        event.subject.fy = event.subject.y;
+      }
+      function dragged(event) {
+        event.subject.fx = event.x;
+        event.subject.fy = event.y;
+      }
+      function dragended(event) {
+        if (!event.active) simulation.alphaTarget(0);
+        event.subject.fx = null;
+        event.subject.fy = null;
+      }
+      return d3.drag()
+        .on("start", dragstarted)
+        .on("drag", dragged)
+        .on("end", dragended);
+    }
+
+    // --- 渲染所有图表 ---
+    datasets.forEach(d => createGraph(d.id, d.data, d.linkDistance));
+
+    // --- 初始化应用（延迟以确保图表完全渲染） ---
+    setTimeout(() => {
+        const app = new NetworkVisualizationApp();
+        app.init();
+    }, 500);
+
+  </script>
+</body>
+
+</html>
