@@ -6,6 +6,7 @@
     <title>Homophily-Polarization Diagram</title>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/svg2pdf.js@2.0.3/dist/svg2pdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -88,7 +89,7 @@
 </head>
 <body>
     <div class="container">
-        <h2>Homotopy Phase Diagram</h2>
+        <h2>Ip-Ih Phase Diagram</h2>
         
         <div class="controls">
             <h3>Point Positions & Tangent Controls</h3>
@@ -157,6 +158,8 @@
             <button onclick="importConfig()">Import Configuration</button>
             <button onclick="resetConfig()">Reset to Default</button>
             <button onclick="exportToPDF()" class="export-button">Export to PDF</button>
+            <button onclick="exportToSVG()" class="export-button">Export to SVG</button>
+            <button onclick="exportMultiple()" class="export-button">Export Both</button>
             <textarea id="configTextarea" placeholder="Configuration JSON will appear here..."></textarea>
         </div>
 
@@ -251,6 +254,7 @@
     </div>
 
     <script src="./scripts/default-config.js"></script>
+    <script src="./scripts/export-utils.js"></script>
     <script>
         // 使用您提供的默认配置
         let config = getDefaultConfig();
@@ -475,22 +479,24 @@
 
         // 导出为PDF
         async function exportToPDF() {
-            try {
-                const svg = document.getElementById('mainSVG');
-                const { jsPDF } = window.jspdf;
-                const pdf = new jsPDF('l', 'pt', [600, 450]); // 横向，点为单位
-                
-                await svg2pdf(svg, pdf, {
-                    xOffset: 0,
-                    yOffset: 0,
-                    scale: 1
-                });
-                
-                pdf.save('homotopy-phase-diagram.pdf');
-            } catch (error) {
-                console.error('PDF export error:', error);
-                alert('Error exporting PDF: ' + error.message);
-            }
+            await window.exportUtils.exportSVGToPDF('mainSVG', 'ip-ih-phase-diagram.pdf', {
+                orientation: 'landscape',
+                unit: 'pt',
+                format: [600, 450]
+            });
+        }
+
+        // 导出为SVG
+        async function exportToSVG() {
+            await window.exportUtils.exportToSVG('mainSVG', 'ip-ih-phase-diagram.svg');
+        }
+
+        // 导出多种格式
+        async function exportMultiple() {
+            await window.exportUtils.exportMultipleFormats('container', 'ip-ih-phase-diagram', ['pdf', 'svg'], {
+                pdf: { orientation: 'landscape', format: 'a4' },
+                svg: {}
+            });
         }
 
         // 初始化

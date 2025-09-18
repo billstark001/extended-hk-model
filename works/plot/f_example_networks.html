@@ -130,6 +130,8 @@
       <button class="regenerate-btn" onclick="regenerateGraph('furtherPolarized')">重新生成进一步极化网络</button>
     </div>
     <button class="save-btn" onclick="saveToPDF()">保存为 PDF</button>
+    <button class="save-btn" onclick="saveToSVG()">保存为 SVG</button>
+    <button class="save-btn" onclick="saveMultiple()">保存多种格式</button>
   </div>
 
   <div class="container" id="main-container">
@@ -168,60 +170,93 @@
 
   <!-- 本地模块化脚本 -->
   <script src="./scripts/arrow-drawer.js"></script>
-  <script src="./scripts/pdf-saver.js"></script>
+  <script src="./scripts/export-utils.js"></script>
   <script src="./scripts/app.js"></script>
   <script>
-    // 简化的PDF保存函数
+    // 统一的导出函数
     async function saveToPDF() {
+      await window.exportUtils.exportToPDF('main-container', 'network_examples.pdf', {
+        orientation: 'landscape',
+        format: 'a3'
+      });
+    }
+
+    async function saveToSVG() {
+      // 由于页面包含多个D3生成的SVG，我们需要特殊处理
       try {
-        const element = document.getElementById('main-container');
-        if (!element) {
-          alert('找不到要保存的内容');
+        // 获取所有SVG元素
+        const svgElements = document.querySelectorAll('svg');
+        
+        if (svgElements.length === 0) {
+          alert('未找到SVG元素');
           return;
         }
 
-        // 更新按钮状态
-        const button = document.querySelector('.save-btn');
-        const originalText = button.textContent;
-        button.textContent = '保存中...';
-        button.disabled = true;
+        // 创建一个容器SVG来包含所有图表
+        const containerSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        containerSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        containerSvg.setAttribute('width', '1200');
+        containerSvg.setAttribute('height', '800');
+        containerSvg.setAttribute('viewBox', '0 0 1200 800');
 
-        // 使用html2canvas截图
-        const canvas = await html2canvas(element, {
-          scale: 2,
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: '#ffffff',
-          logging: false
-        });
+        // 添加背景
+        const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        background.setAttribute('width', '1200');
+        background.setAttribute('height', '800');
+        background.setAttribute('fill', '#ffffff');
+        containerSvg.appendChild(background);
 
-        // 创建PDF
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF({
-          orientation: 'landscape',
-          unit: 'mm',
-          format: 'a3'
-        });
-
-        const imgWidth = 420; // A3 landscape width in mm
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgWidth, imgHeight);
-        pdf.save('network_examples.pdf');
-
-        // 恢复按钮状态
-        button.textContent = originalText;
-        button.disabled = false;
-
-      } catch (error) {
-        console.error('PDF generation failed:', error);
-        alert('PDF生成失败，请查看控制台了解详细错误信息。');
+        // 复制每个SVG的内容到容器中
+        let yOffset = 0;
+        let xOffset = 0;
+        const svgWidth = 400;
+        const svgHeight = 350;
         
-        // 恢复按钮状态
-        const button = document.querySelector('.save-btn');
-        button.textContent = '保存为 PDF';
-        button.disabled = false;
+        svgElements.forEach((svg, index) => {
+          if (svg.id === 'arrows-svg') return; // 跳过箭头层
+          
+          const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+          
+          // 计算位置（模拟网格布局）
+          const col = index % 3;
+          const row = Math.floor(index / 3);
+          xOffset = col * svgWidth;
+          yOffset = row * svgHeight;
+          
+          group.setAttribute('transform', `translate(${xOffset}, ${yOffset})`);
+          
+          // 复制SVG内容
+          const clonedContent = svg.cloneNode(true);
+          Array.from(clonedContent.children).forEach(child => {
+            group.appendChild(child.cloneNode(true));
+          });
+          
+          containerSvg.appendChild(group);
+        });
+
+        // 创建临时ID并导出
+        const tempId = 'temp-combined-svg';
+        containerSvg.id = tempId;
+        document.body.appendChild(containerSvg);
+        
+        await window.exportUtils.exportToSVG(tempId, 'network_examples.svg');
+        
+        // 清理临时元素
+        document.body.removeChild(containerSvg);
+        
+      } catch (error) {
+        console.error('SVG导出失败:', error);
+        alert('SVG导出失败，将使用HTML截图方式导出');
+        // 降级到HTML导出
+        await window.exportUtils.exportToPDF('main-container', 'network_examples_fallback.pdf');
       }
+    }
+
+    async function saveMultiple() {
+      await window.exportUtils.exportMultipleFormats('main-container', 'network_examples', ['pdf', 'svg'], {
+        pdf: { orientation: 'landscape', format: 'a3' },
+        svg: {}
+      });
     }
 
     const width = 400;
