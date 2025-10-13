@@ -161,6 +161,8 @@ cython_debug/
 nohup.out
 run**
 fig**
-fig_final**
+fig_**
+run_**
+
 
 *.tmp

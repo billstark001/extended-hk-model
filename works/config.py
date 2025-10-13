@@ -122,6 +122,53 @@ for i_sim in range(n_sims_rep):
     all_scenarios_rep.append(x)
 
 
+mech_phases = [
+  (7, 0, 3, 'StructureM9', 0),
+  (7, 0, 0, 'StructureM9', 0),
+  (4, 4, 0, 'OpinionM9', 6),
+  (2, 7, 0, 'OpinionM9', 6),
+  (2, 7, 0, 'StructureM9', 0),
+]
+
+all_scenarios_mech: List[GoMetadataDict] = [
+  create_go_metadata_dict(
+    's_mech_baseline',
+    rewiring=0.05,
+    decay=0.05,
+    retweet=0,
+    recsys_type='Random',
+  ),
+  create_go_metadata_dict(
+    's_mech_influence',
+    rewiring=0.05,
+    decay=0.1,
+    retweet=0,
+    recsys_type='Random',
+  ),
+  create_go_metadata_dict(
+    's_mech_retweet',
+    rewiring=0.05,
+    decay=0.05,
+    retweet=0.1,
+    recsys_type='Random',
+  ),
+  create_go_metadata_dict(
+    's_mech_op_recsys',
+    rewiring=0.05,
+    decay=0.05,
+    retweet=0.1,
+    recsys_type='OpinionM9',
+  ),
+  *[create_go_metadata_dict(
+    f's_mech_phase{i+1}',
+    rewiring=rewiring_rate_array[rw],
+    decay=decay_rate_array[dc],
+    retweet=retweet_rate_array[rt],
+    recsys_type=rs,
+    tweet_retain_count=t_retain,
+  ) for i, (rw, dc, rt, rs, t_retain) in enumerate(mech_phases)]
+]
+
 # assign paths
 
 # path related

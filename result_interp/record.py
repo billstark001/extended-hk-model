@@ -20,8 +20,8 @@ re_graph = re.compile(r'graph-(\d+).msgpack')
 class RawSimulationRecord:
 
   def __init__(self, base_dir: str, metadata: 'GoMetadataDict'):
-    unique_name = metadata['UniqueName']
-    full_path = os.path.join(base_dir, unique_name)
+    self.unique_name = metadata['UniqueName']
+    full_path = os.path.join(base_dir, self.unique_name)
     file_list = os.listdir(full_path)
     file_list.sort()
     # finished mark
