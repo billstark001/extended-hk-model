@@ -19,6 +19,10 @@
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
+        #main-container {
+            width: 600px;
+            height: 450px;
+        }
         .controls {
             margin-bottom: 20px;
             padding: 15px;
@@ -162,7 +166,8 @@
             <button onclick="exportMultiple()" class="export-button">Export Both</button>
             <textarea id="configTextarea" placeholder="Configuration JSON will appear here..."></textarea>
         </div>
-
+        
+        <div id="main-container">
         <svg id="mainSVG" width="600" height="450" viewBox="0 0 600 450">
             <!-- 定义斜线纹路图案 -->
             <defs>
@@ -251,6 +256,7 @@
             <text id="labelFinal" text-anchor="middle" font-size="18" fill="#333">max.</text>
             <text id="labelSegregated" text-anchor="middle" font-size="18" fill="#333">segregated</text>
         </svg>
+        </div>
     </div>
 
     <script src="./scripts/default-config.js"></script>
@@ -479,21 +485,21 @@
 
         // 导出为PDF
         async function exportToPDF() {
-            await window.exportUtils.exportSVGToPDF('mainSVG', 'ip-ih-phase-diagram.pdf', {
+            await window.exportUtils.exportToPDF('main-container', 'f_grad_index_illust.pdf', {
                 orientation: 'landscape',
-                unit: 'pt',
-                format: [600, 450]
+                // unit: 'px',
+                // format: [600, 450]
             });
         }
 
         // 导出为SVG
         async function exportToSVG() {
-            await window.exportUtils.exportToSVG('mainSVG', 'ip-ih-phase-diagram.svg');
+            await window.exportUtils.exportToSVG('mainSVG', 'f_grad_index_illust.svg');
         }
 
         // 导出多种格式
         async function exportMultiple() {
-            await window.exportUtils.exportMultipleFormats('container', 'ip-ih-phase-diagram', ['pdf', 'svg'], {
+            await window.exportUtils.exportMultipleFormats('container', 'f_grad_index_illust', ['pdf', 'svg'], {
                 pdf: { orientation: 'landscape', format: 'a4' },
                 svg: {}
             });

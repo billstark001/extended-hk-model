@@ -175,7 +175,7 @@
   <script>
     // 统一的导出函数
     async function saveToPDF() {
-      await window.exportUtils.exportToPDF('main-container', 'network_examples.pdf', {
+      await window.exportUtils.exportToPDF('main-container', 'f_example_networks.pdf', {
         orientation: 'landscape',
         format: 'a3'
       });
@@ -239,7 +239,7 @@
         containerSvg.id = tempId;
         document.body.appendChild(containerSvg);
         
-        await window.exportUtils.exportToSVG(tempId, 'network_examples.svg');
+        await window.exportUtils.exportToSVG(tempId, 'f_example_networks.svg');
         
         // 清理临时元素
         document.body.removeChild(containerSvg);
@@ -248,12 +248,12 @@
         console.error('SVG导出失败:', error);
         alert('SVG导出失败，将使用HTML截图方式导出');
         // 降级到HTML导出
-        await window.exportUtils.exportToPDF('main-container', 'network_examples_fallback.pdf');
+        await window.exportUtils.exportToPDF('main-container', 'f_example_networks_fallback.pdf');
       }
     }
 
     async function saveMultiple() {
-      await window.exportUtils.exportMultipleFormats('main-container', 'network_examples', ['pdf', 'svg'], {
+      await window.exportUtils.exportMultipleFormats('main-container', 'f_example_networks', ['pdf', 'svg'], {
         pdf: { orientation: 'landscape', format: 'a3' },
         svg: {}
       });

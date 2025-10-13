@@ -199,7 +199,7 @@ if __name__ == '__main__':
 
   plot_colorbar(fig, [*axes_r1, *axes_r2])
 
-  fig.tight_layout()
+  # fig.tight_layout()
   plt_save_and_close(fig, 'fig/f_supp_mech_map_g1')
 
   del fig, axes_r1, axes_r2
@@ -222,5 +222,5 @@ if __name__ == '__main__':
 
   plot_colorbar(fig, [*axes_r1, *axes_r2])
 
-  fig.tight_layout()
+  # fig.tight_layout()
   plt_save_and_close(fig, 'fig/f_supp_mech_map_g2')
