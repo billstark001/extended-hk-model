@@ -86,7 +86,7 @@ if __name__ == '__main__':
       [(np.mean(v, axis=0), np.std(v, axis=0)) for v in vals.values()]
   ).reshape(-1, 8).T
 
-  fig, axes = plt_figure(n_row=1, n_col=4, hw_ratio=2/1, total_width=12)
+  fig, axes = plt_figure(n_row=1, n_col=4, hw_ratio=2/1, total_width=10)
 
   (ax1, ax2, ax3, ax4) = axes
 
@@ -99,10 +99,10 @@ if __name__ == '__main__':
   ax4.bar(plt_x, plt_ti_avg, yerr=plt_ti_std,
           color='skyblue', edgecolor='black', alpha=0.5)
 
-  ax1.set_title(r'(a) $I_g$', loc='left')
-  ax2.set_title(r'(b) \#community', loc='left')
-  ax3.set_title(r'(c) \#peaks', loc='left')
-  ax4.set_title(r'(d) \#triads', loc='left')
+  ax1.set_title(r'(a) $I_c$', loc='left')
+  ax2.set_title(r'(b) #community', loc='left')
+  ax3.set_title(r'(c) #peaks', loc='left')
+  ax4.set_title(r'(d) #triads', loc='left')
 
   for ax in axes:
     ax.grid(True)

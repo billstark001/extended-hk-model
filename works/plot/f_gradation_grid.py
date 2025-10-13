@@ -261,7 +261,7 @@ def plot_combined_heatmaps(
 def plot_heatmap_by_retweet(
     f: Callable[[ScenarioStatistics],
                 float] = lambda x: x.grad_index,  # type: ignore
-    stats_name='$I_g$',
+    stats_name='$I_c$',
     heatmap_min=0,
     heatmap_max=1,
 ):
@@ -334,7 +334,7 @@ if __name__ == '__main__':
 
   # Create combined plot for gradient index and polarization backdrop index
   metrics = [
-      (f_grad, '$I_g$', {
+      (f_grad, '$I_c$', {
           'cmap': 'RdYlBu_r', 'heatmap_min': 0,
           'heatmap_max': 1, 'diff_range': 0.6
       }),

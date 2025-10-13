@@ -75,7 +75,7 @@ def plot_colorbar(fig: Figure, axes: List[Axes]):
   norm = mpl.colors.Normalize(vmin=0, vmax=1)  # type: ignore
   sm = plt.cm.ScalarMappable(cmap=cmap_name, norm=norm)
   sm.set_array([])  # only needed for older matplotlib versions
-  cbar = fig.colorbar(sm, ax=axes, orientation='vertical')
+  cbar = fig.colorbar(sm, ax=axes, orientation='vertical', aspect=30, pad=0.01)
   cbar.set_label('$t_n$')
   return cbar
 
@@ -182,7 +182,7 @@ if __name__ == '__main__':
   recs_g2 = recs[4:]
 
   # group 1
-  fig, (axes_r1, axes_r2) = plt_figure(n_row=2, n_col=4, total_width=16)
+  fig, (axes_r1, axes_r2) = plt_figure(n_row=2, n_col=4)
 
   for i, rec in enumerate(recs_g1):
     set_ax_format(axes_r1[i], xlabel=False, ylabel=(i == 0), dt=1 / plot_res)
@@ -205,7 +205,7 @@ if __name__ == '__main__':
   del fig, axes_r1, axes_r2
 
   # group 2
-  fig, (axes_r1, axes_r2) = plt_figure(n_row=2, n_col=5, total_width=18)
+  fig, (axes_r1, axes_r2) = plt_figure(n_row=2, n_col=5, total_width=14)
 
   for i, rec in enumerate(recs_g2):
     set_ax_format(axes_r1[i], xlabel=False, ylabel=(i == 0), dt=1 / plot_res)

@@ -73,7 +73,7 @@ if __name__ == '__main__':
           [(np.mean(v, axis=0), np.std(v, axis=0)) for v in vals.values()]
       ).reshape(-1, 6).T
 
-  fig, axes = plt_figure(n_row=1, n_col=3, total_width=24)
+  fig, axes = plt_figure(n_row=1, n_col=3)
   (ax1, ax2, ax3) = axes
 
   ax1.errorbar(plt_x, plt_ig_avg, yerr=plt_ig_std, zorder=1)
@@ -86,11 +86,11 @@ if __name__ == '__main__':
 
   for ax in axes:
     ax.grid(True)
-    ax.set_xlabel(r'$\epsilon$')
+    ax.set_xlabel(r'tolerance ($\epsilon$)')
 
-  ax1.set_title(r'(a) $I_g$', loc='left')
-  ax2.set_title(r'(b) \#community (Leiden)', loc='left')
-  ax3.set_title(r'(c) \#peaks', loc='left')
+  ax1.set_title(r'(a) $I_c$', loc='left')
+  ax2.set_title(r'(b) #community (Leiden)', loc='left')
+  ax3.set_title(r'(c) #peaks', loc='left')
   
 
   plt_save_and_close(fig, 'fig/f_eps_select')

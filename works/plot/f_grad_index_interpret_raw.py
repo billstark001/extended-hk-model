@@ -129,8 +129,8 @@ m_filters = [
 ]
 
 m_labels = [
-    'polarizing',
-    'homogenizing',
+    'd-pol.',
+    'c-pol.',
 ]
 
 m_colors = [
