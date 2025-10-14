@@ -115,7 +115,7 @@ def eval_rec_x_map(ax_x: Axes, rec_parsed: ParsedRecord):
   cmap = plt.get_cmap(cmap_name)
 
   for time_idx in range(x_map.shape[1] - 1):
-    color = cmap(t_seq_resampled[time_idx + 1])
+    color = cmap(t_seq_resampled[time_idx])
     ax_x.plot(
         x_map[:, time_idx:time_idx+2, 0].T,
         x_map[:, time_idx:time_idx+2, 1].T,
@@ -139,12 +139,12 @@ def eval_rec_dx_map(ax_dx: Axes, rec_parsed: ParsedRecord):
   )(xx_resample)
 
   dx_n_map_raw = np.array([
-      x_seq_resampled, dx_n_seq_resampled,
+      x_seq_resampled[:-1], dx_n_seq_resampled[1:],
   ])  # (2, t, n)
   dx_n_map_trans = dx_n_map_raw.transpose((2, 1, 0))
   cmap = plt.get_cmap(cmap_name)
 
-  for time_idx in range(1, dx_n_map_trans.shape[1] - 1):
+  for time_idx in range(dx_n_map_trans.shape[1] - 1):
     color = cmap(t_seq_resampled[time_idx])
     ax_dx.plot(
         dx_n_map_trans[:, time_idx:time_idx+2, 0].T,
