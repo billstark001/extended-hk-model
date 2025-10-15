@@ -54,7 +54,7 @@ def get_basic_data(rec: RawSimulationRecord) -> ParsedRecord:
 
   t_seq = np.arange(rec.opinions.shape[0]) / active_step
 
-  print(rec.max_step)
+  print(rec_key, rec.max_step, active_step)
 
   k_seq = rec.agent_numbers[:, :, 0]
   x_seq = rec.opinions[:, :]
@@ -67,7 +67,7 @@ def get_basic_data(rec: RawSimulationRecord) -> ParsedRecord:
   return ret
 
 
-plot_res = 50
+plot_res = 100
 cmap_name = 'managua'
 
 
@@ -153,7 +153,7 @@ def eval_rec_dx_map(ax_dx: Axes, rec_parsed: ParsedRecord):
     )
 
 
-def set_ax_format(ax: Axes, dt: float | str = 0.02, ylim=0.5, xlabel=True, ylabel=True):
+def set_ax_format(ax: Axes, dt: float | str = 0.02, ylim=0.4, xlabel=True, ylabel=True):
   ax.set_xlim(-1, 1)
   ax.set_ylim(-ylim, ylim)
   ax.grid(True, linestyle='--', alpha=0.5)
