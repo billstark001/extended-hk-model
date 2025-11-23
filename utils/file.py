@@ -2,6 +2,11 @@ from typing import List
 
 import os
 import json
+import base64
+import zlib
+import numpy as np
+from numpy.typing import NDArray, DTypeLike
+import logging
 
 import pandas as pd
 
@@ -49,8 +54,10 @@ def read_records(pat_file_paths: List[str], full_sim_len: int = 1):
       keys_non_0d.append(k)
 
   vals_0d = pd.DataFrame(
-      [[x[key] for key in keys_0d]
-       for x in pat_files_raw],
+      [
+          [x[key] for key in keys_0d]
+          for x in pat_files_raw
+      ],
       columns=keys_0d
   )
   vals_non_0d = {
@@ -59,3 +66,32 @@ def read_records(pat_file_paths: List[str], full_sim_len: int = 1):
   }
 
   return vals_0d, vals_non_0d
+
+
+def compress_array_to_b64(arr: NDArray) -> str:
+  compressed = zlib.compress(arr.tobytes())
+  return base64.b64encode(compressed).decode("utf-8")
+
+
+def decompress_b64_to_array(b64_str: str, dtype: DTypeLike) -> NDArray:
+  compressed = base64.b64decode(b64_str.encode("utf-8"))
+  return np.frombuffer(zlib.decompress(compressed), dtype=dtype)
+
+
+def init_logger(name: str | None, path: str | None = None):
+  logger = logging.getLogger(name)
+  formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+
+  console_handler = logging.StreamHandler()
+  console_handler.setLevel(logging.DEBUG)
+  console_handler.setFormatter(formatter)
+  logger.addHandler(console_handler)
+
+  if path:
+    file_handler = logging.FileHandler(path)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+  logger.setLevel(logging.DEBUG)
+  return logger

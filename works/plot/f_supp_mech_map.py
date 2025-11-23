@@ -1,9 +1,6 @@
 from typing import Tuple, TypeAlias, List
-
-from result_interp.record import RawSimulationRecord
-from utils.plot import plt_figure, plt_save_and_close, setup_paper_params
-import works.config as cfg
-from works.stat.context import c
+import os
+import pickle
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -11,216 +8,346 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from scipy.interpolate import interp1d
 
+from result_interp.record import RawSimulationRecord
+from utils.plot import plt_figure, plt_save_and_close, setup_paper_params
+from utils.stat import estimate_force_field_kde, estimate_potential_from_force
+import works.config as cfg
+from works.stat.context import c
 
-def seq_to_map(seq: np.ndarray, diff=False) -> np.ndarray:
-  # agent_num = seq.shape[1]
-  map_raw = np.array([
-      seq[:-1, :], (seq[1:, :] - seq[:-1, :]) if diff else seq[1:, :],
-  ])  # (2, t-1, n)
-  map_flattened = map_raw.transpose((2, 1, 0))  # (n, t-1, 2)
-  return map_flattened
+ParsedRecord: TypeAlias = "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]"
+CACHE_FILE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))
+                    ), "basic_data_cache.pkl"
+)
+PLOT_RES = 100
+CMAP_NAME = "managua"
+EXTRAPOLATE_FILL: float = "extrapolate"  # type: ignore
 
-
-def k_points_to_map(k_points: np.ndarray, max_val=15) -> np.ndarray:
-  # k_points: (*, 2)
-  cnt_mat = np.zeros((max_val + 1, max_val + 1), dtype=int)
-
-  for x in range(max_val + 1):
-    for y in range(max_val + 1):
-      cnt_mat[y, x] = np.sum((k_points[:, 0] == x) & (k_points[:, 1] == y))
-
-  return cnt_mat
+# region Data Loading and Caching
 
 
-ParsedRecord: TypeAlias = 'tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]'
+def load_cache() -> dict:
+  if os.path.exists(CACHE_FILE_PATH):
+    try:
+      with open(CACHE_FILE_PATH, "rb") as f:
+        return pickle.load(f)
+    except Exception as e:
+      print(f"Warning: Failed to load cache: {e}")
+  return {}
+
+
+def save_cache(cache: dict):
+  try:
+    with open(CACHE_FILE_PATH, "wb") as f:
+      pickle.dump(cache, f)
+  except Exception as e:
+    print(f"Warning: Failed to save cache: {e}")
 
 
 def get_basic_data(rec: RawSimulationRecord) -> ParsedRecord:
+  if globals().get("basic_data_cache", None) is None:
+    globals()["basic_data_cache"] = load_cache()
 
-  if globals().get('basic_data_cache', None) is None:
-    globals()['basic_data_cache'] = {}
+  cache = globals()["basic_data_cache"]
   rec_key = rec.unique_name
-  if rec_key in globals()['basic_data_cache']:
-    return globals()['basic_data_cache'][rec_key]
 
-  c.set_state(
-      active_threshold=0.98,
-      min_inactive_value=0.75,
-      scenario_record=rec,
-  )
+  if rec_key in cache:
+    cached = cache[rec_key]
+    return (cached["t_seq"], cached["x_seq"], cached["dx_n_seq"], cached["k_seq"])
+
+  c.set_state(active_threshold=0.98,
+              min_inactive_value=0.75, scenario_record=rec)
   c.debug = True
 
-  active_step: float = c.active_step
-
+  active_step = c.active_step
   t_seq = np.arange(rec.opinions.shape[0]) / active_step
+  k_seq = rec.agent_numbers[:, :, 0]
+  x_seq = rec.opinions[:, :]
+  k_seq_l_1 = np.maximum(k_seq, 1)
+  dx_n_seq = rec.agent_opinion_sums[:, :, 0] / k_seq_l_1
 
   print(rec_key, rec.max_step, active_step)
 
-  k_seq = rec.agent_numbers[:, :, 0]
-  x_seq = rec.opinions[:, :]
-  k_seq_l_1 = np.copy(k_seq)
-  k_seq_l_1[k_seq_l_1 < 1] = 1
-  dx_n_seq = rec.agent_opinion_sums[:, :, 0] / k_seq_l_1
+  cache[rec_key] = {
+      "t_seq": t_seq,
+      "x_seq": x_seq,
+      "dx_n_seq": dx_n_seq,
+      "k_seq": k_seq,
+      "active_step": active_step,
+  }
+  save_cache(cache)
 
-  ret: ParsedRecord = (t_seq, x_seq, dx_n_seq, k_seq)
-  globals()['basic_data_cache'][rec_key] = ret
-  return ret
+  return (t_seq, x_seq, dx_n_seq, k_seq)
 
 
-plot_res = 100
-cmap_name = 'managua'
+# endregion
+
+# region Data Processing
+
+
+def resample_sequence(seq: np.ndarray, num_points: int) -> np.ndarray:
+  xx = np.linspace(0, seq.shape[0] - 1, num=num_points)
+  return interp1d(
+      np.arange(seq.shape[0]), seq, axis=0, kind="linear", fill_value=EXTRAPOLATE_FILL
+  )(xx)
+
+
+def compute_trajectory_differentials(
+    rec_parsed: ParsedRecord,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+  t_seq, x_seq, _, _ = rec_parsed
+  x_seq_resampled = resample_sequence(x_seq, PLOT_RES)
+  t_seq_resampled = resample_sequence(t_seq, PLOT_RES)
+  dx_seq = np.diff(x_seq_resampled, axis=0)
+  return t_seq_resampled, x_seq_resampled, dx_seq
+
+
+def compute_neighbor_differentials(
+    rec_parsed: ParsedRecord,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+  t_seq, x_seq, dx_n_seq, _ = rec_parsed
+  x_seq_resampled = resample_sequence(x_seq, PLOT_RES)
+  t_seq_resampled = resample_sequence(t_seq, PLOT_RES)
+  dx_n_seq_resampled = resample_sequence(dx_n_seq, PLOT_RES)
+  return t_seq_resampled, x_seq_resampled, dx_n_seq_resampled
+
+
+def seq_to_map(seq: np.ndarray, diff=False) -> np.ndarray:
+  map_raw = np.array(
+      [seq[:-1, :], np.diff(seq, axis=0) if diff else seq[1:, :]])
+  return map_raw.transpose((2, 1, 0))
+
+
+def k_points_to_map(k_points: np.ndarray, max_val=15) -> np.ndarray:
+  cnt_mat = np.zeros((max_val + 1, max_val + 1), dtype=int)
+  for x in range(max_val + 1):
+    for y in range(max_val + 1):
+      cnt_mat[y, x] = np.sum((k_points[:, 0] == x) & (k_points[:, 1] == y))
+  return cnt_mat
+
+
+def compute_segmented_potentials(
+    rec_parsed: ParsedRecord,
+    n_segments: int = 5,
+    x_min: float = -1.0,
+    x_max: float = 1.0,
+    n_grid: int = 200,
+    h: float = 0.1,
+    k: float = 1.0,
+    use_neighbor_diff: bool = False,
+    normalize_to_zero: bool = False,
+) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
+
+  if use_neighbor_diff:
+    t_seq, x_seq, dx_seq = compute_neighbor_differentials(rec_parsed)
+    dx_data, x_data = dx_seq[1:, :], x_seq[:-1, :]
+  else:
+    t_seq, x_seq, dx_seq = compute_trajectory_differentials(rec_parsed)
+    dx_data, x_data = dx_seq, x_seq[:-1, :]
+
+  t_normalized = np.clip(t_seq[:-1], 0, 1)
+  x_grid = np.linspace(x_min, x_max, n_grid)
+  segment_edges = np.linspace(0, 1, n_segments + 1)
+
+  F_segments, V_segments = [], []
+
+  for i in range(n_segments):
+    t_start, t_end = segment_edges[i], segment_edges[i + 1]
+    mask = (t_normalized >= t_start) & (
+        t_normalized <= t_end if i == n_segments - 1 else t_normalized < t_end
+    )
+
+    x_segment = x_data[mask, :].flatten()
+    dx_segment = dx_data[mask, :].flatten()
+
+    if len(x_segment) == 0:
+      F_segments.append(np.zeros_like(x_grid))
+      V_segments.append(np.zeros_like(x_grid))
+      continue
+
+    F_grid = estimate_force_field_kde(x_segment, dx_segment, x_grid, h, k)
+    V_grid = estimate_potential_from_force(x_grid, F_grid)
+    if normalize_to_zero:
+      v_grid_mean = np.mean(V_grid)
+      V_grid -= v_grid_mean
+    F_segments.append(F_grid)
+    V_segments.append(V_grid)
+
+  return x_grid, F_segments, V_segments
+
+
+# endregion
+
+# region Plotting
 
 
 def plot_colorbar(fig: Figure, axes: List[Axes]):
   norm = mpl.colors.Normalize(vmin=0, vmax=1)  # type: ignore
-  sm = plt.cm.ScalarMappable(cmap=cmap_name, norm=norm)
-  sm.set_array([])  # only needed for older matplotlib versions
-  cbar = fig.colorbar(sm, ax=axes, orientation='vertical', aspect=30, pad=0.01)
-  cbar.set_label('$t_n$')
+  sm = plt.cm.ScalarMappable(cmap=CMAP_NAME, norm=norm)
+  sm.set_array([])
+  cbar = fig.colorbar(sm, ax=axes, orientation="vertical", aspect=30, pad=0.01)
+  cbar.set_label("$t_n$")
   return cbar
-
-
-def eval_rec_k_map(ax_k: Axes, rec_parsed: ParsedRecord):
-
-  _, _, _, k_seq = rec_parsed
-
-  k_seq = rec.agent_numbers[:, :, 0]
-  k_seq_l_1 = np.copy(k_seq)
-  k_seq_l_1[k_seq_l_1 < 1] = 1
-
-  k_points = seq_to_map(k_seq).reshape(-1, 2)  # (n*(t-1), 2)
-  k_points[k_points > 15] = 15
-  k_map_raw = k_points_to_map(k_points, max_val=15)
-  k_map = np.log1p(k_map_raw)
-
-  ax_k.imshow(k_map, origin='lower', cmap='YlGnBu')
-
-
-extrapolate_fill_value: float = 'extrapolate'  # type: ignore
-
-
-def eval_rec_x_map(ax_x: Axes, rec_parsed: ParsedRecord):
-
-  t_seq, x_seq, _, _ = rec_parsed
-  xx_resample = np.linspace(0, x_seq.shape[0] - 1, num=plot_res)
-
-  x_seq_resampled = interp1d(
-      np.arange(x_seq.shape[0]), x_seq, axis=0, kind='linear', fill_value=extrapolate_fill_value
-  )(xx_resample)
-  t_seq_resampled = interp1d(
-      np.arange(t_seq.shape[0]), t_seq, kind='linear', fill_value=extrapolate_fill_value
-  )(xx_resample)
-
-  x_map = seq_to_map(x_seq_resampled, diff=True)
-  cmap = plt.get_cmap(cmap_name)
-
-  for time_idx in range(x_map.shape[1] - 1):
-    color = cmap(t_seq_resampled[time_idx])
-    ax_x.plot(
-        x_map[:, time_idx:time_idx+2, 0].T,
-        x_map[:, time_idx:time_idx+2, 1].T,
-        color=color, linewidth=0.5, alpha=min(0.1 + t_seq_resampled[time_idx] * 0.5, 1)
-    )
-
-
-def eval_rec_dx_map(ax_dx: Axes, rec_parsed: ParsedRecord):
-
-  t_seq, x_seq, dx_n_seq, _ = rec_parsed
-  xx_resample = np.linspace(0, x_seq.shape[0] - 1, num=plot_res)
-
-  x_seq_resampled = interp1d(
-      np.arange(x_seq.shape[0]), x_seq, axis=0, kind='linear', fill_value=extrapolate_fill_value
-  )(xx_resample)
-  t_seq_resampled = interp1d(
-      np.arange(t_seq.shape[0]), t_seq, kind='linear', fill_value=extrapolate_fill_value
-  )(xx_resample)
-  dx_n_seq_resampled = interp1d(
-      np.arange(dx_n_seq.shape[0]), dx_n_seq, axis=0, kind='linear', fill_value=extrapolate_fill_value
-  )(xx_resample)
-
-  dx_n_map_raw = np.array([
-      x_seq_resampled[:-1], dx_n_seq_resampled[1:],
-  ])  # (2, t, n)
-  dx_n_map_trans = dx_n_map_raw.transpose((2, 1, 0))
-  cmap = plt.get_cmap(cmap_name)
-
-  for time_idx in range(dx_n_map_trans.shape[1] - 1):
-    color = cmap(t_seq_resampled[time_idx])
-    ax_dx.plot(
-        dx_n_map_trans[:, time_idx:time_idx+2, 0].T,
-        dx_n_map_trans[:, time_idx:time_idx+2, 1].T,
-        color=color, linewidth=0.5, alpha=min(0.1 + t_seq_resampled[time_idx] * 0.5, 1)
-    )
 
 
 def set_ax_format(ax: Axes, dt: float | str = 0.02, ylim=0.4, xlabel=True, ylabel=True):
   ax.set_xlim(-1, 1)
   ax.set_ylim(-ylim, ylim)
-  ax.grid(True, linestyle='--', alpha=0.5)
+  ax.grid(True, linestyle="--", alpha=0.5)
   if xlabel:
-    ax.set_xlabel(r'$x_i(t)$')
+    ax.set_xlabel(r"$x_i(t)$")
   else:
     ax.set_xticklabels([])
   if ylabel:
-    ax.set_ylabel(rf'$\Delta_{{{dt}}} x_i(t)$')
+    ax.set_ylabel(rf"$\Delta_{{{dt}}} x_i(t)$")
   else:
     ax.set_yticklabels([])
-  return ax
 
 
-if __name__ == '__main__':
+def plot_trajectory_map(ax: Axes, x_map: np.ndarray, t_seq: np.ndarray):
+  cmap = plt.get_cmap(CMAP_NAME)
+  for time_idx in range(x_map.shape[1] - 1):
+    color = cmap(t_seq[time_idx])
+    alpha = min(0.1 + t_seq[time_idx] * 0.5, 1)
+    ax.plot(
+        x_map[:, time_idx: time_idx + 2, 0].T,
+        x_map[:, time_idx: time_idx + 2, 1].T,
+        color=color,
+        linewidth=0.5,
+        alpha=alpha,
+        rasterized=True,
+    )
 
+
+def eval_rec_k_map(ax_k: Axes, rec_parsed: ParsedRecord):
+  _, _, _, k_seq = rec_parsed
+  k_points = seq_to_map(k_seq).reshape(-1, 2)
+  k_points = np.clip(k_points, 0, 15)
+  k_map = np.log1p(k_points_to_map(k_points, max_val=15))
+  ax_k.imshow(k_map, origin="lower", cmap="YlGnBu")
+
+
+def eval_rec_x_map(ax_x: Axes, rec_parsed: ParsedRecord):
+  t_seq_resampled, x_seq_resampled, _ = compute_trajectory_differentials(
+      rec_parsed)
+  x_map = seq_to_map(x_seq_resampled, diff=True)
+  plot_trajectory_map(ax_x, x_map, t_seq_resampled)
+
+
+def eval_rec_dx_map(ax_dx: Axes, rec_parsed: ParsedRecord):
+  t_seq_resampled, x_seq_resampled, dx_n_seq_resampled = (
+      compute_neighbor_differentials(rec_parsed)
+  )
+  dx_n_map = np.array([x_seq_resampled[:-1], dx_n_seq_resampled[1:]]).transpose(
+      (2, 1, 0)
+  )
+  plot_trajectory_map(ax_dx, dx_n_map, t_seq_resampled)
+
+
+def plot_potential_segments(
+    ax: Axes, x_grid: np.ndarray, V_segments: List[np.ndarray], xlabel=True, ylabel=True
+):
+  cmap = plt.get_cmap(CMAP_NAME)
+  n_segments = len(V_segments)
+
+  for i, V in enumerate(V_segments):
+    color = cmap((i + 0.5) / n_segments)
+    ax.plot(x_grid, V, color=color, linewidth=1.5, alpha=0.8)
+
+  ax.set_xlim(-1, 1)
+  ax.grid(True, linestyle="--", alpha=0.5)
+
+  if xlabel:
+    ax.set_xlabel(r"$x$")
+  else:
+    ax.set_xticklabels([])
+  if ylabel:
+    ax.set_ylabel(r"$V(x)$")
+  else:
+    ax.set_yticklabels([])
+
+
+def plot_group(
+    recs: List[RawSimulationRecord], n_col: int, titles: List[str], save_name: str
+):
+  fig, axes_all = plt_figure(n_row=4, n_col=n_col, total_width=n_col * 3)
+  axes_r1, axes_r1_v, axes_r2, axes_r2_v = axes_all
+
+  # Collect all potential values to determine unified y-axis ranges
+  all_V_x = []
+  all_V_dx = []
+
+  for i, rec in enumerate(recs):
+    set_ax_format(axes_r1[i], xlabel=False, ylabel=(i == 0), dt=1 / PLOT_RES)
+    set_ax_format(axes_r2[i], xlabel=False, ylabel=(i == 0), dt="N")
+
+    with rec:
+      rec_parsed = get_basic_data(rec)
+
+    eval_rec_x_map(axes_r1[i], rec_parsed)
+    eval_rec_dx_map(axes_r2[i], rec_parsed)
+
+    x_grid_x, _, V_segments_x = compute_segmented_potentials(
+        rec_parsed, use_neighbor_diff=False, normalize_to_zero=True
+    )
+    x_grid_dx, _, V_segments_dx = compute_segmented_potentials(
+        rec_parsed, use_neighbor_diff=True, normalize_to_zero=True
+    )
+
+    # Collect potential values
+    for V in V_segments_x:
+      all_V_x.extend(V)
+    for V in V_segments_dx:
+      all_V_dx.extend(V)
+
+    plot_potential_segments(
+        axes_r1_v[i], x_grid_x, V_segments_x, xlabel=False, ylabel=(i == 0)
+    )
+    plot_potential_segments(
+        axes_r2_v[i], x_grid_dx, V_segments_dx, xlabel=True, ylabel=(i == 0)
+    )
+
+    char = chr(ord("a") + i)
+    title = f" {titles[i]}" if i < len(titles) else ""
+    axes_r1[i].set_title(f"({char}1){title}", loc="left")
+    axes_r1_v[i].set_title(f"({char}1')", loc="left")
+    axes_r2[i].set_title(f"({char}2)", loc="left")
+    axes_r2_v[i].set_title(f"({char}2')", loc="left")
+
+  # Set unified y-axis ranges for potential plots
+  if all_V_x:
+    v_min_x, v_max_x = np.min(all_V_x), np.max(all_V_x)
+    v_range_x = v_max_x - v_min_x
+    y_margin_x = v_range_x * 0.1  # 10% margin
+    for ax in axes_r1_v:
+      ax.set_ylim(v_min_x - y_margin_x, v_max_x + y_margin_x)
+
+  if all_V_dx:
+    v_min_dx, v_max_dx = np.min(all_V_dx), np.max(all_V_dx)
+    v_range_dx = v_max_dx - v_min_dx
+    y_margin_dx = v_range_dx * 0.1  # 10% margin
+    for ax in axes_r2_v:
+      ax.set_ylim(v_min_dx - y_margin_dx, v_max_dx + y_margin_dx)
+
+  plot_colorbar(fig, [*axes_r1, *axes_r1_v, *axes_r2, *axes_r2_v])
+  plt_save_and_close(fig, save_name)
+
+
+# endregion
+
+
+if __name__ == "__main__":
   setup_paper_params()
 
   recs = [
-      RawSimulationRecord(
-          cfg.get_workspace_dir(name='local_mech'), d,
-      ) for d in cfg.all_scenarios_mech
+      RawSimulationRecord(cfg.get_workspace_dir(name="local_mech"), d)
+      for d in cfg.all_scenarios_mech
   ]
 
-  recs_g1 = recs[:4]
-  recs_g2 = recs[4:]
-
-  # group 1
-  fig, (axes_r1, axes_r2) = plt_figure(n_row=2, n_col=4)
-
-  for i, rec in enumerate(recs_g1):
-    set_ax_format(axes_r1[i], xlabel=False, ylabel=(i == 0), dt=1 / plot_res)
-    set_ax_format(axes_r2[i], xlabel=True, ylabel=(i == 0), dt='N')
-    with rec:
-      rec_parsed = get_basic_data(rec)
-    eval_rec_x_map(axes_r1[i], rec_parsed)
-    eval_rec_dx_map(axes_r2[i], rec_parsed)
-
-  for i, title in enumerate(['baseline', '+influence', '+retweet', 'opinion rec.']):
-    char = chr(ord('a') + i)
-    axes_r1[i].set_title(f'({char}1) {title}', loc='left')
-    axes_r2[i].set_title(f'({char}2)', loc='left')
-
-  plot_colorbar(fig, [*axes_r1, *axes_r2])
-
-  # fig.tight_layout()
-  plt_save_and_close(fig, 'fig/f_supp_mech_map_g1')
-
-  del fig, axes_r1, axes_r2
-
-  # group 2
-  fig, (axes_r1, axes_r2) = plt_figure(n_row=2, n_col=5, total_width=14)
-
-  for i, rec in enumerate(recs_g2):
-    set_ax_format(axes_r1[i], xlabel=False, ylabel=(i == 0), dt=1 / plot_res)
-    set_ax_format(axes_r2[i], xlabel=True, ylabel=(i == 0), dt='N')
-    with rec:
-      rec_parsed = get_basic_data(rec)
-    eval_rec_x_map(axes_r1[i], rec_parsed)
-    eval_rec_dx_map(axes_r2[i], rec_parsed)
-
-  for i in range(5):
-    char = chr(ord('a') + i)
-    axes_r1[i].set_title(f'({char}1)', loc='left')
-    axes_r2[i].set_title(f'({char}2)', loc='left')
-
-  plot_colorbar(fig, [*axes_r1, *axes_r2])
-
-  # fig.tight_layout()
-  plt_save_and_close(fig, 'fig/f_supp_mech_map_g2')
+  plot_group(
+      recs[:4],
+      4,
+      ["baseline", "+influence", "+retweet", "opinion rec."],
+      "fig/f_supp_mech_map_g1",
+  )
+  plot_group(recs[4:], 5, [], "fig/f_supp_mech_map_g2")

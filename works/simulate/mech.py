@@ -1,6 +1,6 @@
 import os
 
-from utils.stat import init_logger
+from utils.file import init_logger
 from works.config import all_scenarios_mech, get_workspace_dir
 from works.simulate.sim_utils import simulate
 

@@ -36,7 +36,7 @@ def analyze_last_return(func: Callable):
     return return_value.id
   elif isinstance(return_value, ast.Tuple):
     if all(isinstance(elt, ast.Name) for elt in return_value.elts):
-      return tuple(elt.id for elt in return_value.elts)
+      return tuple(elt.id for elt in return_value.elts)  # type: ignore
 
   return None
 

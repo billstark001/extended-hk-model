@@ -164,5 +164,8 @@ fig**
 fig_**
 run_**
 
+# cache files
+basic_data_cache.pkl
+basic_data_cache_*.pkl
 
 *.tmp
