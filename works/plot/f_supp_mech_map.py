@@ -252,7 +252,7 @@ def plot_potential_segments(
 
   for i, V in enumerate(V_segments):
     color = cmap((i + 0.5) / n_segments)
-    ax.plot(x_grid, V, color=color, linewidth=1.5, alpha=0.8)
+    ax.plot(x_grid, V, color=color, linewidth=1, alpha=0.8)
 
   ax.set_xlim(-1, 1)
   ax.grid(True, linestyle="--", alpha=0.5)
@@ -288,10 +288,12 @@ def plot_group(
     eval_rec_dx_map(axes_r2[i], rec_parsed)
 
     x_grid_x, _, V_segments_x = compute_segmented_potentials(
-        rec_parsed, use_neighbor_diff=False, normalize_to_zero=True
+        rec_parsed, use_neighbor_diff=False, normalize_to_zero=True,
+        n_segments=10,
     )
     x_grid_dx, _, V_segments_dx = compute_segmented_potentials(
-        rec_parsed, use_neighbor_diff=True, normalize_to_zero=True
+        rec_parsed, use_neighbor_diff=True, normalize_to_zero=True,
+        n_segments=10,
     )
 
     # Collect potential values

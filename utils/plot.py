@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 PAPER_WIDTH = 12.0  # inches
 DEFAULT_HW_RATIO = 4 / 5  # height / width
 
+
 def setup_paper_params():
   """Setup matplotlib parameters optimized for paper publication"""
   plt.rcParams.update({
@@ -42,8 +43,12 @@ def plot_network_snapshot(
     opinion: NDArray,
     G: nx.Graph,
     ax: Optional[Axes] = None,
-    step: int = 0,
-    cmap: str = 'coolwarm'
+    step: int | float | None = None,
+    cmap: str = 'coolwarm',
+    colorbar: bool | Iterable[Axes] = True,
+    node_size: int = 40,
+    alpha: float = 0.36,
+    rasterized: bool = True,
 ):
   if pos is None:
     pos = nx.spring_layout(G, pos=pos)
@@ -59,18 +64,48 @@ def plot_network_snapshot(
 
   nx.draw_networkx_nodes(
       G, ax=ax, pos=pos, node_color=opinion,  # type: ignore
-      cmap=cmap, vmin=-1, vmax=1, node_size=40
+      cmap=cmap, vmin=-1, vmax=1, node_size=node_size,
   )
   nx.draw_networkx_edges(
-      G, ax=ax, pos=pos, node_size=40, alpha=0.36
+      G, ax=ax, pos=pos, node_size=node_size, alpha=alpha
   )
+  if ax is not None and rasterized:
+    ax.set_rasterized(True)
 
-  if ax is not None:
+  if ax is not None and step is not None:
     ax.set_xlabel(f'step = {step}')
 
-    plt.colorbar(sm, ticks=np.linspace(-1, 1, 5), ax=ax)
+  if colorbar:
+    ax_colorbar = ax if colorbar is True else colorbar  # type: ignore
+    if ax_colorbar is not None:
+      plt.colorbar(sm, ticks=np.linspace(-1, 1, 5), ax=ax_colorbar)
 
-  plt.tight_layout()
+  # plt.tight_layout()
+
+
+def plot_opinion_colorbar(
+    fig: Figure,
+    axes: Union[Axes, List[Axes]],
+    cmap: str = 'coolwarm',
+    label: str = 'Opinion'
+):
+  """Plot a unified colorbar for opinion values across multiple axes
+
+  Args:
+    fig: The figure object
+    axes: Single axis or list of axes to attach the colorbar to
+    cmap: Colormap name (default: 'coolwarm')
+    label: Label for the colorbar (default: 'Opinion')
+  """
+  norm = mpl.colors.Normalize(vmin=-1, vmax=1)  # type: ignore
+  sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+  sm.set_array([])
+
+  axes_list = axes if isinstance(axes, list) else [axes]
+  cbar = fig.colorbar(sm, ax=axes_list, ticks=np.linspace(-1, 1, 5),
+                      orientation="vertical", aspect=30, pad=0.01)
+  cbar.set_label(label)
+  return cbar
 
 
 @overload
@@ -125,7 +160,7 @@ def plt_figure(
   total_height = height * n_row
   kwargs.setdefault('constrained_layout', True)
   return plt.subplots(
-    n_row, n_col, figsize=(total_width, total_height), **kwargs
+      n_row, n_col, figsize=(total_width, total_height), **kwargs
   )  # type: ignore
 
 
