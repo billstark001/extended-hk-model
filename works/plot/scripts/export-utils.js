@@ -69,7 +69,8 @@ class ExportUtils {
                 logging: false,
                 orientation: 'landscape',
                 format: 'a4',
-                unit: 'mm'
+                unit: 'mm',
+                multiPage: true,
             };
 
             const finalOptions = { ...defaultOptions, ...options };
@@ -108,7 +109,7 @@ class ExportUtils {
             const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
             // 如果图片高度超过页面，分页处理
-            if (imgHeight > maxHeight) {
+            if (imgHeight > maxHeight && finalOptions.multiPage) {
                 let position = 0;
                 while (position < imgHeight) {
                     if (position > 0) {

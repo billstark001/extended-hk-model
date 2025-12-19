@@ -23,6 +23,10 @@
       margin: 0 auto;
     }
 
+    .container h3 {
+      font-size: 2.5em;
+    }
+
     .control-panel {
       text-align: center;
       margin-bottom: 20px;
@@ -139,10 +143,10 @@
       <h3>1. Random</h3>
     </div>
     <div id="graph2" class="chart-container"><svg></svg>
-      <h3>2. C-Polarization</h3>
+      <h3>2. SbP Pathway</h3>
     </div>
     <div id="graph3" class="chart-container"><svg></svg>
-      <h3>3. D-Polarization</h3>
+      <h3>3. PbS Pathway</h3>
     </div>
     <div id="graph4" class="chart-container"><svg></svg>
       <h3>4. Consensual</h3>
@@ -166,6 +170,7 @@
 
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
   <!-- 本地模块化脚本 -->
@@ -177,7 +182,8 @@
     async function saveToPDF() {
       await window.exportUtils.exportToPDF('main-container', 'f_example_networks.pdf', {
         orientation: 'landscape',
-        format: 'a3'
+        format: 'a3',
+        multiPage: false,
       });
     }
 
@@ -210,7 +216,7 @@
         let yOffset = 0;
         let xOffset = 0;
         const svgWidth = 400;
-        const svgHeight = 350;
+        const svgHeight = 330;
         
         svgElements.forEach((svg, index) => {
           if (svg.id === 'arrows-svg') return; // 跳过箭头层
@@ -416,6 +422,9 @@
     });
 
     // --- 绘图函数 ---
+    const NODE_RADIUS = 10;
+    const ARROW_SIZE = 6;
+    const ARROW_DISTANCE = NODE_RADIUS * 2 + 1;
     function createGraph(containerId, graphData, linkDist, isRegeneration = false) {
       const svg = d3.select(`${containerId} svg`);
 
@@ -430,10 +439,10 @@
       svg.append("defs").append("marker")
         .attr("id", `arrow-${containerId.slice(1)}`)
         .attr("viewBox", "0 -5 10 10")
-        .attr("refX", 18)
+        .attr("refX", ARROW_DISTANCE)
         .attr("refY", 0)
-        .attr("markerWidth", 6)
-        .attr("markerHeight", 6)
+        .attr("markerWidth", ARROW_SIZE)
+        .attr("markerHeight", ARROW_SIZE)
         .attr("orient", "auto")
         .append("path")
         .attr("d", "M0,-5L10,0L0,5")
@@ -459,7 +468,7 @@
         .selectAll("circle")
         .data(graphData.nodes)
         .join("circle")
-        .attr("r", 8)
+        .attr("r", NODE_RADIUS)
         .attr("fill", d => d.color)
         .attr("stroke", "#fff")
         .attr("stroke-width", 1.5)
