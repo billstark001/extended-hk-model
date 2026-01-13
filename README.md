@@ -1,8 +1,7 @@
 # Extended Hegselmann-Krause Model for Social Media Echo Chamber Dynamics
 
 This repository contains the simulation code and analysis scripts for the research paper:
-
-## [TODO Paper Title]
+**Segregation Before Polarization: How Recommendation Strategies Shape Echo Chamber Pathways**
 
 ## Overview
 

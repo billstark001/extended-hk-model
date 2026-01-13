@@ -90,13 +90,13 @@ m_filters = [
 ]
 
 m_labels = [
-    'd-pol.',
-    'c-pol.',
+    'PbS',
+    'SbP',
 ]
 
 m_colors = [
-  'tab:blue',
-  'tab:red'
+    'tab:blue',
+    'tab:red'
 ]
 
 
@@ -118,12 +118,12 @@ def evaluate_bar_on_filters(
 def plot_bar(
     ax: Axes,
     f: Callable[[ScenarioStatistics], float],
-    use_retweet_filters = False,
+    use_retweet_filters=False,
     plot_title: str = "",
 ) -> List[str]:
-  
+
   ret: List[str] = []
-  
+
   k_filters = k_filters_retweet if use_retweet_filters else k_filters_recsys
   k_labels = k_labels_retweet if use_retweet_filters else k_labels_recsys
 
@@ -149,7 +149,8 @@ def plot_bar(
     ret.append(f"\n=== {plot_title} ===")
   for k_idx in range(k):
     for m_idx in range(m):
-      ret.append(f"{k_labels[k_idx]} - {m_labels[m_idx]}: {means[k_idx, m_idx]:.4f} ± {stds[k_idx, m_idx]:.4f}")
+      ret.append(
+          f"{k_labels[k_idx]} - {m_labels[m_idx]}: {means[k_idx, m_idx]:.4f} ± {stds[k_idx, m_idx]:.4f}")
 
   width = 0.6 / m  # width of the bars
   x = np.arange(k)
@@ -162,7 +163,7 @@ def plot_bar(
         yerr=stds[:, i],
         label=m_labels[i],
         capsize=4,
-        edgecolor='black', 
+        edgecolor='black',
         color=m_colors[i],
         alpha=0.5,
     )
@@ -177,9 +178,10 @@ if __name__ == '__main__':
 
   engine, session = create_db_engine_and_session(
       stats_db_path, ScenarioStatistics.Base)
-  
+
   # Create figure with 2 rows, 4 columns for 8 subplots (a-h)
-  fig, axes = plt_figure(n_row=2, n_col=4, total_width=PAPER_WIDTH * 0.8, hw_ratio=4/3, constrained_layout=False)
+  fig, axes = plt_figure(n_row=2, n_col=4, total_width=PAPER_WIDTH *
+                         0.8, hw_ratio=4/3, constrained_layout=False)
 
   def f_ev_count(x: ScenarioStatistics) -> float:
     assert x.event_count is not None
@@ -189,23 +191,14 @@ if __name__ == '__main__':
     assert x.event_step_mean is not None
     assert x.active_step is not None
     return x.event_step_mean / max(x.active_step, 1)
-  
-  ext_env_perp_vec = np.array([-1/3, 1])
-  ext_env_perp_vec /= np.linalg.norm(ext_env_perp_vec) 
-  # this one already normalized
-  
-  def f_ext_env_index(x: ScenarioStatistics) -> float:
+
+  def f_auc_subj_pol_index(x: ScenarioStatistics) -> float:
     assert x.x_indices is not None
     assert x.active_step is not None
     assert x.g_index is not None
-    f_init = piecewise_linear_integral_trapz(x.x_indices / x.active_step, x.g_index, 0, 1/3)
-    f_final =  piecewise_linear_integral_trapz(x.x_indices / x.active_step, x.g_index, 0, 1)
-    
-    f_vec = np.array([f_init, f_final])
-    
-    f_proj = np.dot(f_vec, ext_env_perp_vec) 
-    
-    return f_proj
+    f = piecewise_linear_integral_trapz(
+        x.x_indices / x.active_step, x.g_index, 0, 1)
+    return f
 
   def f_triads(x: ScenarioStatistics) -> float:
     assert x.triads is not None
@@ -213,79 +206,87 @@ if __name__ == '__main__':
 
   # First row (a-d): comparing recommendation strategies (St vs Op)
   # Plot a: Event count by recommendation strategy
-  data_a = plot_bar(axes[0][0], f=f_ev_count, use_retweet_filters=False, plot_title="Event Count by RecSys")
+  data_a = plot_bar(axes[0][0], f=f_ev_count,
+                    use_retweet_filters=False, plot_title="Event Count by RecSys")
   axes[0][0].set_title('(a)', loc='left')
   axes[0][0].set_ylabel('#rewiring events')
   axes[0][0].grid(True, linestyle='--', alpha=0.5)
   # axes[0][0].legend()
   axes[0][0].set_yscale('log')
-  axes[0][0].set_ylim(100, 50000)
-  
+  axes[0][0].set_ylim(1e3, 1e4)
+
   # Plot b: Event step by recommendation strategy
-  data_b = plot_bar(axes[0][1], f=f_ev_step, use_retweet_filters=False, plot_title="Event Step by RecSys")
+  data_b = plot_bar(axes[0][1], f=f_ev_step,
+                    use_retweet_filters=False, plot_title="Event Step by RecSys")
   axes[0][1].set_title('(b)', loc='left')
   axes[0][1].set_ylabel('norm. occurrence time')
   axes[0][1].grid(True, linestyle='--', alpha=0.5)
   # axes[0][1].legend()
   axes[0][1].set_ylim(0, 0.4)
-  
-  # Plot c: Front-loading environment index by recommendation strategy
-  data_c = plot_bar(axes[0][2], f_ext_env_index, use_retweet_filters=False, plot_title="Front-loading Environment Index by RecSys")
+
+  # Plot c: AUC of Subjective Polarization Index by recommendation strategy
+  data_c = plot_bar(axes[0][2], f=f_auc_subj_pol_index, use_retweet_filters=False,
+                    plot_title="AUC of Subjective Polarization Index by RecSys")
   axes[0][2].set_title('(c)', loc='left')
-  axes[0][2].set_ylabel(r"front-loading env. index $I_e'$")
+  axes[0][2].set_ylabel(r"AUC of $I_s$")
   axes[0][2].grid(True, linestyle='--', alpha=0.5)
   # axes[0][2].legend()
-  axes[0][2].set_ylim(0.3, 0.7)
-  
+  axes[0][2].set_ylim(0.3, 0.8)
+
   # Plot d: Triads by recommendation strategy
-  data_d = plot_bar(axes[0][3], f=f_triads, use_retweet_filters=False, plot_title="Triads by RecSys")
+  data_d = plot_bar(axes[0][3], f=f_triads,
+                    use_retweet_filters=False, plot_title="Triads by RecSys")
   axes[0][3].set_title('(d)', loc='left')
   axes[0][3].set_ylabel('#triads')
   axes[0][3].grid(True, linestyle='--', alpha=0.5)
   axes[0][3].legend(fontsize=8)
   axes[0][3].set_yscale('log')
   axes[0][3].set_ylim(1000, 200000)
-  
+
   # Second row (e-h): comparing retweet status (!R vs R)
   # Plot e: Event count by retweet status
-  data_e = plot_bar(axes[1][0], f=f_ev_count, use_retweet_filters=True, plot_title="Event Count by Retweet")
+  data_e = plot_bar(axes[1][0], f=f_ev_count,
+                    use_retweet_filters=True, plot_title="Event Count by Retweet")
   axes[1][0].set_title('(e)', loc='left')
   axes[1][0].set_ylabel('#rewiring events')
   axes[1][0].grid(True, linestyle='--', alpha=0.5)
   # axes[1][0].legend()
   axes[1][0].set_yscale('log')
-  axes[1][0].set_ylim(100, 50000)
-  
+  axes[1][0].set_ylim(1e3, 1e4)
+
   # Plot f: Event step by retweet status
-  data_f = plot_bar(axes[1][1], f=f_ev_step, use_retweet_filters=True, plot_title="Event Step by Retweet")
+  data_f = plot_bar(axes[1][1], f=f_ev_step,
+                    use_retweet_filters=True, plot_title="Event Step by Retweet")
   axes[1][1].set_title('(f)', loc='left')
   axes[1][1].set_ylabel('norm. occurrence time')
   axes[1][1].grid(True, linestyle='--', alpha=0.5)
   # axes[1][1].legend()
   axes[1][1].set_ylim(0, 0.4)
-  
-  # Plot g: Front-loading environment index by retweet status
-  data_g = plot_bar(axes[1][2], f_ext_env_index, use_retweet_filters=True, plot_title="Front-loading Environment Index by Retweet")
+
+  # Plot g: AUC of Subjective Polarization Index by retweet status
+  data_g = plot_bar(axes[1][2], f=f_auc_subj_pol_index, use_retweet_filters=True,
+                    plot_title="AUC of Subjective Polarization Index by Retweet")
   axes[1][2].set_title('(g)', loc='left')
-  axes[1][2].set_ylabel(r"front-loading env. index $I_e'$")
+  axes[1][2].set_ylabel(r"AUC of $I_s$")
   axes[1][2].grid(True, linestyle='--', alpha=0.5)
   # axes[1][2].legend()
-  axes[1][2].set_ylim(0.3, 0.7)
-  
+  axes[1][2].set_ylim(0.3, 0.8)
+
   # Plot h: Triads by retweet status
-  data_h = plot_bar(axes[1][3], f=f_triads, use_retweet_filters=True, plot_title="Triads by Retweet")
+  data_h = plot_bar(axes[1][3], f=f_triads,
+                    use_retweet_filters=True, plot_title="Triads by Retweet")
   axes[1][3].set_title('(h)', loc='left')
   axes[1][3].set_ylabel('#triads')
   axes[1][3].grid(True, linestyle='--', alpha=0.5)
   axes[1][3].legend(fontsize=8)
   axes[1][3].set_yscale('log')
   axes[1][3].set_ylim(1000, 200000)
-  
+
   # Optimize layout before saving
   # Save the combined figure
   fig.tight_layout()
   plt_save_and_close(fig, 'fig/f_grad_index_interpret')
-  
+
   with open('fig/f_grad_index_interpret_data.txt', 'w') as f:
     for line in data_a + data_b + data_c + data_d + data_e + data_f + data_g + data_h:
       f.write(line + '\n')

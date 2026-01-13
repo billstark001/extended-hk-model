@@ -88,7 +88,7 @@ if __name__ == '__main__':
     ax.grid(True)
     ax.set_xlabel(r'tolerance ($\epsilon$)')
 
-  ax1.set_title(r'(a) $I_c$', loc='left')
+  ax1.set_title(r'(a) $I_w$', loc='left')
   ax2.set_title(r'(b) #community (Leiden)', loc='left')
   ax3.set_title(r'(c) #peaks', loc='left')
   

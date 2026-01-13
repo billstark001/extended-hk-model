@@ -99,7 +99,7 @@ if __name__ == '__main__':
   ax4.bar(plt_x, plt_ti_avg, yerr=plt_ti_std,
           color='skyblue', edgecolor='black', alpha=0.5)
 
-  ax1.set_title(r'(a) $I_c$', loc='left')
+  ax1.set_title(r'(a) $I_w$', loc='left')
   ax2.set_title(r'(b) #community', loc='left')
   ax3.set_title(r'(c) #peaks', loc='left')
   ax4.set_title(r'(d) #triads', loc='left')

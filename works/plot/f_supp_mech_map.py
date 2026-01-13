@@ -1,4 +1,4 @@
-from typing import Tuple, TypeAlias, List
+from typing import Tuple, TypeAlias, List, Dict
 import os
 import pickle
 import numpy as np
@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from scipy.interpolate import interp1d
+from dataclasses import dataclass, asdict
 
 from result_interp.record import RawSimulationRecord
 from utils.plot import plt_figure, plt_save_and_close, setup_paper_params
@@ -14,7 +15,6 @@ from utils.stat import estimate_force_field_kde, estimate_potential_from_force
 import works.config as cfg
 from works.stat.context import c
 
-ParsedRecord: TypeAlias = "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]"
 CACHE_FILE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))
                     ), "basic_data_cache.pkl"
@@ -22,6 +22,19 @@ CACHE_FILE_PATH = os.path.join(
 PLOT_RES = 100
 CMAP_NAME = "managua"
 EXTRAPOLATE_FILL: float = "extrapolate"  # type: ignore
+
+
+@dataclass
+class ParsedRecord:
+  t_seq: np.ndarray
+  x_seq: np.ndarray
+  active_step: int
+  dx_n_seq: np.ndarray
+  dx_r_seq: np.ndarray
+  dx_nr_seq: np.ndarray
+  kn_seq: np.ndarray
+  kr_seq: np.ndarray
+  knr_seq: np.ndarray
 
 # region Data Loading and Caching
 
@@ -48,12 +61,16 @@ def get_basic_data(rec: RawSimulationRecord) -> ParsedRecord:
   if globals().get("basic_data_cache", None) is None:
     globals()["basic_data_cache"] = load_cache()
 
-  cache = globals()["basic_data_cache"]
+  cache: Dict[str, dict] = globals()["basic_data_cache"]
   rec_key = rec.unique_name
 
   if rec_key in cache:
     cached = cache[rec_key]
-    return (cached["t_seq"], cached["x_seq"], cached["dx_n_seq"], cached["k_seq"])
+    try:
+      return ParsedRecord(**cached)
+    except Exception as e:
+      print(f"Warning: Failed to parse cached data for {rec_key}: {e}")
+      del cache[rec_key]
 
   c.set_state(active_threshold=0.98,
               min_inactive_value=0.75, scenario_record=rec)
@@ -61,23 +78,38 @@ def get_basic_data(rec: RawSimulationRecord) -> ParsedRecord:
 
   active_step = c.active_step
   t_seq = np.arange(rec.opinions.shape[0]) / active_step
-  k_seq = rec.agent_numbers[:, :, 0]
   x_seq = rec.opinions[:, :]
-  k_seq_l_1 = np.maximum(k_seq, 1)
-  dx_n_seq = rec.agent_opinion_sums[:, :, 0] / k_seq_l_1
+
+  kn_seq = rec.agent_numbers[:, :, 0]
+  kn_seq_l_1 = np.maximum(kn_seq, 1)
+  kr_seq = rec.agent_numbers[:, :, 1]
+  kr_seq_l_1 = np.maximum(kr_seq, 1)
+  knr_seq = kn_seq + kr_seq
+  knr_seq_l_1 = np.maximum(knr_seq, 1)
+
+  dx_n_seq = rec.agent_opinion_sums[:, :, 0] / kn_seq_l_1
+  dx_r_seq = rec.agent_opinion_sums[:, :, 1] / kr_seq_l_1
+  dx_nr_seq = (rec.agent_opinion_sums[:, :, 0] +
+               rec.agent_opinion_sums[:, :, 1]) / knr_seq_l_1
 
   print(rec_key, rec.max_step, active_step)
 
-  cache[rec_key] = {
-      "t_seq": t_seq,
-      "x_seq": x_seq,
-      "dx_n_seq": dx_n_seq,
-      "k_seq": k_seq,
-      "active_step": active_step,
-  }
+  record = ParsedRecord(
+      t_seq=t_seq,
+      x_seq=x_seq,
+      active_step=active_step,
+      dx_n_seq=dx_n_seq,
+      dx_r_seq=dx_r_seq,
+      dx_nr_seq=dx_nr_seq,
+      kn_seq=kn_seq,
+      kr_seq=kr_seq,
+      knr_seq=knr_seq,
+  )
+
+  cache[rec_key] = asdict(record)
   save_cache(cache)
 
-  return (t_seq, x_seq, dx_n_seq, k_seq)
+  return record
 
 
 # endregion
@@ -93,22 +125,21 @@ def resample_sequence(seq: np.ndarray, num_points: int) -> np.ndarray:
 
 
 def compute_trajectory_differentials(
-    rec_parsed: ParsedRecord,
+    r: ParsedRecord,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-  t_seq, x_seq, _, _ = rec_parsed
-  x_seq_resampled = resample_sequence(x_seq, PLOT_RES)
-  t_seq_resampled = resample_sequence(t_seq, PLOT_RES)
-  dx_seq = np.diff(x_seq_resampled, axis=0)
-  return t_seq_resampled, x_seq_resampled, dx_seq
+  x_seq_resampled = resample_sequence(r.x_seq, PLOT_RES)
+  t_seq_resampled = resample_sequence(r.t_seq, PLOT_RES)
+  # dx_seq = np.diff(x_seq_resampled, axis=0)
+  dx_nr_seq_resampled = resample_sequence(r.dx_nr_seq, PLOT_RES)
+  return t_seq_resampled, x_seq_resampled, dx_nr_seq_resampled
 
 
 def compute_neighbor_differentials(
-    rec_parsed: ParsedRecord,
+    r: ParsedRecord,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-  t_seq, x_seq, dx_n_seq, _ = rec_parsed
-  x_seq_resampled = resample_sequence(x_seq, PLOT_RES)
-  t_seq_resampled = resample_sequence(t_seq, PLOT_RES)
-  dx_n_seq_resampled = resample_sequence(dx_n_seq, PLOT_RES)
+  x_seq_resampled = resample_sequence(r.x_seq, PLOT_RES)
+  t_seq_resampled = resample_sequence(r.t_seq, PLOT_RES)
+  dx_n_seq_resampled = resample_sequence(r.dx_n_seq, PLOT_RES)
   return t_seq_resampled, x_seq_resampled, dx_n_seq_resampled
 
 
@@ -143,7 +174,8 @@ def compute_segmented_potentials(
     dx_data, x_data = dx_seq[1:, :], x_seq[:-1, :]
   else:
     t_seq, x_seq, dx_seq = compute_trajectory_differentials(rec_parsed)
-    dx_data, x_data = dx_seq, x_seq[:-1, :]
+    # dx_data, x_data = dx_seq, x_seq[:-1, :]
+    dx_data, x_data = dx_seq[1:, :], x_seq[:-1, :]
 
   t_normalized = np.clip(t_seq[:-1], 0, 1)
   x_grid = np.linspace(x_min, x_max, n_grid)
@@ -219,22 +251,24 @@ def plot_trajectory_map(ax: Axes, x_map: np.ndarray, t_seq: np.ndarray):
     )
 
 
-def eval_rec_k_map(ax_k: Axes, rec_parsed: ParsedRecord):
-  _, _, _, k_seq = rec_parsed
-  k_points = seq_to_map(k_seq).reshape(-1, 2)
+def eval_rec_k_map(ax_k: Axes, r: ParsedRecord):
+  k_points = seq_to_map(r.kn_seq).reshape(-1, 2)
   k_points = np.clip(k_points, 0, 15)
   k_map = np.log1p(k_points_to_map(k_points, max_val=15))
   ax_k.imshow(k_map, origin="lower", cmap="YlGnBu")
 
 
-def eval_rec_x_map(ax_x: Axes, rec_parsed: ParsedRecord):
-  t_seq_resampled, x_seq_resampled, _ = compute_trajectory_differentials(
+def eval_rec_dx_r_map(ax_x: Axes, rec_parsed: ParsedRecord):
+  t_seq_resampled, x_seq_resampled, dx_r_seq_resampled = compute_trajectory_differentials(
       rec_parsed)
-  x_map = seq_to_map(x_seq_resampled, diff=True)
-  plot_trajectory_map(ax_x, x_map, t_seq_resampled)
+  # x_map = seq_to_map(x_seq_resampled, diff=True)
+  dx_r_map = np.array([x_seq_resampled[:-1], dx_r_seq_resampled[1:]]).transpose(
+      (2, 1, 0)
+  )
+  plot_trajectory_map(ax_x, dx_r_map, t_seq_resampled)
 
 
-def eval_rec_dx_map(ax_dx: Axes, rec_parsed: ParsedRecord):
+def eval_rec_dx_n_map(ax_dx: Axes, rec_parsed: ParsedRecord):
   t_seq_resampled, x_seq_resampled, dx_n_seq_resampled = (
       compute_neighbor_differentials(rec_parsed)
   )
@@ -278,14 +312,14 @@ def plot_group(
   all_V_dx = []
 
   for i, rec in enumerate(recs):
-    set_ax_format(axes_r1[i], xlabel=False, ylabel=(i == 0), dt=1 / PLOT_RES)
-    set_ax_format(axes_r2[i], xlabel=False, ylabel=(i == 0), dt="N")
+    set_ax_format(axes_r1[i], xlabel=False, ylabel=(i == 0), dt="n") # 1 / PLOT_RES
+    set_ax_format(axes_r2[i], xlabel=False, ylabel=(i == 0), dt="f") # "N"
 
     with rec:
       rec_parsed = get_basic_data(rec)
 
-    eval_rec_x_map(axes_r1[i], rec_parsed)
-    eval_rec_dx_map(axes_r2[i], rec_parsed)
+    eval_rec_dx_r_map(axes_r1[i], rec_parsed)
+    eval_rec_dx_n_map(axes_r2[i], rec_parsed)
 
     x_grid_x, _, V_segments_x = compute_segmented_potentials(
         rec_parsed, use_neighbor_diff=False, normalize_to_zero=True,

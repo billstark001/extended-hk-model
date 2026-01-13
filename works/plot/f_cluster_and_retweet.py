@@ -231,7 +231,7 @@ if __name__ == '__main__':
   for ax in [ax1, ax2, ax3]:
     ax.grid(True)
     ax.legend()
-    ax.set_xlabel(r'$I_c$')
+    ax.set_xlabel(r'$I_w$')
 
   ax1.set_ylabel(r'P(#peaks)')
   ax1.set_title('(a) gross', loc='left')
@@ -278,12 +278,12 @@ if __name__ == '__main__':
 
   for ax in [ax4, ax5]:
     ax.set_xlabel(r'$t_n$')
-  ax6.set_xlabel(r'$I_c$')
+  ax6.set_xlabel(r'$I_w$')
 
   ax4.set_ylabel('mean opinion difference')
 
-  ax4.set_title('(d) d-pol.', loc='left')
-  ax5.set_title('(e) c-pol.', loc='left')
+  ax4.set_title('(d) PbS', loc='left')
+  ax5.set_title('(e) SbP', loc='left')
   ax6.set_title(r'(f) mean op. diff. ($t_n \in [0.2, 0.4)$)', loc='left')
 
   ax4.set_ylim(0, 0.6)

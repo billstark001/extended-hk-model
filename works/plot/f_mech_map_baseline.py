@@ -13,8 +13,8 @@ import works.config as cfg
 from works.plot.f_supp_mech_map import (
     get_basic_data,
     compute_segmented_potentials,
-    eval_rec_x_map,
-    eval_rec_dx_map,
+    eval_rec_dx_r_map,
+    eval_rec_dx_n_map,
     plot_potential_segments,
     set_ax_format,
     plot_colorbar,
@@ -65,11 +65,11 @@ def plot_baseline_single_row(rec: RawSimulationRecord, save_name: str):
 
   # Plot trajectory-based differential map
   set_ax_format(ax_x, xlabel=True, ylabel=True, dt=1 / PLOT_RES)
-  eval_rec_x_map(ax_x, rec_parsed)
+  eval_rec_dx_r_map(ax_x, rec_parsed)
 
   # Plot neighbor-based differential map
   set_ax_format(ax_dx, xlabel=True, ylabel=True, dt="N")
-  eval_rec_dx_map(ax_dx, rec_parsed)
+  eval_rec_dx_n_map(ax_dx, rec_parsed)
 
   # Compute and plot potentials
   x_grid_x, _, V_segments_x = compute_segmented_potentials(
@@ -87,7 +87,7 @@ def plot_baseline_single_row(rec: RawSimulationRecord, save_name: str):
       ax_v_dx, x_grid_dx, V_segments_dx, xlabel=True, ylabel=True)
 
   # Set titles
-  ax_x.set_title("(b) FTOD", loc="left")
+  ax_x.set_title("(b) NOD", loc="left")
   ax_v_x.set_title("(b') Potential of (b)", loc="left")
   ax_dx.set_title("(c) FOD", loc="left")
   ax_v_dx.set_title("(c') Potential of (c)", loc="left")
