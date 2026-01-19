@@ -139,6 +139,20 @@ all_scenarios_mech: List[GoMetadataDict] = [
         recsys_type='Random',
     ),
     create_go_metadata_dict(
+        's_mech_baseline_pbs',
+        rewiring=0.025,
+        decay=0.05,
+        retweet=0,
+        recsys_type='Random',
+    ),
+    create_go_metadata_dict(
+        's_mech_baseline_sbp',
+        rewiring=0.025,
+        decay=0.005,
+        retweet=0,
+        recsys_type='Random',
+    ),
+    create_go_metadata_dict(
         's_mech_influence',
         rewiring=0.05,
         decay=0.1,

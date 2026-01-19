@@ -57,14 +57,14 @@ def save_cache(cache: dict):
     print(f"Warning: Failed to save cache: {e}")
 
 
-def get_basic_data(rec: RawSimulationRecord) -> ParsedRecord:
+def get_basic_data(rec: RawSimulationRecord, force_reload=False) -> ParsedRecord:
   if globals().get("basic_data_cache", None) is None:
     globals()["basic_data_cache"] = load_cache()
 
   cache: Dict[str, dict] = globals()["basic_data_cache"]
   rec_key = rec.unique_name
 
-  if rec_key in cache:
+  if rec_key in cache and not force_reload:
     cached = cache[rec_key]
     try:
       return ParsedRecord(**cached)
@@ -89,8 +89,10 @@ def get_basic_data(rec: RawSimulationRecord) -> ParsedRecord:
 
   dx_n_seq = rec.agent_opinion_sums[:, :, 0] / kn_seq_l_1
   dx_r_seq = rec.agent_opinion_sums[:, :, 1] / kr_seq_l_1
-  dx_nr_seq = (rec.agent_opinion_sums[:, :, 0] +
-               rec.agent_opinion_sums[:, :, 1]) / knr_seq_l_1
+  dx_nr_seq = (
+      rec.agent_opinion_sums[:, :, 0] +
+      rec.agent_opinion_sums[:, :, 1]
+  ) / knr_seq_l_1
 
   print(rec_key, rec.max_step, active_step)
 
@@ -213,11 +215,11 @@ def compute_segmented_potentials(
 # region Plotting
 
 
-def plot_colorbar(fig: Figure, axes: List[Axes]):
+def plot_colorbar(fig: Figure, axes: List[Axes], pad=0.01):
   norm = mpl.colors.Normalize(vmin=0, vmax=1)  # type: ignore
   sm = plt.cm.ScalarMappable(cmap=CMAP_NAME, norm=norm)
   sm.set_array([])
-  cbar = fig.colorbar(sm, ax=axes, orientation="vertical", aspect=30, pad=0.01)
+  cbar = fig.colorbar(sm, ax=axes, orientation="vertical", aspect=30, pad=pad)
   cbar.set_label("$t_n$")
   return cbar
 
@@ -312,8 +314,9 @@ def plot_group(
   all_V_dx = []
 
   for i, rec in enumerate(recs):
-    set_ax_format(axes_r1[i], xlabel=False, ylabel=(i == 0), dt="n") # 1 / PLOT_RES
-    set_ax_format(axes_r2[i], xlabel=False, ylabel=(i == 0), dt="f") # "N"
+    set_ax_format(axes_r1[i], xlabel=False, ylabel=(
+        i == 0), dt="n")  # 1 / PLOT_RES
+    set_ax_format(axes_r2[i], xlabel=False, ylabel=(i == 0), dt="f")  # "N"
 
     with rec:
       rec_parsed = get_basic_data(rec)
@@ -381,9 +384,9 @@ if __name__ == "__main__":
   ]
 
   plot_group(
-      recs[:4],
+      recs[:1] + recs[3:6],
       4,
       ["baseline", "+influence", "+retweet", "opinion rec."],
       "fig/f_supp_mech_map_g1",
   )
-  plot_group(recs[4:], 5, [], "fig/f_supp_mech_map_g2")
+  plot_group(recs[6:], 5, [], "fig/f_supp_mech_map_g2")
