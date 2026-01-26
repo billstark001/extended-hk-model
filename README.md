@@ -3,18 +3,18 @@
 This repository contains the simulation code and analysis scripts for the research paper:
 **Segregation Before Polarization: How Recommendation Strategies Shape Echo Chamber Pathways**
 
+[[ArXiv Link](https://arxiv.org/abs/2601.16457)]
+
 ## Overview
 
 This project implements an extended discrete Bounded Confidence Model (BCM) based on the Hegselmann-Krause (HK) model to investigate how different recommendation systems influence echo chamber formation on social media platforms. The model incorporates both content-based and link-based recommendation mechanisms within a dynamic social network framework.
 
-### Key Research Questions
+## Notes
 
-1. How do content-based recommendation systems influence the evolution pathways and final state of echo chambers?
-2. What are the societal meanings of these pathways from individual- and collective-level perspectives across different algorithms and societies?
+There are some concepts renamed in the preprint, including:
 
-### Main Findings
-
-[TODO]
+- Gradation Index -> Pathway Index $I_w$
+- Environment Index -> Subjective Polarization Index $I_s$
 
 ## Repository Structure
 
@@ -276,15 +276,21 @@ Edit `ehk-model/model/agent.go`, particularly the `HKAgentStep` function which i
 
 If you use this code in your research, please cite:
 
-`[TODO BibTeX Reference]`
+```bibtex
+@misc{zhao2026segregation,
+    title={Segregation Before Polarization: How Recommendation Strategies Shape Echo Chamber Pathways}, 
+    author={Junning Zhao and Kazutoshi Sasahara and Yu Chen},
+    year={2026},
+    eprint={2601.16457},
+    archivePrefix={arXiv},
+    primaryClass={cs.SI},
+    url={https://arxiv.org/abs/2601.16457}, 
+}
+```
 
 ## License
 
 This project is licensed under the terms specified in the LICENSE file.
-
-## Contact
-
-For questions or issues, please open an issue on GitHub or contact [your email].
 
 ## Acknowledgments
 
