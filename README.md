@@ -19,30 +19,12 @@ There are some concepts renamed in the preprint, including:
 ## Repository Structure
 
 ```text
-├── ehk-model/              # Core simulation engine (Go implementation)
-│   ├── model/              # Agent-based model components
-│   │   ├── agent.go        # HK agent implementation
-│   │   ├── model.go        # Main model logic
-│   │   ├── recsys.go       # Recommendation system interface
-│   │   └── tweet.go        # Tweet and information sharing
-│   ├── recsys/             # Recommendation system implementations
-│   │   ├── opinion.go      # Content-based recommendation
-│   │   ├── structure.go    # Link-based recommendation
-│   │   ├── random.go       # Baseline random recommendation
-│   │   └── mix.go          # Hybrid recommendation systems
-│   ├── simulation/         # Simulation management and serialization
-│   │   ├── scenario.go     # Scenario execution
-│   │   ├── event-db.go     # Event logging database
-│   │   └── acc-mod-state.go # Accumulative state tracking
-│   └── utils/              # Network utilities and graph operations
+├── (Go runtime moved to https://github.com/billstark001/social-media-models)
 ├── works/                  # Experiment orchestration (Python)
 │   ├── simulate/           # Simulation running scripts
 │   ├── stat/               # Statistical analysis scripts
 │   ├── plot/               # Visualization scripts
 │   └── config.py           # Experiment configurations
-├── result_interp/          # Result interpretation utilities
-│   ├── parse_events_db.py  # Event database parser
-│   └── record.py           # Data record structures
 ├── stats/                  # Statistical analysis modules
 │   ├── distance.py         # Opinion distance metrics
 │   └── distance_c.py       # Optimized distance calculations
@@ -51,57 +33,48 @@ There are some concepts renamed in the preprint, including:
 │   └── sqlalchemy.py       # Database utilities
 └── scripts/                # Maintenance scripts
     ├── merge_db.py         # Database merging
-    └── clear_db.py         # Database cleanup
+    ├── clear_db.py         # Database cleanup
+    └── migrate.py          # Migrate legacy caches/events to SMP format
 ```
+
+## Branch Migration Summary (`feat/smp-model-migration`)
+
+This branch migrated the local runtime/parsing stack to the shared
+`social-media-models` project and its Python bindings.
+
+- Removed in-repo Go runtime (`ehk-model/`) and legacy parser package (`result_interp/`)
+- Simulation entry points now call `smp_bindings.simulation.run_simulations(...)`
+- Analysis modules now import records/events directly from `smp_bindings`
+- Scenario metadata schema is aligned with SMP keys (see mapping below)
+
+### Metadata Key Mapping (Breaking Changes)
+
+If you have old metadata, use the following field mapping:
+
+- `Decay` -> `Influence`
+- `RetweetRate` -> `RepostRate`
+- `TweetRetainCount` -> `PostRetainCount`
+- Added `DynamicsType` (default `"HK"` in this repository)
+
+### Events Schema Naming Changes
+
+The events DB naming in SMP uses `post`/`repost` terminology:
+
+- Event type `Tweet` -> `Post`
+- Event table `tweet_events` -> `post_events`
+- Event table `view_tweets_events` -> `view_posts_events`
+- Flag `is_retweet` -> `is_repost`
 
 ## Model Architecture
 
-### Agent-Based Model Components
-
-The model implements a discrete-time agent-based simulation where:
-
-- **Agents** represent social media users with continuous opinions in [-1, 1]
-- **Network** is a directed graph representing follow relationships
-- **Tweets** carry opinion information and can be original posts or retweets
-- **Recommendation Systems** suggest content to users based on different strategies
-
-### Agent Behavior
-
-Each agent follows these rules at each simulation step:
-
-1. **View Content**: Observe tweets from followed neighbors and recommended content
-2. **Opinion Update**: Update opinion based on concordant content (within tolerance threshold ε)
-   - Opinion change: Δo = μ × (average of concordant opinions - current opinion)
-   - μ: decay/influence parameter
-3. **Post/Retweet**: With probability ρ, retweet concordant content; otherwise post new tweet
-4. **Rewire**: With probability γ, unfollow discordant neighbor and follow concordant recommended user
-
-### Recommendation Systems
-
-Three main recommendation strategies are implemented:
-
-1. **Random Recommendation** (`Random`): Baseline strategy selecting users randomly
-2. **Structure-Based Recommendation** (`StructureM9`): Link-based, recommending based on network proximity
-3. **Opinion-Based Recommendation** (`OpinionM9`): Content-based, recommending based on opinion similarity
-   - Maintains sorted index of tweets by opinion
-   - Recommends content with minimal opinion distance
-   - Supports historical tweet retention (parameter: `TweetRetainCount`)
-
-### Key Parameters
-
-- **Tolerance (ε)**: Opinion difference threshold for concordance (default: 0.45)
-- **Decay/Influence (μ)**: Opinion update rate (default: 0.05)
-- **Rewiring Rate (γ)**: Probability of network rewiring (default: 0.05)
-- **Retweet Rate (ρ)**: Probability of retweeting vs. posting (default: 0.3)
-- **RecsysCount**: Number of recommendations per agent per step (default: 10)
-- **TweetRetainCount**: Number of historical tweets retained (0-6)
+Refer to the [paper](https://arxiv.org/abs/2601.16457) or the [repository documentation](https://github.com/BillStark001/extended-hk-model) for a detailed description of the model architecture and dynamics. Below is a summary of the key components and parameters.
 
 ## Installation and Setup
 
 ### Prerequisites
 
 - **Go** 1.20 or higher (for simulation engine)
-- **Python** 3.8 or higher (for orchestration and analysis)
+- **Python** 3.10 or higher (for orchestration and analysis)
 - **Required Python packages**: See `requirements.txt`
 
 ### Installation Steps
@@ -119,12 +92,18 @@ cd extended-hk-model
 pip install -r requirements.txt
 ```
 
-3. **Build Go simulation engine**
+Also install `smp_bindings` from `social-media-models`:
 
 ```bash
-cd ehk-model
-go build -o main main.go
-cd ..
+pip install git+https://github.com/billstark001/social-media-models
+```
+
+3. **Build Go simulation engine (separate repository)**
+
+```bash
+git clone https://github.com/billstark001/social-media-models
+cd social-media-models
+go build -o smp .
 ```
 
 4. **Configure workspace paths**
@@ -145,18 +124,39 @@ Create a `sim_ws.json` file defining workspace directories:
 Create a `.env` file:
 
 ```bash
+SMP_BINARY_PATH=/absolute/path/to/social-media-models/smp
+SIMULATION_WS_PATH=/absolute/path/to/sim_ws.json
 SIMULATION_STAT_DIR=/path/to/statistics/output
 SIMULATION_INSTANCE_NAME=gradation  # or epsilon, replicate, mech
 STAT_THREAD_COUNT=6
 ```
+
+## Migrating Existing Cache Data
+
+If your `snapshot-*.msgpack` / `events.db` were generated by the legacy runtime,
+run the migration script before analysis:
+
+```bash
+python scripts/migrate.py /path/to/run_dir --dynamics HK
+```
+
+Useful options:
+
+- `--dry-run`: report what would be migrated without writing changes
+- `--dynamics`: set `DynamicsType` when wrapping legacy snapshots (default `HK`)
+
+The script scans each direct child directory under the target path and migrates:
+
+- `snapshot-*.msgpack`
+- `events.db`
 
 ## Running Simulations
 
 ### Quick Start Example
 
 ```bash
-# Run a single simulation with specific parameters
-./ehk-model/main /path/to/output '{"UniqueName":"test","Tolerance":0.45,"Decay":0.05,"RewiringRate":0.05,"RetweetRate":0.3,"RecsysFactoryType":"OpinionM9","RecsysCount":10,"TweetRetainCount":3,"MaxSimulationStep":15000}'
+# Run a single simulation with specific parameters (HK via SMP runtime)
+$SMP_BINARY_PATH /path/to/output '{"UniqueName":"test","DynamicsType":"HK","Tolerance":0.45,"Influence":0.05,"RewiringRate":0.05,"RepostRate":0.3,"RecsysFactoryType":"OpinionM9","RecsysCount":10,"PostRetainCount":3,"MaxSimulationStep":15000}'
 ```
 
 ### Batch Simulations
@@ -214,9 +214,9 @@ The event database tracks three event types:
 
 ```python
 # Load and analyze simulation results
-from result_interp.parse_events_db import load_events_db, get_events_by_step_range
+from smp_bindings import load_events_db, get_events_by_step_range
 
-db = load_events_db('path/to/events.db')
+db = load_events_db("path/to/events.db")
 events = get_events_by_step_range(db, 0, 1000, type_="Rewiring")
 
 # Calculate opinion polarization metrics
@@ -270,7 +270,7 @@ RECSYS_FACTORY["CustomType"] = func(m *model.HKModel) model.HKModelRecommendatio
 
 ### Modifying Agent Behavior
 
-Edit `ehk-model/model/agent.go`, particularly the `HKAgentStep` function which implements the core agent decision-making logic.
+Edit the HK dynamics implementation in the `social-media-models` repository if you need to modify core agent behavior.
 
 ## Citation
 
