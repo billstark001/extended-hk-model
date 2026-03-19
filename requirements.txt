@@ -9,3 +9,6 @@ lz4
 igraph
 leidenalg
 sqlalchemy
+python-dotenv
+# smp_bindings is from social-media-models; see docs/MIGRATION.md
+# Install via: pip install git+https://github.com/billstark001/social-media-models

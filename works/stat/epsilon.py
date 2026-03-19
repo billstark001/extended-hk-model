@@ -3,18 +3,20 @@ import os
 
 import numpy as np
 
-from result_interp.record import RawSimulationRecord
+from smp_bindings import RawSimulationRecord
 import works.config as cfg
 from works.stat.context import c
 from works.stat.types import ScenarioStatistics
 
 from works.stat.tasks import generate_stats, merge_stats_to_context
 
+
 def _():
   pass
 
+
 def get_statistics(
-    scenario_metadata: 'cfg.GoMetadataDict',
+    scenario_metadata: 'cfg.ScenarioMetadata',
     scenario_base_path: str,
     origin: str,
     exist_stats: ScenarioStatistics | None,
@@ -64,11 +66,11 @@ def get_statistics(
         origin=origin,
 
         tolerance=scenario_metadata['Tolerance'],
-        decay=scenario_metadata['Decay'],
+        decay=scenario_metadata['Influence'],
         rewiring=scenario_metadata['RewiringRate'],
-        retweet=scenario_metadata['RetweetRate'],
+        retweet=scenario_metadata['RepostRate'],
         recsys_type=scenario_metadata['RecsysFactoryType'],
-        tweet_retain_count=scenario_metadata['TweetRetainCount'],
+        tweet_retain_count=scenario_metadata['PostRetainCount'],
 
         step=c.total_steps,
         active_step=c.active_step,

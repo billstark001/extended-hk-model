@@ -6,7 +6,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.gridspec import GridSpec
 
-from result_interp.record import RawSimulationRecord
+from smp_bindings import RawSimulationRecord
 from utils.plot import (
     plt_figure,
     plt_save_and_close,

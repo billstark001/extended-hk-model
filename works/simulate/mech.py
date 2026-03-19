@@ -1,8 +1,8 @@
 import os
 
 from utils.file import init_logger
-from works.config import all_scenarios_mech, get_workspace_dir
-from works.simulate.sim_utils import simulate
+from works.config import SMP_BINARY_PATH, all_scenarios_mech, get_workspace_dir
+from smp_bindings.simulation import run_simulations
 
 SIMULATION_RESULT_DIR = get_workspace_dir()
 
@@ -14,10 +14,4 @@ if __name__ == '__main__':
 
   print(f'Result Directory: {SIMULATION_RESULT_DIR}')
 
-  total_count = len(all_scenarios_mech)
-  is_sim_halted = False
-  for i, params in enumerate(all_scenarios_mech):
-
-    is_sim_halted = simulate(SIMULATION_RESULT_DIR, params, i, total_count)
-    if is_sim_halted:
-      break
+  run_simulations(SMP_BINARY_PATH, SIMULATION_RESULT_DIR, all_scenarios_mech)
