@@ -161,35 +161,42 @@ $SMP_BINARY_PATH /path/to/output '{"UniqueName":"test","DynamicsType":"HK","Tole
 
 ### Batch Simulations
 
-The repository includes pre-configured experiment scenarios:
+Use `works/simulate.py` as the unified batch runner for all pre-configured scenarios.
 
-1. **Gradation Study** (Parameter sweep)
+Basic usage:
 
-```python
-from works.simulate.gradation import run_gradation
-run_gradation()  # Sweeps decay, rewiring, retweet rates
+```bash
+python works/simulate.py <scenario> [--workspace <name>] [--concurrency <n>]
 ```
 
-2. **Epsilon Study** (Tolerance threshold analysis)
+Available scenarios:
 
-```python
-from works.simulate.epsilon import run_epsilon
-run_epsilon()  # Varies tolerance from 0.05 to 1.0
+- `gradation`: Parameter sweep over influence, rewiring, repost rates, and recsys types
+- `epsilon`: Tolerance threshold analysis
+- `replicate`: Replication-based statistical validation
+- `mech`: Mechanism pathway analysis
+
+Examples:
+
+```bash
+# Gradation study
+python works/simulate.py gradation --concurrency 6
+
+# Epsilon study
+python works/simulate.py epsilon --concurrency 6
+
+# Replication study
+python works/simulate.py replicate --concurrency 8
+
+# Mechanism study
+python works/simulate.py mech --concurrency 4
 ```
 
-3. **Replication Study** (Statistical validation)
+Arguments:
 
-```python
-from works.simulate.replicate import run_replicate
-run_replicate()  # Runs 100 replications per condition
-```
-
-4. **Mechanism Study** (Pathway analysis)
-
-```python
-from works.simulate.mech import run_mech
-run_mech()  # Analyzes specific mechanistic phases
-```
+- `scenario` (required): one of `gradation`, `epsilon`, `replicate`, `mech`
+- `--workspace` (optional): workspace key resolved by `works/config.py` and `sim_ws.json`
+- `--concurrency` (optional, default: `4`): max number of concurrent simulations
 
 ### Simulation Output
 

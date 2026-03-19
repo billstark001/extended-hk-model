@@ -1,5 +1,6 @@
 
 import os
+import sys
 
 import numpy as np
 
@@ -101,10 +102,8 @@ def get_statistics(
 
 # parameters
 
-scenario_base_path = cfg.get_workspace_dir()
 plot_path = cfg.SIMULATION_STAT_DIR
 
-os.makedirs(scenario_base_path, exist_ok=True)
 os.makedirs(plot_path, exist_ok=True)
 
 stats_db_path = os.path.join(plot_path, 'stats.db')
@@ -124,11 +123,15 @@ c.set_state(
 
 if __name__ == '__main__':
 
+  scenario_base_path = cfg.get_workspace_dir(sys.argv[1])
+
+  os.makedirs(scenario_base_path, exist_ok=True)
+
   generate_stats(
       get_statistics,
       scenario_base_path,
       stats_db_path,
-      cfg.get_instance_name(),
+      cfg.get_instance_name(sys.argv[1]),
       cfg.all_scenarios_eps,
       ignore_exist=False,
   )

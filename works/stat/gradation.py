@@ -1,5 +1,6 @@
 
 import os
+import sys
 
 import numpy as np
 
@@ -17,7 +18,7 @@ def _():
 
 
 def get_statistics(
-  scenario_metadata: 'cfg.ScenarioMetadata',
+    scenario_metadata: 'cfg.ScenarioMetadata',
     scenario_base_path: str,
     origin: str,
     exist_stats: ScenarioStatistics | None,
@@ -110,7 +111,7 @@ def get_statistics(
         g_backdrop=c.g_backdrop,
 
         last_opinion_peak_count=c.last_opinion_peak_count,
-        
+
         opinion_diff_seg_mean=c.opinion_diff_seg_mean,
         opinion_diff_seg_std=c.opinion_diff_seg_std,
 
@@ -121,10 +122,8 @@ def get_statistics(
 
 # parameters
 
-scenario_base_path = cfg.get_workspace_dir()
 plot_path = cfg.SIMULATION_STAT_DIR
 
-os.makedirs(scenario_base_path, exist_ok=True)
 os.makedirs(plot_path, exist_ok=True)
 
 stats_db_path = os.path.join(plot_path, 'stats.db')
@@ -144,11 +143,15 @@ c.set_state(
 
 if __name__ == '__main__':
 
+  scenario_base_path = cfg.get_workspace_dir(sys.argv[1])
+
+  os.makedirs(scenario_base_path, exist_ok=True)
+
   generate_stats(
       get_statistics,
       scenario_base_path,
       stats_db_path,
-      cfg.get_instance_name(),
+      cfg.get_instance_name(sys.argv[1]),
       cfg.all_scenarios_grad,
       ignore_exist=False,
   )
