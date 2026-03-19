@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, undefer
 
 from utils.context import Context
 from utils.sqlalchemy import create_db_engine_and_session, create_db_session, sync_sqlite_table
-from works.config import GoMetadataDict, STAT_THREAD_COUNT
+from works.config import STAT_THREAD_COUNT, ScenarioMetadata
 from works.stat.types import ScenarioStatistics, stats_from_dict
 import multiprocessing.util
 
@@ -60,7 +60,7 @@ def try_get_stats(sess: Session, name: str, origin: str) -> ScenarioStatistics |
 
 
 StatisticsGetterFunc: TypeAlias = Callable[
-    [GoMetadataDict, str, str, ScenarioStatistics | None],
+  [ScenarioMetadata, str, str, ScenarioStatistics | None],
     ScenarioStatistics | None,
 ]
 
@@ -69,7 +69,7 @@ def migrate_from_dict(
     stats_db_path: str,
     stats_path: str,
     origin: str,
-    scenarios: List[GoMetadataDict]
+    scenarios: List[ScenarioMetadata]
 ):
 
   stats_session = create_db_session(stats_db_path, ScenarioStatistics.Base)
@@ -99,7 +99,7 @@ def generate_stats(
     scenario_base_path: str,
     stats_db_path: str,
     origin: str,
-    scenarios: List[GoMetadataDict],
+    scenarios: List[ScenarioMetadata],
     ignore_exist: bool = True,
 ):
 

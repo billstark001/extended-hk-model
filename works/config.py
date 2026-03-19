@@ -1,4 +1,4 @@
-from typing import Dict, List, TypedDict
+from typing import Any, Dict, List, TypeAlias
 
 import os
 import sys
@@ -6,6 +6,7 @@ import json
 
 import dotenv
 import numpy as np
+
 
 # build scenarios
 
@@ -34,88 +35,80 @@ rs_names = {
 # all parameters
 
 
-class GoMetadataDict(TypedDict):
-  UniqueName: str
-  Tolerance: float
-  Decay: float
-  RewiringRate: float
-  RetweetRate: float
-  RecsysFactoryType: str
-  RecsysCount: int
-  TweetRetainCount: int
-  MaxSimulationStep: int
+ScenarioMetadata: TypeAlias = Dict[str, Any]
 
 
-def create_go_metadata_dict(
+def create_scenario_metadata(
     name: str,
     tolerance=0.45,
-    decay=0.9,
+    influence=0.9,
     rewiring=0.01,
-    retweet=0.05,
+    repost_rate=0.05,
     recsys_type="Random",
     recsys_count=10,
-    tweet_retain_count=3,
+    post_retain_count=3,
     max_sim_step=20000,
-) -> GoMetadataDict:
+) -> ScenarioMetadata:
   return {
       "UniqueName": name,
+      "DynamicsType": "HK",
       "Tolerance": tolerance,
-      "Decay": decay,
+      "Influence": influence,
       "RewiringRate": rewiring,
-      "RetweetRate": retweet,
+      "RepostRate": repost_rate,
       "RecsysFactoryType": recsys_type,
       "RecsysCount": recsys_count,
-      "TweetRetainCount": tweet_retain_count,
+      "PostRetainCount": post_retain_count,
       "MaxSimulationStep": max_sim_step,
   }
 
 
-all_scenarios_grad: List[GoMetadataDict] = []
+all_scenarios_grad: List[ScenarioMetadata] = []
 
 for i_sim in range(n_sims):
   for i_rw, rw in enumerate(rewiring_rate_array):
     for i_dc, dc in enumerate(decay_rate_array):
       for i_rt, rt in enumerate(retweet_rate_array):
         for k_rs, (rs, t_retain) in rs_names.items():
-          x = create_go_metadata_dict(
+          x = create_scenario_metadata(
               f's_grad_sim{i_sim}_rw{i_rw}_dc{i_dc}_rt{i_rt}_{k_rs}',
               rewiring=rw,
-              decay=dc,
-              retweet=rt,
+              influence=dc,
+              repost_rate=rt,
               recsys_type=rs,
-              tweet_retain_count=t_retain,
+              post_retain_count=t_retain,
           )
           all_scenarios_grad.append(x)
 
 
-all_scenarios_eps: List[GoMetadataDict] = []
+all_scenarios_eps: List[ScenarioMetadata] = []
 
 for i_sim in range(n_sims_eps):
   for i_to, to in enumerate(tolerance_array):
-    x = create_go_metadata_dict(
+    x = create_scenario_metadata(
         f's_eps_sim{i_sim}_to{i_to}',
         rewiring=0.05,
-        decay=0.05,
-        retweet=0.1,
+        influence=0.05,
+        repost_rate=0.1,
         recsys_type='Random',
-        tweet_retain_count=3,
+        post_retain_count=3,
         tolerance=to,
         max_sim_step=20000,
     )
     all_scenarios_eps.append(x)
 
 
-all_scenarios_rep: List[GoMetadataDict] = []
+all_scenarios_rep: List[ScenarioMetadata] = []
 
 for i_sim in range(n_sims_rep):
   for i_rs, rs in [('rn', 'Random'), ('st', 'StructureM9')]:
-    x = create_go_metadata_dict(
+    x = create_scenario_metadata(
         f's_rep_sim{i_sim}_{i_rs}',
         rewiring=0.05,
-        decay=0.05,
-        retweet=0.1,
+        influence=0.05,
+        repost_rate=0.1,
         recsys_type=rs,
-        tweet_retain_count=3,
+        post_retain_count=3,
         tolerance=0.45,
         max_sim_step=20000,
     )
@@ -130,56 +123,56 @@ mech_phases = [
     (2, 7, 0, 'StructureM9', 0),
 ]
 
-all_scenarios_mech: List[GoMetadataDict] = [
-    create_go_metadata_dict(
+all_scenarios_mech: List[ScenarioMetadata] = [
+  create_scenario_metadata(
         's_mech_baseline',
         rewiring=0.05,
-        decay=0.05,
-        retweet=0,
+        influence=0.05,
+        repost_rate=0,
         recsys_type='Random',
     ),
-    create_go_metadata_dict(
+    create_scenario_metadata(
         's_mech_baseline_pbs',
         rewiring=0.025,
-        decay=0.05,
-        retweet=0,
+        influence=0.05,
+        repost_rate=0,
         recsys_type='Random',
     ),
-    create_go_metadata_dict(
+    create_scenario_metadata(
         's_mech_baseline_sbp',
         rewiring=0.025,
-        decay=0.005,
-        retweet=0,
+        influence=0.005,
+        repost_rate=0,
         recsys_type='Random',
     ),
-    create_go_metadata_dict(
+    create_scenario_metadata(
         's_mech_influence',
         rewiring=0.05,
-        decay=0.1,
-        retweet=0,
+        influence=0.1,
+        repost_rate=0,
         recsys_type='Random',
     ),
-    create_go_metadata_dict(
+    create_scenario_metadata(
         's_mech_retweet',
         rewiring=0.05,
-        decay=0.05,
-        retweet=0.1,
+        influence=0.05,
+        repost_rate=0.1,
         recsys_type='Random',
     ),
-    create_go_metadata_dict(
+    create_scenario_metadata(
         's_mech_op_recsys',
         rewiring=0.05,
-        decay=0.05,
-        retweet=0,
+        influence=0.05,
+        repost_rate=0,
         recsys_type='OpinionM9',
     ),
-    *[create_go_metadata_dict(
+    *[create_scenario_metadata(
         f's_mech_phase{i+1}',
         rewiring=rewiring_rate_array[rw],
-        decay=decay_rate_array[dc],
-        retweet=retweet_rate_array[rt],
+        influence=decay_rate_array[dc],
+        repost_rate=retweet_rate_array[rt],
         recsys_type=rs,
-        tweet_retain_count=t_retain,
+        post_retain_count=t_retain,
     ) for i, (rw, dc, rt, rs, t_retain) in enumerate(mech_phases)]
 ]
 
@@ -215,7 +208,8 @@ def normalize_int(p: str | None, default: int = 0):
 STAT_THREAD_COUNT = max(normalize_int(
     os.environ.get('STAT_THREAD_COUNT', None), 6), 1)
 
-GO_SIMULATOR_PATH = normalize_path('./ehk-model/main')
+SMP_BINARY_PATH = normalize_path(
+  os.environ.get("SMP_BINARY_PATH", '../social-media-models/smp'))
 SIMULATION_WS_PATH = normalize_path(
     os.environ.get("SIMULATION_WS_PATH", './sim_ws.json'))
 SIMULATION_STAT_DIR = normalize_path(os.environ['SIMULATION_STAT_DIR'])

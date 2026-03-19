@@ -9,7 +9,7 @@ from matplotlib.figure import Figure
 from scipy.interpolate import interp1d
 from dataclasses import dataclass, asdict
 
-from result_interp.record import RawSimulationRecord
+from smp_bindings import RawSimulationRecord
 from utils.plot import plt_figure, plt_save_and_close, setup_paper_params
 from utils.stat import estimate_force_field_kde, estimate_potential_from_force
 import works.config as cfg

@@ -8,7 +8,7 @@ from typing import Optional
 from utils.sqlalchemy import NumpyArrayType
 
 if TYPE_CHECKING:
-    from works.config import GoMetadataDict
+    from works.config import ScenarioMetadata
 
 Base = declarative_base()
 
@@ -114,7 +114,7 @@ class ScenarioStatistics(Base):
 
 
 def stats_from_dict(
-    scenario_metadata: "GoMetadataDict",
+    scenario_metadata: "ScenarioMetadata",
     stats_dict: dict,
     origin: str,
 ) -> ScenarioStatistics:
@@ -130,11 +130,11 @@ def stats_from_dict(
         name=scenario_name,
         origin=origin,
         tolerance=scenario_metadata["Tolerance"],
-        decay=scenario_metadata["Decay"],
+        decay=scenario_metadata["Influence"],
         rewiring=scenario_metadata["RewiringRate"],
-        retweet=scenario_metadata["RetweetRate"],
+        retweet=scenario_metadata["RepostRate"],
         recsys_type=scenario_metadata["RecsysFactoryType"],
-        tweet_retain_count=scenario_metadata["TweetRetainCount"],
+        tweet_retain_count=scenario_metadata["PostRetainCount"],
         **_d,
     )
     return instance

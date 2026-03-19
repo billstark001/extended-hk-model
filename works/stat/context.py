@@ -9,8 +9,7 @@ from scipy.stats import skew, kurtosis
 from scipy.signal import find_peaks
 import networkx as nx
 
-from result_interp.parse_events_db import TweetEventBody, batch_load_event_bodies, get_events_by_step_range
-from result_interp.record import RawSimulationRecord
+from smp_bindings import PostEventBody, RawSimulationRecord, batch_load_event_bodies, get_events_by_step_range
 from stats.distance_c import DistanceCollectorContinuous, get_kde_pdf
 from utils.context import Context
 from utils.stat import adaptive_discrete_sampling, area_under_curve, first_more_or_equal_than, merge_data_with_axes
@@ -108,6 +107,7 @@ def get_total_steps(scenario_record: RawSimulationRecord):
 
 # region events
 
+
 @c.selector
 def get_rewiring_event_stats(
     scenario_record: RawSimulationRecord
@@ -121,31 +121,33 @@ def get_rewiring_event_stats(
   # TODO add other statistics when necessary
   return event_step
 
+
 @c.selector
 def get_retweeted_tweets_lifecycle_raw_stats(
     scenario_record: RawSimulationRecord,
 ):
-  retweeted_tweets = get_events_by_step_range(
+  reposted_posts = get_events_by_step_range(
       scenario_record.events_db,
       0, scenario_record.max_step + 1,
-      "Tweet",
+      "Post",
   )
   batch_load_event_bodies(
-      scenario_record.events_db, retweeted_tweets,
+      scenario_record.events_db, reposted_posts,
   )
   tweet_occurrence_step = defaultdict(int)
   tweet_opinions: Dict[Tuple[int, int], float] = {}
-  
-  for tweet in retweeted_tweets:
-    tweet_body: TweetEventBody | None = tweet.body
-    assert tweet_body is not None and tweet_body.is_retweet, 'Corrupted data!'
+
+  for tweet in reposted_posts:
+    tweet_body: PostEventBody | None = tweet.body
+    assert tweet_body is not None and tweet_body.is_repost, 'Corrupted data!'
     # this is the key
     tweet_pair = tweet_body.record.agent_id, tweet_body.record.step
     # add stats
     # tweet_occurrence_steps[tweet_pair].append(tweet.step)
-    tweet_occurrence_step[tweet_pair] = max(tweet_occurrence_step[tweet_pair], tweet.step)
+    tweet_occurrence_step[tweet_pair] = max(
+        tweet_occurrence_step[tweet_pair], tweet.step)
     tweet_opinions[tweet_pair] = tweet_body.record.opinion
-  
+
   # calculate life span
   lifespans = []
   opinions = []
@@ -154,10 +156,10 @@ def get_retweeted_tweets_lifecycle_raw_stats(
     init_step = tweet_pair[1]
     lifespans.append([init_step, last_step])
     opinions.append(tweet_opinions[tweet_pair])
-  
+
   retweeted_lifespans = np.array(lifespans, dtype=int)
   retweeted_opinions = np.array(opinions, dtype=float)
-  
+
   return retweeted_lifespans, retweeted_opinions
 
 # endregion
@@ -222,7 +224,7 @@ def get_indices(scenario_record: RawSimulationRecord):
       0, scenario_record.max_step, max_interval=512,
   )
   x_indices_raw, (y_dist, y_homo) = merge_data_with_axes(
-      g_distance, g_homophily,
+      g_distance, g_homophily,  # type: ignore
   )
 
   x_indices = x_indices_raw
@@ -330,6 +332,7 @@ def get_opinion_diff_mean(opinion_diff: NDArray, scenario_record: RawSimulationR
   )
   return x_opinion_diff_mean, opinion_diff_mean_smpl
 
+
 @c.selector
 def get_opinion_decrease_speed(opinion_diff: NDArray, active_step: float):
   opinions_diff_abs = np.abs(opinion_diff)
@@ -349,7 +352,7 @@ def get_opinion_decrease_speed(opinion_diff: NDArray, active_step: float):
     points.append((mean_seg, std_seg))
 
   opinion_diff_seg_mean, opinion_diff_seg_std = np.array(points).T
-  
+
   return opinion_diff_seg_mean, opinion_diff_seg_std
 
 # @c.selector
