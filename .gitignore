@@ -169,3 +169,5 @@ basic_data_cache.pkl
 basic_data_cache_*.pkl
 
 *.tmp
+
+.vscode/settings.json
