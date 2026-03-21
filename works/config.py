@@ -210,9 +210,6 @@ def normalize_int(p: str | None, default: int = 0):
   return default
 
 
-STAT_THREAD_COUNT = max(normalize_int(
-    os.environ.get("STAT_THREAD_COUNT", None), 6), 1)
-
 SMP_BINARY_PATH = normalize_path(
     os.environ.get("SMP_BINARY_PATH", "../social-media-models/smp")
 )

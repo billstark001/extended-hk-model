@@ -1,5 +1,4 @@
 import time
-from functools import wraps
 from inspect import signature, Parameter
 from typing import Callable, Dict, Any, List, Optional, Union, Tuple, Iterable, TypeAlias
 
@@ -22,7 +21,7 @@ class Context:
     self.cache: Dict[str, Any] = {}
     self._dep_graph: nx.DiGraph | None = None
     self._dep_cyclic = False
-    
+
     self.debug = False
     self.debug_time_threshold = 0.01
 
@@ -42,12 +41,25 @@ class Context:
   ) -> None:
     if isinstance(name, tuple):
       name_tuple = name
-      name = str(name_tuple)
-      for i, n in enumerate(name_tuple):
+      selector_name = str(name_tuple)
+
+      if len(set(name_tuple)) != len(name_tuple):
+        raise ValueError(
+            f"Multi-Selector '{selector_name}' contains duplicate return names")
+
+      # Validate first so registration is atomic on failure.
+      for n in name_tuple:
         if n in self.multi_selectors or n in self.selectors:
           raise ValueError(
-              f"Multi-Selector '{name}' is already defined in the context")
-        self.multi_selectors[n] = (name, i)
+              f"Multi-Selector '{selector_name}' is already defined in the context")
+      if selector_name in self.multi_selectors or selector_name in self.selectors:
+        raise ValueError(
+            f"Selector '{selector_name}' is already defined in the context")
+
+      # Commit writes only after all checks pass.
+      for i, n in enumerate(name_tuple):
+        self.multi_selectors[n] = (selector_name, i)
+      name = selector_name
     if name in self.multi_selectors or name in self.selectors:
       raise ValueError(f"Selector '{name}' is already defined in the context")
     self.selectors[name] = (tuple(deps), func)
@@ -141,11 +153,30 @@ class Context:
       tdelta = time.time() - tstart
       if tdelta > self.debug_time_threshold:
         print(f'Evaluation of state "{name}" costs {tdelta}s')
-    
+
     return val
 
   def __delattr__(self, name: str) -> None:
-    self.invalidate(name, recursive=True)
+    internal_attrs = {
+        'ignore_prefix',
+        'state',
+        'selectors',
+        'multi_selectors',
+        'cache',
+        '_dep_graph',
+        '_dep_cyclic',
+        'debug',
+        'debug_time_threshold',
+    }
+
+    # Keep normal object semantics for internal fields.
+    if name in internal_attrs:
+      object.__delattr__(self, name)
+      return
+
+    # `del context.xxx` is treated as state invalidation.
+    if name in self.state or name in self.cache or name in self.selectors or name in self.multi_selectors:
+      self.invalidate(name, recursive=True, multi=True)
 
   def selector(
       self,

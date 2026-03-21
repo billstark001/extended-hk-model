@@ -4,33 +4,10 @@ from scipy.interpolate import interp1d
 from collections import OrderedDict, deque
 import numpy as np
 
-
-# ============ 数组查找工具 ============
-def first_less_than(arr: NDArray, k: float) -> int:
-    mask = arr < k
-    idx = np.argmax(mask)
-    return int(idx) if mask[idx] else int(arr.size)
+from .kde import gaussian_kernel, compute_kde_density, compute_weighted_stats
 
 
-def last_less_than(arr: NDArray, k: float) -> int:
-    return int(np.argmin(arr < k)) - 1
-
-
-def first_more_or_equal_than(arr: NDArray, k: float) -> int:
-    mask = arr >= k
-    idx = np.argmax(mask)
-    return int(idx) if mask[idx] else int(arr.size)
-
-
-def first_index_above_min(arr: NDArray, error: float = 1e-5) -> int:
-    threshold = np.min(arr) + error
-    for i in range(arr.size - 1, -1, -1):
-        if arr[i] > threshold:
-            return i
-    return 0
-
-
-# ============ 统计工具 ============
+# ============ 移动统计 ============
 def moving_average(
     data: NDArray,
     window_size: int,
@@ -43,38 +20,6 @@ def moving_average(
     pad_data = np.pad(data, pad_width, mode=cast(Any, pad_mode))
     window = np.ones(window_size) / window_size
     return np.convolve(pad_data, window, convolve_mode)
-
-
-def gaussian_kernel(x: NDArray, h: float) -> NDArray:
-    return np.exp(-0.5 * (x / h) ** 2) / (np.sqrt(2 * np.pi) * h)
-
-
-def compute_kde_density(
-    x_grid: NDArray, x_data: NDArray, h: float, epsilon: float = 1e-14
-) -> NDArray:
-    """计算核密度估计"""
-    diff = x_grid.reshape(-1, 1) - x_data.reshape(1, -1)
-    kde = np.sum(gaussian_kernel(diff, h), axis=1)
-    return kde / (x_data.size * h) + epsilon
-
-
-def compute_weighted_stats(
-    x_result: NDArray,
-    x_data: NDArray,
-    y_data: NDArray,
-    bandwidths: NDArray,
-    epsilon: float = 1e-14,
-) -> Tuple[NDArray, NDArray]:
-    """计算加权均值和方差"""
-    diff = x_result.reshape(-1, 1) - x_data.reshape(1, -1)
-    weights_unnorm = gaussian_kernel(diff, cast(float, bandwidths.reshape(-1, 1)))
-    weights = weights_unnorm / (np.sum(weights_unnorm, axis=1, keepdims=True) + epsilon)
-
-    means = np.sum(weights * y_data.reshape(1, -1), axis=1)
-    means2 = np.sum(weights * (y_data.reshape(1, -1) ** 2), axis=1)
-    variances = np.maximum(means2 - means**2, 0)
-
-    return means, variances
 
 
 def adaptive_moving_stats(
@@ -168,21 +113,6 @@ def adaptive_moving_stats(
     )
 
     return result_x_pts, means, variances
-
-
-# ============ 几何计算 ============
-def area_under_curve(
-    points: NDArray, arg_sort: bool = False, complement: Optional[float] = 1
-) -> float:
-    x, y = points[0], points[1]
-    if arg_sort:
-        indices = np.argsort(x)
-        x, y = x[indices], y[indices]
-
-    area = 0.5 * np.sum(np.diff(x) * (y[1:] + y[:-1]))
-    if complement:
-        area += (complement - x[-1]) * y[-1]
-    return area
 
 
 # ============ 自适应采样 ============

@@ -9,7 +9,7 @@ import matplotlib as mpl
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from utils.stat import adaptive_moving_stats
+from stats import adaptive_moving_stats
 import matplotlib.pyplot as plt
 
 PAPER_WIDTH = 12.0  # inches

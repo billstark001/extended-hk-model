@@ -10,9 +10,15 @@ from scipy.signal import find_peaks
 import networkx as nx
 
 from smp_bindings import PostEventBody, RawSimulationRecord, batch_load_event_bodies, get_events_by_step_range
-from stats.distance_c import DistanceCollectorContinuous, get_kde_pdf
+from stats import (
+    DistanceCalculator,
+    get_kde_pdf,
+    adaptive_discrete_sampling,
+    area_under_curve,
+    first_more_or_equal_than,
+    merge_data_with_axes,
+)
 from utils.context import Context
-from utils.stat import adaptive_discrete_sampling, area_under_curve, first_more_or_equal_than, merge_data_with_axes
 
 
 c = Context(
@@ -167,10 +173,10 @@ def get_retweeted_tweets_lifecycle_raw_stats(
 # region indices
 
 
-distance_collector = DistanceCollectorContinuous(
+distance_collector = DistanceCalculator(
     use_js_divergence=True,
     min_bandwidth=0.01,
-    node_cnt=500,
+    sample_count=500,
 )
 
 
@@ -186,13 +192,13 @@ def calc_distance(rec: RawSimulationRecord, step: int):
   graph = rec.get_graph(step)
   opinion = rec.opinions[step]
 
-  dis_res = distance_collector.collect(
-      'd', graph, opinion, t_opinion=rec.metadata['Tolerance'])
+  dis_res = distance_collector.calculate(
+      graph, opinion, t_opinion=rec.metadata['HKParams']['Tolerance'])
 
-  d_rand_o = dis_res['d-rand-o']
-  d_rand_s = dis_res['d-rand-s']
-  d_worst_o = 1 - dis_res['d-worst-o']
-  d_worst_s = 1 - dis_res['d-worst-s']
+  d_rand_o = dis_res.rand_o
+  d_rand_s = dis_res.rand_s
+  d_worst_o = 1 - dis_res.worst_o
+  d_worst_s = 1 - dis_res.worst_s
 
   return d_rand_o, d_rand_s, d_worst_o, d_worst_s
 
@@ -202,7 +208,7 @@ def calc_homophily(rec: RawSimulationRecord, step: int):
   f_slice = rec.agent_numbers[step, :, 0]
   h_index_raw: float = np.mean(f_slice / f, dtype=float)
   # normalize: random state = 0, convergence state = 1
-  eps = rec.metadata['Tolerance']
+  eps = rec.metadata['HKParams']['Tolerance']
   clip_factor: float = eps - (eps ** 2) / 8
   h_index = (h_index_raw - clip_factor) / (1 - clip_factor)
   if h_index < 0:
@@ -355,15 +361,8 @@ def get_opinion_decrease_speed(opinion_diff: NDArray, active_step: float):
 
   return opinion_diff_seg_mean, opinion_diff_seg_std
 
-# @c.selector
-# def get_in_degree(model__stats):
-#   in_degree = [model__stats[x][-1]
-#                for x in ['in-degree-alpha', 'in-degree-p-value', 'in-degree-R']]
-#   in_degree = [None if not np.isfinite(x) else x for x in in_degree]
-#   return in_degree
-
-
 # region graph
+
 
 @c.selector
 def get_n_triads_and_bc_hom(scenario_record: RawSimulationRecord):

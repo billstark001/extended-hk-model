@@ -11,7 +11,7 @@ from dataclasses import dataclass, asdict
 
 from smp_bindings import RawSimulationRecord
 from utils.plot import plt_figure, plt_save_and_close, setup_paper_params
-from utils.stat import estimate_force_field_kde, estimate_potential_from_force
+from stats import estimate_force_field_kde, estimate_potential_from_force
 import works.config as cfg
 from works.stat.context import c
 

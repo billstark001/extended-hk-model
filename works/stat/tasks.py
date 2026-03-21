@@ -1,17 +1,16 @@
-from typing import Dict, List, Callable, TypeAlias
+import os
+from dataclasses import dataclass
+from functools import partial
+from typing import Callable
 
-import json
-import traceback
-from concurrent.futures import ProcessPoolExecutor, as_completed, Future
+import numpy as np
 
-from tqdm import tqdm
-from sqlalchemy.orm import Session, undefer
-
+import works.config as cfg
+from smp_bindings import RawSimulationRecord
 from utils.context import Context
-from utils.sqlalchemy import create_db_engine_and_session, create_db_session, sync_sqlite_table
-from works.config import STAT_THREAD_COUNT, ScenarioMetadata
-from works.stat.types import ScenarioStatistics, stats_from_dict
-import multiprocessing.util
+from works.stat.context import c
+from works.stat.execution import generate_stats
+from works.stat.types import ScenarioStatistics
 
 
 def merge_stats_to_context(
@@ -40,124 +39,251 @@ def merge_stats_to_context(
   ctx.set_state(**state_dict)
 
 
-short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
+# These 3 lists control which common statistics are present for each mode.
+EPS_COMMON_STATS = [
+    "step",
+    "active_step",
+    "active_step_threshold",
+    "g_index_mean_active",
+    "x_indices",
+    "h_index",
+    "p_index",
+    "g_index",
+    "grad_index",
+    "event_count",
+    "event_step_mean",
+    "triads",
+    "x_mean_vars",
+    "mean_vars_smpl",
+    "last_community_count",
+    "last_community_sizes",
+    "last_opinion_peak_count",
+]
 
-class AnyAttr:
-    pass
+GRAD_COMMON_STATS = [
+    "step",
+    "active_step",
+    "active_step_threshold",
+    "g_index_mean_active",
+    "x_indices",
+    "h_index",
+    "p_index",
+    "g_index",
+    "grad_index",
+    "event_count",
+    "event_step_mean",
+    "triads",
+    "x_mean_vars",
+    "mean_vars_smpl",
+    "last_opinion_peak_count",
+]
 
-def try_get_stats(sess: Session, name: str, origin: str) -> ScenarioStatistics | None:
-  ret = sess.query(ScenarioStatistics).filter(
-      ScenarioStatistics.name == name,
-      ScenarioStatistics.origin == origin,
-  ).options(undefer('*')).first()
-  if not ret:
-    return None
-  ret2 = AnyAttr()
-  for column in ScenarioStatistics.__table__.columns:
-    attr = getattr(ret, column.name)
-    setattr(ret2, column.name, attr)
-  return ret2 # type: ignore
-
-
-StatisticsGetterFunc: TypeAlias = Callable[
-  [ScenarioMetadata, str, str, ScenarioStatistics | None],
-    ScenarioStatistics | None,
+REP_COMMON_STATS = [
+    "step",
+    "active_step",
+    "active_step_threshold",
+    "g_index_mean_active",
+    "x_indices",
+    "h_index",
+    "p_index",
+    "g_index",
+    "grad_index",
+    "event_count",
+    "event_step_mean",
+    "triads",
+    "x_mean_vars",
+    "mean_vars_smpl",
+    "last_community_count",
+    "last_community_sizes",
+    "last_opinion_peak_count",
 ]
 
 
-def migrate_from_dict(
-    stats_db_path: str,
-    stats_path: str,
-    origin: str,
-    scenarios: List[ScenarioMetadata]
-):
-
-  stats_session = create_db_session(stats_db_path, ScenarioStatistics.Base)
-
-  # json
-  with open(stats_path, "r", encoding="utf-8") as f:
-    stats = json.load(f)
-
-  all_s_map = {x['UniqueName']: x for x in scenarios}
-
-  # migrate
-  for stat in tqdm(stats):
-    sm = all_s_map[stat['name']]
-    if try_get_stats(stats_session, stat["name"], origin) is not None:
-      continue
-
-    try:
-      obj = stats_from_dict(sm, stat, origin)
-      stats_session.add(obj)
-      stats_session.commit()
-    except Exception as e:
-      print(e)
+def _extract_hk_params(scenario_metadata: "cfg.ScenarioMetadata") -> dict:
+  return scenario_metadata["HKParams"]
 
 
-def generate_stats(
-    get_statistics: StatisticsGetterFunc,
+def _skip_if_peak_exists(exist_stats: ScenarioStatistics | None) -> bool:
+  return exist_stats is not None and exist_stats.last_opinion_peak_count is not None
+
+
+def _skip_gradation(exist_stats: ScenarioStatistics | None) -> bool:
+  return exist_stats is not None and exist_stats.retweet not in (0, 0.5)
+
+
+def _extra_stats_none() -> dict[str, object]:
+  return {}
+
+
+def _extra_stats_gradation() -> dict[str, object]:
+  return {
+      "p_backdrop": c.p_backdrop,
+      "h_backdrop": c.h_backdrop,
+      "g_backdrop": c.g_backdrop,
+      "opinion_diff_seg_mean": c.opinion_diff_seg_mean,
+      "opinion_diff_seg_std": c.opinion_diff_seg_std,
+  }
+
+
+COMMON_STAT_BUILDERS: dict[str, Callable[[], object]] = {
+    "step": lambda: c.total_steps,
+    "active_step": lambda: c.active_step,
+    "active_step_threshold": lambda: c.active_step_threshold,
+    "g_index_mean_active": lambda: c.g_index_mean_active,
+    "x_indices": lambda: c.x_indices,
+    "h_index": lambda: c.h_index,
+    "p_index": lambda: c.p_index,
+    "g_index": lambda: c.g_index,
+    "grad_index": lambda: c.gradation_index_hp,
+    "event_count": lambda: c.event_step.size,
+    "event_step_mean": lambda: float(np.mean(c.event_step)),
+    "triads": lambda: c.n_triads,
+    "x_mean_vars": lambda: c.x_mean_vars,
+    "mean_vars_smpl": lambda: c.mean_vars_smpl,
+    "last_community_count": lambda: c.last_community_count,
+    "last_community_sizes": lambda: c.last_community_sizes,
+    "last_opinion_peak_count": lambda: c.last_opinion_peak_count,
+}
+
+
+@dataclass(frozen=True)
+class ModeConfig:
+  name: str
+  scenarios: list[cfg.ScenarioMetadata]
+  common_stats: list[str]
+  opinion_peak_distance: int
+  skip_exist: Callable[[ScenarioStatistics | None], bool]
+  extra_stats_builder: Callable[[], dict[str, object]]
+
+
+MODE_CONFIGS: dict[str, ModeConfig] = {
+    "epsilon": ModeConfig(
+        name="epsilon",
+        scenarios=cfg.all_scenarios_eps,
+        common_stats=EPS_COMMON_STATS,
+        opinion_peak_distance=20,
+        skip_exist=_skip_if_peak_exists,
+        extra_stats_builder=_extra_stats_none,
+    ),
+    "gradation": ModeConfig(
+        name="gradation",
+        scenarios=cfg.all_scenarios_grad,
+        common_stats=GRAD_COMMON_STATS,
+        opinion_peak_distance=50,
+        skip_exist=_skip_gradation,
+        extra_stats_builder=_extra_stats_gradation,
+    ),
+    "replicate": ModeConfig(
+        name="replicate",
+        scenarios=cfg.all_scenarios_rep,
+        common_stats=REP_COMMON_STATS,
+        opinion_peak_distance=50,
+        skip_exist=_skip_if_peak_exists,
+        extra_stats_builder=_extra_stats_none,
+    ),
+}
+
+
+def _build_common_stats(selected_names: list[str]) -> dict[str, object]:
+  stats: dict[str, object] = {}
+  for name in selected_names:
+    if name not in COMMON_STAT_BUILDERS:
+      raise ValueError(f"Unknown common stat name: {name}")
+    stats[name] = COMMON_STAT_BUILDERS[name]()
+  return stats
+
+
+def get_statistics_for_mode(
+    scenario_metadata: "cfg.ScenarioMetadata",
     scenario_base_path: str,
-    stats_db_path: str,
     origin: str,
-    scenarios: List[ScenarioMetadata],
-    ignore_exist: bool = True,
+    exist_stats: ScenarioStatistics | None,
+    mode: str,
+    active_threshold=0.98,
+    min_inactive_value=0.75,
 ):
+  config = MODE_CONFIGS[mode]
+  if config.skip_exist(exist_stats):
+    return
 
-  logger = multiprocessing.util.log_to_stderr()
-  logger.setLevel('INFO')
+  scenario_name = scenario_metadata["UniqueName"]
 
-  stats_engine, stats_session = create_db_engine_and_session(
+  scenario_record = RawSimulationRecord(
+      scenario_base_path,
+      scenario_metadata,
+  )
+
+  with scenario_record:
+
+    if not scenario_record.is_finished:
+      return None
+
+    assert scenario_record.is_sanitized, "non-sanitized scenario"
+
+    c.set_state(
+        scenario_record=scenario_record,
+        active_threshold=active_threshold,
+        min_inactive_value=min_inactive_value,
+        opinion_peak_distance=config.opinion_peak_distance,
+    )
+
+    merge_stats_to_context(
+        exist_stats,
+        c,
+        {
+            "total_steps": "step",
+            "gradation_index_hp": "grad_index",
+            "n_triads": "triads",
+        },
+        exclude_names=["id", "name", "origin"],
+    )
+
+    hk_params = _extract_hk_params(scenario_metadata)
+    selected_common_stats = _build_common_stats(config.common_stats)
+    selected_extra_stats = config.extra_stats_builder()
+
+    return ScenarioStatistics(
+        id=exist_stats.id if exist_stats else None,
+        name=scenario_name,
+        origin=origin,
+        tolerance=hk_params["Tolerance"],
+        decay=hk_params["Influence"],
+        rewiring=hk_params["RewiringRate"],
+        retweet=hk_params["RepostRate"],
+        recsys_type=scenario_metadata["RecsysFactoryType"],
+        tweet_retain_count=scenario_metadata["PostRetainCount"],
+        **selected_common_stats,
+        **selected_extra_stats,
+    )
+
+
+def get_mode_names() -> list[str]:
+  return sorted(MODE_CONFIGS.keys())
+
+
+def run_mode(mode: str, instance_name: str, concurrency: int):
+  if mode not in MODE_CONFIGS:
+    valid = ", ".join(get_mode_names())
+    raise ValueError(f"Unsupported mode: {mode}. expected one of: {valid}")
+
+  plot_path = cfg.SIMULATION_STAT_DIR
+  os.makedirs(plot_path, exist_ok=True)
+  stats_db_path = os.path.join(plot_path, "stats.db")
+
+  scenario_base_path = cfg.get_workspace_dir(instance_name)
+  os.makedirs(scenario_base_path, exist_ok=True)
+
+  c.set_state(active_threshold=0.98, min_inactive_value=0.75)
+
+  mode_config = MODE_CONFIGS[mode]
+  get_statistics = partial(get_statistics_for_mode, mode=mode)
+
+  generate_stats(
+      get_statistics,
+      scenario_base_path,
       stats_db_path,
-      ScenarioStatistics.Base,
+      cfg.get_instance_name(instance_name),
+      mode_config.scenarios,
+      ignore_exist=False,
+      concurrency=concurrency,
   )
-
-  sync_sqlite_table(
-      stats_engine,
-      ScenarioStatistics,
-      extra_columns='error',
-  )
-
-  with ProcessPoolExecutor(
-      max_workers=STAT_THREAD_COUNT,
-      # max_tasks_per_child=32,
-  ) as executor:
-    try:
-
-      futures: Dict[Future[ScenarioStatistics | None], str] = {}
-      for s in tqdm(scenarios):
-        exist_stats = try_get_stats(stats_session, s['UniqueName'], origin)
-        if ignore_exist and exist_stats is not None:
-          continue
-        # else, upsert
-        f = executor.submit(
-            get_statistics, s, scenario_base_path, origin, exist_stats)
-        futures[f] = s['UniqueName']
-
-      n = len(futures)
-      print(f'{n} Futures submitted.')
-
-      for f in tqdm(
-          as_completed(futures), total=n, bar_format=short_progress_bar,
-      ):
-        f_name = futures[f]
-        try:
-          res = f.result()
-          if res is not None:
-            stats_session.merge(res)  # this upserts the record
-            stats_session.commit()
-        except KeyboardInterrupt:
-          print("KeyboardInterrupt: shutting down executor")
-          executor.shutdown(wait=False, cancel_futures=True)
-          raise  # again
-        except Exception as e:
-          print(f"Exception in worker: {e}")
-          print(f"Scenario: {f_name}")
-          print("Traceback:")
-          print(''.join(traceback.format_exception(type(e), e, e.__traceback__)))
-
-          continue
-
-    except KeyboardInterrupt:
-      print("KeyboardInterrupt: terminating all workers...")
-      executor.shutdown(wait=False, cancel_futures=True)
-      raise
