@@ -48,18 +48,21 @@ def create_scenario_metadata(
     post_retain_count=3,
     max_sim_step=20000,
 ) -> ScenarioMetadata:
-  return {
+  ret = {
       "UniqueName": name,
       "DynamicsType": "HK",
-      "Tolerance": tolerance,
-      "Influence": influence,
-      "RewiringRate": rewiring,
-      "RepostRate": repost_rate,
+      "HKParams": {
+          "Tolerance": tolerance,
+          "Influence": influence,
+          "RewiringRate": rewiring,
+          "RepostRate": repost_rate,
+      },
       "RecsysFactoryType": recsys_type,
       "RecsysCount": recsys_count,
       "PostRetainCount": post_retain_count,
       "MaxSimulationStep": max_sim_step,
   }
+  return ret
 
 
 all_scenarios_grad: List[ScenarioMetadata] = []
