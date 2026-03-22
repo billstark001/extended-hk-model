@@ -67,7 +67,7 @@ The events DB naming in SMP uses `post`/`repost` terminology:
 
 ## Model Architecture
 
-Refer to the [paper](https://arxiv.org/abs/2601.16457) or the [repository documentation](https://github.com/BillStark001/extended-hk-model) for a detailed description of the model architecture and dynamics. Below is a summary of the key components and parameters.
+Refer to the [paper](https://arxiv.org/abs/2601.16457) or the [repository documentation](https://github.com/billstark001/social-media-models) for a detailed description of the model architecture and dynamics. Below is a summary of the key components and parameters.
 
 ## Installation and Setup
 
