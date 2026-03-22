@@ -216,6 +216,29 @@ def calc_homophily(rec: RawSimulationRecord, step: int):
   return h_index
 
 
+def sanitize_index_series(
+    series: NDArray,
+    lower_bound: float = 0.0,
+    upper_bound: float = 1.0,
+):
+  arr = np.asarray(series, dtype=float).copy()
+  if arr.size == 0:
+    return np.zeros(1, dtype=float)
+
+  finite_mask = np.isfinite(arr)
+  if not np.any(finite_mask):
+    return np.zeros(arr.shape, dtype=float)
+
+  # Fill NaN/inf by interpolation over nearby valid values.
+  if not np.all(finite_mask):
+    idx_all = np.arange(arr.size)
+    idx_valid = idx_all[finite_mask]
+    arr[~finite_mask] = np.interp(
+        idx_all[~finite_mask], idx_valid, arr[finite_mask])
+
+  return np.clip(arr, lower_bound, upper_bound)
+
+
 @c.selector
 def get_indices(scenario_record: RawSimulationRecord):
   g_distance = adaptive_discrete_sampling(
@@ -271,9 +294,30 @@ def interp(x0, x1, p):
 
 @c.selector
 def calc_active_step(
-    x_indices, g_index,
+    x_indices: np.ndarray, g_index: np.ndarray,
     active_threshold: float, min_inactive_value: float,
 ):
+
+  # if there is no data, return 0
+  # but in real experiments, there should be at least <min_step> data points, so this is just a safeguard
+
+  if x_indices.size == 0 or g_index.size == 0:
+    return 0, 0, 0.0, np.zeros(0, dtype=float), 0.0
+
+  finite_mask = np.isfinite(x_indices) & np.isfinite(g_index)
+  if not np.any(finite_mask):
+    return 0, 0, 0.0, np.zeros(0, dtype=float), 0.0
+  if not np.all(finite_mask):
+    x_indices = x_indices[finite_mask]
+    g_index = g_index[finite_mask]
+
+  if x_indices.size == 1:
+    single_step = int(x_indices[0])
+    single_value = float(g_index[0])
+    return 0, single_step, single_value, g_index.copy(), single_value
+
+  # main logic
+
   active_step_crit_value: float = np.max(
       [np.max(g_index) * active_threshold, min_inactive_value])
   active_step_index = int(first_more_or_equal_than(
@@ -292,11 +336,14 @@ def calc_active_step(
   pre_active_step = x_indices[active_step_index - 1]
   pre_active_step_g = g_index[active_step_index - 1]
 
-  interp_p = max(
-      min((active_step_crit_value - pre_active_step_g)
-          / (post_active_step_g - pre_active_step_g), 1),
-      0
-  )
+  denom = post_active_step_g - pre_active_step_g
+  if abs(denom) < 1e-12:
+    interp_p = 0.5
+  else:
+    interp_p = max(
+        min((active_step_crit_value - pre_active_step_g) / denom, 1),
+        0,
+    )
   active_step = int(interp(pre_active_step, post_active_step, interp_p))
   active_step_threshold = float(
       interp(pre_active_step_g, post_active_step_g, interp_p))
