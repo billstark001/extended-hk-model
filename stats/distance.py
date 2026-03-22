@@ -33,10 +33,10 @@ def ideal_dist_init_array(x: np.ndarray, k: float = 2):
 def ideal_dist_worst_obj_array(
     axis: np.ndarray,
     cl: float,
-    n: int,
+    effective_sample_size: int,
     min_bw: float,
 ):
-    m = (n * n - n) // 2
+    m = max(1, effective_sample_size)
     std = cl / 2  # std. of dataset
     factor = max(
         m ** (-1.0 / (1 + 4)),  # scotts
@@ -77,7 +77,7 @@ class DistanceCalculator:
         self,
         min_bandwidth: float = 0.05,
         sample_count: int = 500,
-        max_kde_samples: int = 8000,
+        max_kde_samples: int = 10000,
         t_err: float = 1e-10,
         k: float = 2.0,
         use_js_divergence: bool = False,
@@ -174,7 +174,7 @@ class DistanceCalculator:
         o_worst_b = o_sample[o_sample >= t_opinion]
         o_worst_v = float(t_opinion if o_worst_b.size == 0 else np.mean(o_worst_b))
         o_worst_vals = ideal_dist_worst_obj_array(
-            axis, o_worst_v, self.sample_count, self.min_bandwidth
+            axis, o_worst_v, len(o_kde), self.min_bandwidth
         )
 
         # subjective（使用预计算的 s_worst_vals）

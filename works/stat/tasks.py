@@ -108,7 +108,7 @@ def _skip_if_peak_exists(exist_stats: ScenarioStatistics | None) -> bool:
 
 
 def _skip_gradation(exist_stats: ScenarioStatistics | None) -> bool:
-  return exist_stats is not None and exist_stats.retweet not in (0, 0.5)
+  return exist_stats is not None
 
 
 def _extra_stats_none() -> dict[str, object]:
