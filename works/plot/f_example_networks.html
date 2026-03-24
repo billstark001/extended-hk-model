@@ -181,9 +181,137 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
   <!-- 本地模块化脚本 -->
-  <script src="./scripts/arrow-drawer.js"></script>
   <script src="./scripts/export-utils.js"></script>
-  <script src="./scripts/app.js"></script>
+
+  <script>
+    class ArrowDrawer {
+      constructor(containerId, arrowsSvgId) {
+        this.container = document.getElementById(containerId);
+        this.arrowsSvg = document.getElementById(arrowsSvgId);
+        this.setupSvg();
+      }
+
+      setupSvg() {
+        if (!this.container || !this.arrowsSvg) {
+          console.error('Container or arrows SVG not found');
+          return;
+        }
+
+        const containerRect = this.container.getBoundingClientRect();
+        this.arrowsSvg.setAttribute('width', containerRect.width);
+        this.arrowsSvg.setAttribute('height', containerRect.height);
+        this.arrowsSvg.style.position = 'absolute';
+        this.arrowsSvg.style.top = '0';
+        this.arrowsSvg.style.left = '0';
+        this.arrowsSvg.style.width = '100%';
+        this.arrowsSvg.style.height = '100%';
+      }
+
+      getElementCenter(selector) {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+
+        const rect = element.getBoundingClientRect();
+        const containerRect = this.container.getBoundingClientRect();
+        return {
+          x: rect.left + rect.width / 2 - containerRect.left,
+          y: rect.top + rect.height / 2 - containerRect.top
+        };
+      }
+
+      drawArrow(fromSelector, toSelector, isDashed = false, offset = 60) {
+        const fromCenter = this.getElementCenter(fromSelector);
+        const toCenter = this.getElementCenter(toSelector);
+
+        if (!fromCenter || !toCenter) {
+          console.error('Could not find centers for', fromSelector, 'or', toSelector);
+          return;
+        }
+
+        // 计算箭头方向和缩短距离
+        const dx = toCenter.x - fromCenter.x;
+        const dy = toCenter.y - fromCenter.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const unitX = dx / length;
+        const unitY = dy / length;
+
+        const startX = fromCenter.x + unitX * offset;
+        const startY = fromCenter.y + unitY * offset;
+        const endX = toCenter.x - unitX * offset;
+        const endY = toCenter.y - unitY * offset;
+
+        // 创建箭头线
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', startX);
+        line.setAttribute('y1', startY);
+        line.setAttribute('x2', endX);
+        line.setAttribute('y2', endY);
+        line.setAttribute('class', isDashed ? 'arrow-line dashed' : 'arrow-line');
+        line.setAttribute('marker-end', isDashed ? 'url(#arrowhead-dashed)' : 'url(#arrowhead)');
+
+        this.arrowsSvg.appendChild(line);
+      }
+
+      drawConnections(connections, offset) {
+        // 清除现有箭头
+        const existingLines = this.arrowsSvg.querySelectorAll('line');
+        existingLines.forEach(line => line.remove());
+
+        // 重新设置SVG尺寸
+        this.setupSvg();
+
+        // 绘制所有连接
+        connections.forEach(([from, to, dashed]) => {
+          this.drawArrow(from, to, dashed, offset);
+        });
+      }
+    }
+
+    class NetworkVisualizationApp {
+      constructor() {
+        this.arrowDrawer = null;
+        this.connections = [
+          ['#graph1', '#graph2', false], // 1-2 实线
+          ['#graph2', '#graph4', false], // 2-4 实线  
+          ['#graph1', '#graph3', false], // 1-3 实线
+          ['#graph3', '#graph5', false], // 3-5 实线
+          ['#graph2', '#graph5', true],  // 2-5 虚线
+          ['#graph3', '#graph4', true]   // 3-4 虚线
+        ];
+      }
+
+      init() {
+        // 等待页面完全加载
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', () => this.setupApp());
+        } else {
+          this.setupApp();
+        }
+      }
+
+      setupApp() {
+        // 初始化组件
+        this.arrowDrawer = new ArrowDrawer('main-container', 'arrows-svg');
+
+        // 延迟绘制箭头，确保图表已完全渲染
+        setTimeout(() => {
+          this.drawArrows();
+        }, 200);
+
+        // 监听窗口大小变化
+        window.addEventListener('resize', () => {
+          setTimeout(() => this.drawArrows(), 100);
+        });
+      }
+
+      drawArrows() {
+        if (this.arrowDrawer) {
+          this.arrowDrawer.drawConnections(this.connections, 180);
+        }
+      }
+    }
+
+  </script>
   <script>
     // 统一的导出函数
     async function saveToPDF() {
@@ -199,7 +327,7 @@
       try {
         // 获取所有SVG元素
         const svgElements = document.querySelectorAll('svg');
-        
+
         if (svgElements.length === 0) {
           alert('未找到SVG元素');
           return;
@@ -224,26 +352,26 @@
         let xOffset = 0;
         const svgWidth = 400;
         const svgHeight = 330;
-        
+
         svgElements.forEach((svg, index) => {
           if (svg.id === 'arrows-svg') return; // 跳过箭头层
-          
+
           const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-          
+
           // 计算位置（模拟网格布局）
           const col = index % 3;
           const row = Math.floor(index / 3);
           xOffset = col * svgWidth;
           yOffset = row * svgHeight;
-          
+
           group.setAttribute('transform', `translate(${xOffset}, ${yOffset})`);
-          
+
           // 复制SVG内容
           const clonedContent = svg.cloneNode(true);
           Array.from(clonedContent.children).forEach(child => {
             group.appendChild(child.cloneNode(true));
           });
-          
+
           containerSvg.appendChild(group);
         });
 
@@ -251,12 +379,12 @@
         const tempId = 'temp-combined-svg';
         containerSvg.id = tempId;
         document.body.appendChild(containerSvg);
-        
+
         await window.exportUtils.exportToSVG(tempId, 'f_example_networks.svg');
-        
+
         // 清理临时元素
         document.body.removeChild(containerSvg);
-        
+
       } catch (error) {
         console.error('SVG导出失败:', error);
         alert('SVG导出失败，将使用HTML截图方式导出');
@@ -592,8 +720,8 @@
 
     // --- 初始化应用（延迟以确保图表完全渲染） ---
     setTimeout(() => {
-        const app = new NetworkVisualizationApp();
-        app.init();
+      const app = new NetworkVisualizationApp();
+      app.init();
     }, 500);
 
   </script>

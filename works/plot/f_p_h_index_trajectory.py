@@ -13,6 +13,8 @@ from utils.sqlalchemy import create_db_engine_and_session
 import works.config as cfg
 from works.stat.types import ScenarioStatistics
 
+from sklearn.cluster import KMeans
+
 
 plot_path = cfg.SIMULATION_STAT_DIR
 stats_db_path = os.path.join(plot_path, "stats.db")
@@ -21,6 +23,10 @@ retweet_groups: List[float] = cfg.retweet_rate_array.tolist()
 rs_groups: List[Tuple[str, int]] = [
     (rs, int(retain)) for rs, retain in cfg.rs_names.values()
 ]
+
+HEATMAP_BINS = 128
+SUMMARY_CURVE_SAMPLES = 256
+SUMMARY_CURVE_QUANTILES = 16
 
 
 def _safe_curve(
@@ -77,6 +83,115 @@ def _group_data(
   return grouped
 
 
+def _density_image(
+    curves: List[Tuple[np.ndarray, float]],
+    cmap,
+    norm: Normalize,
+    bins: int = HEATMAP_BINS,
+) -> np.ndarray | None:
+  if not curves:
+    return None
+
+  counts = np.zeros((bins, bins), dtype=float)
+  grad_sums = np.zeros((bins, bins), dtype=float)
+
+  for points, grad in curves:
+    hist, x_edges, y_edges = np.histogram2d(
+        points[:, 0],
+        points[:, 1],
+        bins=bins,
+        range=((0.0, 1.0), (0.0, 1.0)),
+    )
+    weighted_hist, _, _ = np.histogram2d(
+        points[:, 0],
+        points[:, 1],
+        bins=bins,
+        range=((0.0, 1.0), (0.0, 1.0)),
+        weights=np.full(points.shape[0], grad, dtype=float),
+    )
+    counts += hist
+    grad_sums += weighted_hist
+
+  if counts.max() <= 0:
+    return None
+
+  mean_grad = np.full_like(counts, 0.5)
+  valid = counts > 0
+  mean_grad[valid] = grad_sums[valid] / counts[valid]
+
+  density = np.log1p(counts)
+  density /= density.max()
+  density = density.T
+  mean_grad = mean_grad.T
+
+  rgba = cmap(norm(mean_grad))
+  rgba[..., :3] = 1.0 - (1.0 - rgba[..., :3]) * density[..., None]
+  rgba[..., 3] = np.where(density > 0, 0.95, 0.0)
+  return rgba
+
+
+def resample_curve(points: np.ndarray, n_samples: int = SUMMARY_CURVE_SAMPLES) -> np.ndarray:
+  if points.shape[0] == n_samples:
+    return points
+
+  src = np.linspace(0.0, 1.0, points.shape[0])
+  dst = np.linspace(0.0, 1.0, n_samples)
+  return np.column_stack((
+      np.interp(dst, src, points[:, 0]),
+      np.interp(dst, src, points[:, 1]),
+  ))
+
+
+def summary_curves_clustered(
+    curves: List[Tuple[np.ndarray, float]],
+    n_groups: int = SUMMARY_CURVE_QUANTILES,
+) -> List[Tuple[np.ndarray, float, int]]:
+  if not curves:
+    return []
+
+  # 1. 空间对齐：统一重采样所有的曲线，形状变为 (N_curves, 512, 2)
+  resampled_curves = [resample_curve(points) for points, _ in curves]
+  resampled_array = np.stack(resampled_curves, axis=0)
+
+  n_curves, n_samples, n_dims = resampled_array.shape
+
+  # 2. 特征展平：将二维曲线展平为一维向量，形状变为 (N_curves, 1024)
+  # 这让 KMeans 能够直接计算曲线之间的欧式距离（即逐点距离的平方和）
+  features = resampled_array.reshape(n_curves, n_samples * n_dims)
+
+  # 3. 聚类：使用 K-Means 进行空间轨迹聚类
+  # 确保聚类数不超过样本数
+  n_clusters = min(n_groups, n_curves)
+  kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+  labels = kmeans.fit_predict(features)
+
+  # 4. 聚合结果
+  grads = [grad for _, grad in curves]
+  summaries: List[Tuple[np.ndarray, float, int]] = []
+
+  for cluster_idx in range(n_clusters):
+    # 找出属于当前簇的曲线索引
+    indices = np.where(labels == cluster_idx)[0]
+    if len(indices) == 0:
+      continue
+
+    # 取出当前簇的所有重采样曲线
+    cluster_curves = resampled_array[indices]
+
+    # 计算中位数曲线（该簇在空间上的真实主干）
+    median_curve = np.median(cluster_curves, axis=0)
+
+    # 计算该簇的平均 grad（依然保留原始的物理含义，用于画图着色）
+    mean_grad = float(np.mean([grads[i] for i in indices]))
+
+    summaries.append((median_curve, mean_grad, len(indices)))
+
+  # 可选：按照 mean_grad 重新排序，保证画图时的层叠顺序 (zorder) 或图例逻辑一致
+  summaries.sort(key=lambda x: x[1])
+
+  return summaries
+
+
 def plot_p_h_index_trajectories() -> Figure:
   setup_paper_params()
 
@@ -97,7 +212,16 @@ def plot_p_h_index_trajectories() -> Figure:
       n_row=4,
       n_col=4,
       hw_ratio=1,
+      total_width=13.5,
       constrained_layout=False,
+  )
+  fig.subplots_adjust(
+      left=0.07,
+      right=0.89,
+      bottom=0.08,
+      top=0.96,
+      wspace=0.10,
+      hspace=0.14,
   )
 
   axes_arr = np.array(axes)
@@ -109,18 +233,32 @@ def plot_p_h_index_trajectories() -> Figure:
       ax = axes_arr[i_rt, i_rs]
       curves = grouped[(rt, rs_type, retain_count)]
 
-      for points, grad in curves:
+      density_img = _density_image(curves, cmap, norm)
+      if density_img is not None:
+        ax.imshow(
+            density_img,
+            extent=(0, 1, 0, 1),
+            origin="lower",
+            interpolation="bilinear",
+            aspect="equal",
+            zorder=1,
+        )
+
+      for points, grad, _ in summary_curves_clustered(curves):
         ax.plot(
             points[:, 0],
             points[:, 1],
             color=cmap(norm(grad)),
-            linewidth=0.35,
-            alpha=0.8,
+            linewidth=1.1,
+            alpha=0.95,
+            solid_capstyle="round",
+            zorder=2,
         )
 
       ax.set_xlim(0, 1)
       ax.set_ylim(0, 1)
-      ax.grid(True, linestyle="--", linewidth=0.1, alpha=0.35)
+      ax.set_facecolor("white")
+      ax.grid(True, linestyle="--", linewidth=0.35, alpha=0.18)
 
       title_rs = "St" if rs_type == "StructureM9" else "Op"
       ax.set_title(
@@ -141,9 +279,9 @@ def plot_p_h_index_trajectories() -> Figure:
 
   sm = cm.ScalarMappable(norm=norm, cmap=cmap)
   sm.set_array([])
-  fig.colorbar(sm, ax=axes_arr.ravel().tolist(), fraction=0.02, pad=0.01, label=r"$I_w$")
-
-  fig.tight_layout()
+  cax = fig.add_axes((0.91, 0.17, 0.015, 0.66))
+  cbar = fig.colorbar(sm, cax=cax)
+  cbar.set_label(r"mean $I_w$")
 
   session.close()
   engine.dispose()
@@ -151,7 +289,9 @@ def plot_p_h_index_trajectories() -> Figure:
 
 
 if __name__ == "__main__":
+  fig = plot_p_h_index_trajectories()
   plt_save_and_close(
-      plot_p_h_index_trajectories(),
+      fig,
       "fig/f_p_h_index_trajectory",
+      jpg=True,
   )

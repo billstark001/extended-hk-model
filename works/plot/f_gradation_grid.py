@@ -324,9 +324,16 @@ if __name__ == '__main__':
     assert x.grad_index is not None
     return x.grad_index
 
+  p_indices_op = {}
+  p_indices_st = {}
+
   def f_p_backdrop(x: ScenarioStatistics) -> float:
     assert x.p_backdrop is not None and x.p_index is not None
-    return x.p_backdrop / x.p_index[-1]
+    if x.recsys_type == "OpinionM9":
+      p_indices_op[x.name] = x.p_index[-1]
+    else:
+      p_indices_st[x.name] = x.p_index[-1]
+    return x.p_backdrop
 
   def f_active_step(x: ScenarioStatistics) -> float:
     assert x.active_step is not None
@@ -339,7 +346,7 @@ if __name__ == '__main__':
           'heatmap_max': 1, 'diff_range': 0.6
       }),
       (f_p_backdrop, r"$I_p^T$, #P=1", {
-          'cmap': 'YlGnBu', 'heatmap_min': 1, 'heatmap_max': 8, 'diff_range': 4, 'peaks': 1}),
+          'cmap': 'YlGnBu', 'heatmap_min': 0.5, 'heatmap_max': 2, 'diff_range': 1, 'peaks': 1}),
   ]
 
   plt_save_and_close(
@@ -349,6 +356,18 @@ if __name__ == '__main__':
           with_std=False,  # Disable std for cleaner look as in original f_p_backdrop plot
       ), 'fig/f_grad_and_pol_trad_index'
   )
+
+  all_indices_op = np.array(list(p_indices_op.values()), dtype=float)
+  all_indices_st = np.array(list(p_indices_st.values()), dtype=float)
+
+  stats_op = f"p_index_op stats: mean={np.mean(all_indices_op):.4f}, std={np.std(all_indices_op):.4f}, min={np.min(all_indices_op):.4f}, max={np.max(all_indices_op):.4f}"
+  stats_st = f"p_index_st stats: mean={np.mean(all_indices_st):.4f}, std={np.std(all_indices_st):.4f}, min={np.min(all_indices_st):.4f}, max={np.max(all_indices_st):.4f}"
+
+  print(stats_op)
+  print(stats_st)
+
+  with open(os.path.join('fig', 'f_p_backdrop_stats.txt'), 'w') as f:
+    f.write(stats_op + '\n' + stats_st)
 
   plt_save_and_close(
       plot_heatmap_by_retweet(
