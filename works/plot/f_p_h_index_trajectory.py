@@ -255,10 +255,12 @@ def plot_p_h_index_trajectories() -> Figure:
             zorder=2,
         )
 
-      ax.set_xlim(0, 1)
-      ax.set_ylim(0, 1)
+      eps = 0.05
+
+      ax.set_xlim(0 - eps, 1 + eps)
+      ax.set_ylim(0 - eps, 1 + eps)
       ax.set_facecolor("white")
-      ax.grid(True, linestyle="--", linewidth=0.35, alpha=0.18)
+      ax.grid(True, linestyle="--", linewidth=0.5)
 
       title_rs = "St" if rs_type == "StructureM9" else "Op"
       ax.set_title(
