@@ -10,6 +10,7 @@
   <meta name="crisprender-fit-mode" content="contain">
   <meta name="crisprender-viewport-width" content="1280">
   <meta name="crisprender-viewport-height" content="2560">
+  <meta name="crisprender-inject-attribute" content="true">
   <meta name="crisprender-wait-after-load" content="0">
   <title>Homophily-Polarization Diagram</title>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
@@ -26,12 +27,16 @@
       background-color: white;
       padding: 20px;
       border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
     }
 
     #main-container {
       width: 600px;
       height: 450px;
+    }
+
+    body[data-crisprender="true"] .controls,
+    body[data-crisprender="true"] .io-controls {
+      display: none;
     }
 
     .controls {
