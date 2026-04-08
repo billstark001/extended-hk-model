@@ -116,41 +116,53 @@ def adaptive_moving_stats(
 
 
 # ============ 自适应采样 ============
+
 T = TypeVar("T")
 
 
 def adaptive_discrete_sampling(
-    f: Callable[[int], T],
+    f: Callable[[float], T],
     error_threshold: float,
-    t_start: int,
-    t_end: int,
-    max_interval: int | None = None,
+    t_start: float,
+    t_end: float,
+    min_interval: float = 1,  # 必须显式给出，否则无法保证终止
+    max_interval: float | None = None,
+    int_midpoint: bool = False,
     err_func: Callable[[T, T, T, float], float] | None = None,
-) -> Tuple[List[int], List[T]]:
-    """离散时间轴自适应采样"""
+) -> Tuple[List[float], List[T]]:
     if t_start >= t_end:
         raise ValueError("t_start must be less than t_end")
+    if min_interval <= 0:
+        raise ValueError("min_interval must be positive")
+    if int_midpoint and min_interval < 1:
+        raise ValueError("min_interval must be at least 1 when int_midpoint is True")
 
     samples = OrderedDict({t_start: f(t_start), t_end: f(t_end)})
-    queue: deque[Tuple[int, int]] = deque([(t_start, t_end)])
+    queue: deque[Tuple[float, float]] = deque([(t_start, t_end)])
 
     while queue:
         t_left, t_right = queue.popleft()
-        if t_right - t_left <= 1:
+        if t_right - t_left <= min_interval:  # ← 关键改动
             continue
 
         force_sample = max_interval is not None and (t_right - t_left) > max_interval
-        t_mid = (
-            t_left + (max_interval or 0) if force_sample else (t_left + t_right) // 2
-        )
+        t_mid: float
+        if force_sample:
+            t_mid = t_left + max_interval  # type: ignore
+        elif int_midpoint:
+            t_mid = round((t_left + t_right) / 2)
+        else:
+            t_mid = (t_left + t_right) / 2
 
-        if t_mid in [t_left, t_right] or t_mid in samples:
+        if t_mid in samples:
             continue
 
         f_left, f_right, f_mid = samples[t_left], samples[t_right], f(t_mid)
         t_mid_rate = (t_mid - t_left) / (t_right - t_left)
 
         if err_func:
+            # this calculates the error of linear interpolation, but can be customized by passing a different err_func
+            # e.g. if T is float, err_func=lambda a, b, mid, rate: abs(mid - (b * rate + a * (1 - rate)))
             error = err_func(f_left, f_right, f_mid, t_mid_rate)
         else:
             f_interp = cast(Any, f_right) * t_mid_rate + cast(Any, f_left) * (

@@ -242,13 +242,14 @@ def sanitize_index_series(
 @c.selector
 def get_indices(scenario_record: RawSimulationRecord):
   g_distance = adaptive_discrete_sampling(
-      lambda x: calc_distance(scenario_record, x),
+      lambda x: calc_distance(scenario_record, int(x)),
       0.01,
       0, scenario_record.max_step, max_interval=512,
       err_func=err_func_distance,
+      int_midpoint=True,
   )
   g_homophily = adaptive_discrete_sampling(
-      lambda x: calc_homophily(scenario_record, x),
+      lambda x: calc_homophily(scenario_record, int(x)),
       0.01,
       0, scenario_record.max_step, max_interval=512,
   )
@@ -475,9 +476,9 @@ def get_last_opinion_peak_count(opinion_last: NDArray, opinion_peak_distance: in
 def get_mean_vars_x_and_smpl(
     scenario_record: RawSimulationRecord,
 ):
-  def get_vars(step: int):
-    g = scenario_record.get_graph(step)
-    o = scenario_record.opinions[step]
+  def get_vars(step: float):
+    g = scenario_record.get_graph(int(step))
+    o = scenario_record.opinions[int(step)]
     A = nx.to_numpy_array(g, multigraph_weight=min)  # adjacency matrix
     vars = get_opinion_diff_vars(A, o)
     return np.mean(vars)
@@ -486,6 +487,7 @@ def get_mean_vars_x_and_smpl(
       get_vars,
       0.01,
       0, scenario_record.max_step, max_interval=512,
+      int_midpoint=True,
   )
 
   return x_mean_vars, mean_vars_smpl
@@ -493,9 +495,9 @@ def get_mean_vars_x_and_smpl(
 
 @c.selector
 def get_bc_hom_x_and_smpl(scenario_record: RawSimulationRecord):
-  def get_bc_hom_step(step: int):
-    g = scenario_record.get_graph(step)
-    o = scenario_record.opinions[step]
+  def get_bc_hom_step(step: float):
+    g = scenario_record.get_graph(int(step))
+    o = scenario_record.opinions[int(step)]
     ret = get_bc_hom(g, o)
     if np.isnan(ret):
       return None
@@ -514,6 +516,7 @@ def get_bc_hom_x_and_smpl(scenario_record: RawSimulationRecord):
       0.01,
       0, scenario_record.max_step, max_interval=512,
       err_func=err_bc_hom,
+      int_midpoint=True,
   )
 
   return x_bc_hom, bc_hom_smpl
