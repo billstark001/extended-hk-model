@@ -11,7 +11,29 @@ import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from ehk.metrics.landscape_diagnostics import potential_from_force as _potential_from_force
+from ehk.common.numerics import estimate_potential_from_force
+
+
+def _potential_from_force(
+    x: np.ndarray,
+    force: np.ndarray,
+    *,
+    center: bool = True,
+) -> np.ndarray:
+    """Integrate one or more force curves along their final axis."""
+
+    x_values = np.asarray(x, dtype=float)
+    force_values = np.asarray(force, dtype=float)
+    if x_values.ndim != 1 or force_values.shape[-1] != x_values.size:
+        raise ValueError("force curve's final axis must match one-dimensional x")
+    flat_force = force_values.reshape((-1, x_values.size))
+    flat_potential = np.stack(
+        [estimate_potential_from_force(x_values, row) for row in flat_force]
+    )
+    potential = flat_potential.reshape(force_values.shape)
+    if center:
+        potential -= np.mean(potential, axis=-1, keepdims=True)
+    return np.asarray(potential, dtype=float)
 
 
 CMAP_NAME = "managua"

@@ -162,7 +162,6 @@ cython_debug/
 nohup.out
 run*/
 outputs/
-theory/output/
 
 # cache files
 basic_data_cache.pkl

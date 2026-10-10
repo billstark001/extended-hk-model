@@ -16,5 +16,5 @@ SOCIAL_FORCE_INPUT = register_path(
 )
 SOCIAL_FORCE_OUTPUT = register_path(
     "EHK_SOCIAL_FORCE_OUTPUT_DIR",
-    "outputs/experiments/theory_guided/social_force_probe",
+    "outputs/experiments/paper/mechanism_cases/social_force_probe",
 )

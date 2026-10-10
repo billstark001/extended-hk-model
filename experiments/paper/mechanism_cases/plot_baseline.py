@@ -16,9 +16,9 @@ from ehk.common.plotting import (
 import experiments.paper.scenarios as cfg
 from experiments.paper.paths import MECHANISM_OUTPUT
 from experiments.workspaces import workspace_dir
-from experiments.theory_guided.social_force_probe.scenarios import SCENARIOS
+from experiments.paper.mechanism_cases.social_force_probe.scenarios import SCENARIOS
 from ehk.common.plotting.landscape import save_landscape_figure
-from experiments.theory_guided.social_force_probe.analyze import (
+from experiments.paper.mechanism_cases.social_force_probe.analyze import (
     LANDSCAPE_CHOICES,
     LandscapeKind,
     plot_probe_potential,

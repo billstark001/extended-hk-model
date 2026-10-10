@@ -4,9 +4,9 @@ from pathlib import Path
 
 import numpy as np
 
-from experiments.theory_guided.social_force_probe.scenarios import SCENARIOS, SCENARIO_ORDER
+from experiments.paper.mechanism_cases.social_force_probe.scenarios import SCENARIOS, SCENARIO_ORDER
 from ehk.common.plotting.landscape import potential_from_force
-from experiments.theory_guided.social_force_probe.analyze import load_probe_landscape
+from experiments.paper.mechanism_cases.social_force_probe.analyze import load_probe_landscape
 
 
 class LandscapeUtilityTests(unittest.TestCase):

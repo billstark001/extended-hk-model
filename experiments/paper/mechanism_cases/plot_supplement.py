@@ -23,7 +23,7 @@ from ehk.common.plotting.landscape import (
     potential_from_force,
     save_landscape_figure,
 )
-from experiments.theory_guided.social_force_probe.analyze import (
+from experiments.paper.mechanism_cases.social_force_probe.analyze import (
     LANDSCAPE_CHOICES,
     LandscapeKind,
     plot_probe_potential,
