@@ -1,0 +1,374 @@
+{
+  "schema": 2,
+  "policy": "Original paper artifacts retained unchanged; only code is migrated. Generated products are ignored.",
+  "files": [
+    {
+      "source": "artifacts/energy_curve_parameterization/generate.py",
+      "source_sha256": "b41eea3df3334e43bafcac29cac1e0e7327edbd1c7698f72236ee383b8752109",
+      "destinations": [
+        "experiments/paper_theory/energy_scan/baseline/"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/energy_curve_parameterization/extended_log_grid/generate.py",
+      "source_sha256": "794521ee6642baa531334a2d8312f20707c1e5a2733d710f4191d91a4468b940",
+      "destinations": [
+        "experiments/paper_theory/energy_scan/expanded/"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/edge_energy_continuous_20260928/scripts/plot_parameter_summary.py",
+      "source_sha256": "84768d355170fe31638d0946e2ae4f4d5c9522f768d0a5194066cf6e6e1a5c42",
+      "destinations": [
+        "experiments/paper_theory/release_clocks/plot_parameter_summary.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/edge_energy_continuous_20260928/scripts/parameter_clocks.py",
+      "source_sha256": "c8042b146d6458eddf0c2d77755b478538fc872dc16135d84d639236e5b2f84b",
+      "destinations": [
+        "experiments/paper_theory/release_clocks/parameter_clocks/"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/edge_energy_continuous_20260928/scripts/refine.py",
+      "source_sha256": "7461db5362ad0d849b519c5129501ca2b2f2d5a61abddb440cbf7d4e6b246994",
+      "destinations": [
+        "experiments/paper_theory/release_clocks/refine.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/edge_energy_continuous_20260928/scripts/branch_audit.py",
+      "source_sha256": "f92e3672ca83a81f1f004b93b607bc77316160265fd9b17700fa8bc9a15cb6a7",
+      "destinations": [
+        "experiments/paper_theory/release_clocks/branch_audit.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/edge_energy_continuous_20260928/scripts/validate.py",
+      "source_sha256": "4144bc733efb7bf16a85b2ef20dfe946b2abd4a588e35bbc8775dd02e49818c9",
+      "destinations": [
+        "experiments/paper_theory/release_clocks/validate.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/edge_energy_continuous_20260928/scripts/artifact_paths.py",
+      "source_sha256": "fbacbdea4ba4055207c31ddd53a266f4e15922b9dbe6c6d1e7e5de10c967c487",
+      "destinations": [
+        "experiments/paper_theory/release_clocks/artifact_paths.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/edge_energy_continuous_20260928/scripts/reduced_mixture.py",
+      "source_sha256": "5e1320b91c47785b31895a08f369420e61cd83a55736cac7436b111f73f05e0b",
+      "destinations": [
+        "experiments/paper_theory/release_clocks/reduced_mixture.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/edge_energy_continuous_20260928/scripts/analyze.py",
+      "source_sha256": "11d052f45089ea8140d5634ca3be3e7ec5dc86781d5513f76a6ed8193799a378",
+      "destinations": [
+        "experiments/paper_theory/release_clocks/analyze/"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/edge_energy_continuous_20260928/scripts/plot_clocks.py",
+      "source_sha256": "cceb8366233ac3e93f9bb7b473cf787edd640a0d67b7069361bc84572d3ecac7",
+      "destinations": [
+        "experiments/paper_theory/release_clocks/plot_clocks.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/build.py",
+      "source_sha256": "20b3caf3df579a606a26fee7b713fb89014233ddaa7cd4b574c0ed30b3d480e4",
+      "destinations": [
+        "experiments/paper_theory/runtime/build.py",
+        "experiments/paper_theory/runtime/environment.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/metrics.py",
+      "source_sha256": "62f6b0436957d016781749c00097f66acc0afd9c25838b7daddf8f81318c35d9",
+      "destinations": [
+        "experiments/paper_theory/runtime/dataset.py",
+        "experiments/paper_theory/micro_validation/analyze/cases.py",
+        "experiments/paper_theory/release_clocks/analyze/cases.py",
+        "experiments/paper_theory/operator_validation/analyze/cases.py",
+        "experiments/paper_theory/kernel_validation/analyze/cases.py",
+        "src/theory/validation.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/estimate_followup_20261007.py",
+      "source_sha256": "1d8f5a193934e3ca14e0f5d4bc4755109e8071256946a3d0334d35fc082bff2f",
+      "destinations": [
+        "experiments/paper_theory/runtime/estimate.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/run.py",
+      "source_sha256": "1f6d065eb598bee772b3b572e9eec16c2ac5e69251093c978106ddcecace1b02",
+      "destinations": [
+        "experiments/paper_theory/runtime/runner.py",
+        "experiments/paper_theory/runtime/executor.py",
+        "experiments/paper_theory/runtime/store.py",
+        "experiments/paper_theory/runtime/protocol.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/paths.py",
+      "source_sha256": "ea1f4b6936769b8c8a989cf5118cad19c332ef8455ea925dda7d6c5378363963",
+      "destinations": [
+        "experiments/paper_theory/runtime/paths.py",
+        "experiments/paper_theory/paths.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/review_followup_results_20261007.py",
+      "source_sha256": "0b81cfdae4f751f1493e58a9a74b5dcab5799f19fe5ef772c584c072a0ce5c90",
+      "destinations": [
+        "experiments/paper_theory/manuscript/reports/ensembles.py",
+        "experiments/paper_theory/micro_validation/analyze/review.py",
+        "experiments/paper_theory/release_clocks/analyze/review.py",
+        "experiments/paper_theory/operator_validation/analyze/review.py",
+        "experiments/paper_theory/kernel_validation/analyze/review.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/verify_followup_20261007.py",
+      "source_sha256": "8527984cb0496e4e27c558c0011fed95b14faeeced42c76294256148feced5fe",
+      "destinations": [
+        "tests/experiments/test_validation_protocols.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/followup_metrics.py",
+      "source_sha256": "92432612db617ae90645b8e5b3e01781d5406ca2c87ce2c5b6e83adda29edcb5",
+      "destinations": [
+        "experiments/paper_theory/runtime/comparison.py",
+        "experiments/paper_theory/micro_validation/analyze/ensembles.py",
+        "experiments/paper_theory/operator_validation/analyze/parity.py",
+        "experiments/paper_theory/release_clocks/analyze/ensembles.py",
+        "src/theory/release/",
+        "src/common/statistics.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/benchmark_smp_reuse.py",
+      "source_sha256": "f1f61c6a382812d6821e74762ffc3ab96da105424d771e654ddcb4998c3199b9",
+      "destinations": [],
+      "disposition": "retired",
+      "reason": "One-time solver-reuse comparison; no active historical comparison entry point."
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/parameters_followup_20261007.py",
+      "source_sha256": "f9fc19eb47fdee63e37d05e8c4caf2aeed503bcd1ba0d13f75db4470593a9de1",
+      "destinations": [
+        "experiments/paper_theory/designs.py",
+        "experiments/paper_theory/protocols.py",
+        "experiments/paper_theory/micro_validation/design.py",
+        "experiments/paper_theory/release_clocks/design.py",
+        "experiments/paper_theory/operator_validation/design.py",
+        "experiments/paper_theory/kernel_validation/design.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/review_results_20261007.py",
+      "source_sha256": "0b8355e95610244472acd60e2e95c1e6c5ba4af38afbeea29df66fd80d089891",
+      "destinations": [
+        "experiments/paper_theory/manuscript/reports/validation.py",
+        "experiments/paper_theory/micro_validation/analyze/review.py",
+        "experiments/paper_theory/release_clocks/analyze/review.py",
+        "experiments/paper_theory/operator_validation/analyze/review.py",
+        "experiments/paper_theory/kernel_validation/analyze/review.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/common.py",
+      "source_sha256": "a7699218407931bb70c1c969f7775118ab68ca204590a57b930f6060247b8c4d",
+      "destinations": [
+        "experiments/paper_theory/runtime/store.py",
+        "src/common/io/",
+        "src/common/numerics/distributions.py",
+        "src/common/plotting/",
+        "src/common/statistics.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/verify_smp_reuse.py",
+      "source_sha256": "0a6bee8db4fa17d8ad57a63dcd1292a065719f1bdb11b2cf5c1674f5b10b780d",
+      "destinations": [],
+      "disposition": "retired",
+      "reason": "One-time solver-reuse comparison; no active historical comparison entry point."
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/parameters.py",
+      "source_sha256": "bbe5395d2310d89fd81972a77dada378506d83cbc2b793279c743785f31140c2",
+      "destinations": [
+        "experiments/paper_theory/runtime/tasks.py",
+        "experiments/paper_theory/designs.py",
+        "experiments/paper_theory/micro_validation/design.py",
+        "experiments/paper_theory/release_clocks/design.py",
+        "experiments/paper_theory/operator_validation/design.py",
+        "experiments/paper_theory/kernel_validation/design.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/analyze_followup_20261007.py",
+      "source_sha256": "9724d5511fa591270e8c870cc15f32d92809bcdfce56fefde9e22d895b611c79",
+      "destinations": [
+        "experiments/paper_theory/analysis.py",
+        "experiments/paper_theory/micro_validation/analyze/ensembles.py",
+        "experiments/paper_theory/release_clocks/analyze/ensembles.py",
+        "experiments/paper_theory/operator_validation/analyze/parity.py",
+        "experiments/paper_theory/kernel_validation/analyze/cases.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/kernel_analysis.py",
+      "source_sha256": "52ab8c2d94e96e7688914370377684e2afd241f552395dced285bdee9cf0daf2",
+      "destinations": [
+        "experiments/paper_theory/kernel_validation/analyze/",
+        "src/theory/kernels.py",
+        "src/common/statistics.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/analyze.py",
+      "source_sha256": "73d6a9e8efe909ec8cba7baad7a6b86f1fe40e286a8a21092602ccbe5dfa24ee",
+      "destinations": [
+        "experiments/paper_theory/analysis.py",
+        "experiments/paper_theory/micro_validation/analyze/",
+        "experiments/paper_theory/release_clocks/analyze/",
+        "experiments/paper_theory/operator_validation/analyze/",
+        "experiments/paper_theory/kernel_validation/analyze/"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/engine/micro.go",
+      "source_sha256": "8b68a1535c6bfb1416b234e74a8563afea76d42f27b02791e2d76c8f2f83bab0",
+      "destinations": [
+        "experiments/paper_theory/runtime/engine/micro.go"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/engine/go.mod",
+      "source_sha256": "36c61708b6e7cf611e73103dcbeb18517b2d7e85df67ef3d5b2f4b93c15ece45",
+      "destinations": [
+        "experiments/paper_theory/runtime/engine/go.mod"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/engine/micro_audit.go",
+      "source_sha256": "24d95f57bd3a33cce6b243785f23e03736544e788dbec45db37308e6cf33f814",
+      "destinations": [
+        "experiments/paper_theory/runtime/engine/micro_audit.go"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/engine/micro_benchmark_test.go",
+      "source_sha256": "f8afe4bfca470afcb092bc9ab4def1c501465c0660f3ff4ee6e9a62991b46564",
+      "destinations": [
+        "experiments/paper_theory/runtime/engine/micro_benchmark_test.go"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/engine/micro_initial.go",
+      "source_sha256": "aeb50b076a1b1abb00ab8d729a700e5f50ac5a58b1ce9151c159ce39471f9403",
+      "destinations": [
+        "experiments/paper_theory/runtime/engine/micro_initial.go"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/engine/main.go",
+      "source_sha256": "174da8abed6acbbeb319c653a7f43d88a3e60264c91b276d1b44d2d653bfd53c",
+      "destinations": [
+        "experiments/paper_theory/runtime/engine/main.go"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_results_revision_20261007/audit_discrete_budget.py",
+      "source_sha256": "fe0f085135a4745f5e2ec9686c75501100416ac1411aadb219bfdc14917a73e4",
+      "destinations": [
+        "experiments/paper_theory/manuscript/audit/budgets.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_results_revision_20261007/audit_claims.py",
+      "source_sha256": "c5e6f70879e467347c7ab2bf8fded1d17defc73e5c159a800a0bff182057ed12",
+      "destinations": [
+        "experiments/paper_theory/manuscript/audit/claims.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_results_revision_20261007/build_figures.py",
+      "source_sha256": "1197fc63aa21a736647a9523a8c4251798d0afad63d677ca5ab4933f5f623375",
+      "destinations": [
+        "experiments/paper_theory/manuscript/figures/paper.py",
+        "experiments/paper_theory/manuscript/figures/validation.py",
+        "experiments/paper_theory/manuscript/figures/ensembles.py",
+        "experiments/paper_theory/manuscript/reports/dataset.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/run_core.sh",
+      "source_sha256": "f48b0c975ead355e81264a8b5b4b1b0b00790b67bf9946d60195942d74ec71ce",
+      "destinations": [
+        "experiments/paper_theory/__main__.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/theory_revision_experiments_20261006/run_followup_20261007.sh",
+      "source_sha256": "89057e4cfa01d9a9f455dc089a827b804b34aae5be1f4d621699d71761569703",
+      "destinations": [
+        "experiments/paper_theory/__main__.py"
+      ],
+      "disposition": "reorganized"
+    },
+    {
+      "source": "artifacts/energy_parameter_scaling/generate.py",
+      "source_sha256": "8a8b532dc1ea09f5660d1e203cfeb7dd3085775b404d4defc22db1628af1262c",
+      "destinations": [
+        "experiments/paper_theory/energy_scan/scaling/"
+      ],
+      "disposition": "reorganized"
+    }
+  ]
+}

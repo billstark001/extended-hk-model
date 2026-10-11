@@ -1,0 +1,1 @@
+"""Small-update scaling validation."""

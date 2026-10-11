@@ -1,0 +1,1 @@
+"""Theory-paper manuscript workflow."""
