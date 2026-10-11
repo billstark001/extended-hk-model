@@ -42,7 +42,7 @@ class ReleaseClock:
 def release_clock(
     time, energy, *, plateau: float | None = None, converged: bool = False, amplitude_floor: float = 1e-12
 ) -> ReleaseClock:
-    """Finite-window integral of max((U-Uinf)/(U0-Uinf),0).
+    """Finite-window integral of (U-Uinf)/(U0-Uinf), without clipping.
 
     No monotone envelope or upper clipping: rebounds remain in the area.
     If no independent plateau is provided, the tail median is an endpoint
@@ -72,7 +72,7 @@ def release_clock(
             np.full_like(energy, np.nan),
         )
     raw = (energy - plateau) / amplitude
-    survival = np.maximum(raw, 0)
+    survival = raw
     hits = np.flatnonzero(raw <= 0.5)
     t50 = np.nan
     if len(hits):

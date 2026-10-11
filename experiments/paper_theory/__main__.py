@@ -45,7 +45,7 @@ def parser():
         ),
         default="validation",
     )
-    p.add_argument("--profile", choices=("minimum", "core", "extended", "paper", "smoke"))
+    p.add_argument("--profile", choices=("minimum", "core", "extended", "paper", "smoke", "main", "main_smoke"))
     p.add_argument("--label")
     p.add_argument("--baseline-label")
     p.add_argument("--output-root", type=Path)

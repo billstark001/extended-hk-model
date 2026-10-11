@@ -16,7 +16,19 @@ from ..data import write_csv
 from ..runtime.measure_analysis import cached_cases
 from ..scaling.analyze import scaling_rows
 
-KEYS = ("dynamics", "recommender", "steepness", "epsilon", "ratio", "alpha", "population", "bins", "quadrature", "dt")
+KEYS = (
+    "dynamics",
+    "recommender",
+    "steepness",
+    "epsilon",
+    "ratio",
+    "alpha",
+    "population",
+    "bins",
+    "quadrature",
+    "dt",
+    "horizon",
+)
 
 
 def key(p, exclude=()):
@@ -25,6 +37,35 @@ def key(p, exclude=()):
 
 def metadata(p):
     return {k: p[k] for k in KEYS}
+
+
+def compact_record(record):
+    """Keep full fields only at snapshots/endpoints, not at every energy sample."""
+    result = record["result"]
+    result["pair_frames_fingerprint"] = fingerprint(result["pair"]["frames"])
+    for name, fields in (
+        ("frames", ("exact_node_energy", "exact_edge_energy")),
+        ("pair", ("node_energy", "edge_energy")),
+    ):
+        frames = result[name] if name == "frames" else result[name]["frames"]
+        for i, frame in enumerate(frames):
+            if np.asarray(frame.get("edge", [])).size or i == len(frames) - 1:
+                for field in ("rho", "edge"):
+                    if field in frame:
+                        frame[field] = np.asarray(frame[field], dtype=float)
+            else:
+                frames[i] = {k: frame[k] for k in ("time", "step", *fields)}
+    return record
+
+
+def pairing_excess(frame, epsilon):
+    """Binned concordance relative to independent pairing at actual marginals."""
+    edge = np.asarray(frame["edge"], dtype=float).reshape(len(frame["rho"]), -1)
+    edge = edge / edge.sum()
+    centers = -1 + (np.arange(len(edge)) + 0.5) * 2 / len(edge)
+    concordance = np.abs(centers[:, None] - centers[None, :]) <= epsilon
+    reference = np.outer(edge.sum(1), edge.sum(0))
+    return float(np.sum((edge - reference) * concordance))
 
 
 def check(time, values, protocol):
@@ -40,10 +81,15 @@ def check(time, values, protocol):
 def clock_rows(time, energies, protocol, md):
     """Use the same long endpoint reference at every prefix, retaining tail sensitivity."""
     rows = []
+    observed = float(time[-1])
+    horizons = list(protocol["prefix_taus"])
+    if protocol.get("adaptive_measure_stopping") and not any(abs(h - observed) < 1e-9 for h in horizons):
+        horizons.append(observed)
+    unobserved = ",".join(str(h) for h in protocol["prefix_taus"] if h > observed + 1e-9)
     for name, values in energies.items():
         long = release_clock(time, values)
         alternate = release_clock(time, values, plateau=float(np.median(values[-max(1, len(values) // 5) :])))
-        for horizon in protocol["prefix_taus"]:
+        for horizon in sorted(horizons):
             if horizon > time[-1] + 1e-9:
                 continue
             grid = np.r_[time[time < horizon], horizon]
@@ -58,6 +104,8 @@ def clock_rows(time, energies, protocol, md):
                     "plateau": long.plateau,
                     "amplitude": long.amplitude,
                     "reference_horizon_tau": float(time[-1]),
+                    "is_observed_endpoint": abs(horizon - observed) < 1e-9,
+                    "unobserved_prefix_taus": unobserved,
                     "plateau_confirmed": check(time, values, protocol),
                     "status": long.status,
                     "rebound": clock.rebound,
@@ -79,7 +127,14 @@ def measure_tables(cases, tasks, protocol):
                 case["tau"],
                 {n: case[n + "_energy"] for n in ("node", "edge")},
                 protocol,
-                {**metadata(case), "id": task["id"], "roles": ",".join(task["roles"])},
+                {
+                    **metadata(case),
+                    "id": task["id"],
+                    "roles": ",".join(task["roles"]),
+                    "planned_maximum_tau": task["parameters"]["horizon"],
+                    "stopped_early": bool(case["diagnostics"].get("converged", False)),
+                    "stop_reason": case["diagnostics"].get("stop_reason", ""),
+                },
             )
         )
     # Fixed-r alpha collapse uses raw energies; no endpoint alignment.
@@ -122,8 +177,10 @@ def measure_tables(cases, tasks, protocol):
                 c
                 for c in members
                 if c["dt"] == 1
-                and c["bins"] == (21 if protocol["prefix_taus"][-1] < 1 else 161)
-                and c["quadrature"] == (3 if protocol["prefix_taus"][-1] < 1 else 9)
+                and c["bins"]
+                == protocol.get("numerical_baseline", {}).get("bins", 21 if protocol["prefix_taus"][-1] < 1 else 161)
+                and c["quadrature"]
+                == protocol.get("numerical_baseline", {}).get("quadrature", 3 if protocol["prefix_taus"][-1] < 1 else 9)
             ),
             None,
         )
@@ -141,6 +198,9 @@ def measure_tables(cases, tasks, protocol):
                         "reference_bins": base["bins"],
                         "reference_quadrature": base["quadrature"],
                         "reference_dt": base["dt"],
+                        "reference_observed_horizon_tau": float(base["tau"][-1]),
+                        "observed_horizon_tau": float(c["tau"][-1]),
+                        "final_fields_at_own_observed_endpoints": True,
                         "mean_relative_change": abs(b.area / a.area - 1) if a.area > 0 else np.nan,
                         **curve_distance(base["tau"], base[n + "_energy"], c["tau"], c[n + "_energy"]),
                         **compare_fields(
@@ -179,6 +239,8 @@ def micro_tables(records, protocol):
             "micro_discordant": micro[-1]["exact_discordant"],
             "pair_variance": pair[-1]["variance"],
             "pair_discordant": pair[-1]["discordant"],
+            "micro_pairing_excess": pairing_excess(micro[-1], p["epsilon"]),
+            "pair_pairing_excess": pairing_excess(pair[-1], p["epsilon"]),
             **compare_fields(micro[-1], pair[-1]),
         }
         for n in ("node", "edge"):
@@ -186,9 +248,9 @@ def micro_tables(records, protocol):
                 pt, [f[n + "_energy"] for f in pair], mt, [f["exact_" + n + "_energy"] for f in micro]
             )["relative_max"]
         branches.append(row)
-        pair_by_step = {f["step"]: f for f in pair if f.get("edge")}
+        pair_by_step = {f["step"]: f for f in pair if np.asarray(f.get("edge", [])).size}
         for f in micro:
-            if f.get("edge") and f["step"] in pair_by_step:
+            if np.asarray(f.get("edge", [])).size and f["step"] in pair_by_step:
                 snapshots.append(
                     {
                         **metadata(p),
@@ -233,7 +295,15 @@ def micro_tables(records, protocol):
         pair = first["pair"]["frames"]
         pt = np.array([f["time"] for f in pair]) * p["alpha"]
         reference = {n: np.interp(time, pt, [f[n + "_energy"] for f in pair]) for n in ("node", "edge")}
-        if any(r["result"]["pair"]["frames"] != pair for r in members):
+
+        def pair_hash(result):
+            return (
+                result["pair_frames_fingerprint"]
+                if "pair_frames_fingerprint" in result
+                else fingerprint(result["pair"]["frames"])
+            )
+
+        if any(pair_hash(r["result"]) != pair_hash(first) for r in members):
             raise ValueError("deterministic pair trajectory changed with process seed")
         weights = bootstrap_weights(len(members), protocol)
         md = {
@@ -330,6 +400,8 @@ def micro_tables(records, protocol):
             "micro_discordant",
             "pair_variance",
             "pair_discordant",
+            "micro_pairing_excess",
+            "pair_pairing_excess",
             "node_w1",
             "edge_hellinger",
         ):
@@ -363,7 +435,7 @@ def analyze(directory):
             record = json.loads(path.read_text())
             if record["task"] != task:
                 raise ValueError("raw micro task/plan mismatch")
-            records.append(record)
+            records.append(compact_record(record))
         else:
             with np.load(path, allow_pickle=False) as archive:
                 if json.loads(str(archive["metadata"])) != task:
@@ -396,6 +468,11 @@ def analyze(directory):
         "completed": len(provenance),
         "missing": [r["id"] for r in coverage if not r["complete"]],
         "measure": len(cases),
+        "early_stopped_measure": sum(bool(c["diagnostics"].get("converged", False)) for c in cases),
+        "observed_measure_horizon_range": [
+            float(min(c["tau"][-1] for c in cases)),
+            float(max(c["tau"][-1] for c in cases)),
+        ],
         "micro": len(records),
         "conditional_cohorts": len(conditional) // 2,
         "confirmed_measure_rows": sum(r["plateau_confirmed"] for r in clocks),

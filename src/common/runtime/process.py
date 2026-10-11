@@ -1,11 +1,74 @@
 """Subprocess transport without experiment or model dependencies."""
 
 import subprocess
+import threading
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+_local = threading.local()
+_process_lock = threading.Lock()
+_processes = {}
 
 
-def run_jsonl(binary, line, *, timeout=None):
+def run_jsonl(binary, line, *, timeout=None, arguments=()):
     """Execute a one-request JSONL adapter and return stdout."""
-    return subprocess.run([str(binary)], input=line, capture_output=True, text=True, check=True, timeout=timeout).stdout
+    stop = getattr(_local, "stop", None)
+    with _process_lock:
+        if stop is not None and stop.is_set():
+            raise RuntimeError("task execution cancelled")
+        process = subprocess.Popen(
+            [str(binary), *arguments], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        _processes[process] = stop
+    try:
+        stdout, stderr = process.communicate(line, timeout=timeout)
+        if process.returncode:
+            raise subprocess.CalledProcessError(process.returncode, process.args, stdout, stderr)
+        return stdout
+    except BaseException:
+        process.kill()
+        process.communicate()
+        raise
+    finally:
+        with _process_lock:
+            _processes.pop(process, None)
+
+
+def run_tasks(function, tasks, workers):
+    """Bound queued work; on failure/interrupt stop launching and kill active solvers."""
+    stop = threading.Event()
+
+    def run(task):
+        _local.stop = stop
+        try:
+            return function(task)
+        finally:
+            del _local.stop
+
+    pool = ThreadPoolExecutor(max_workers=workers)
+    iterator = iter(tasks)
+    pending = set()
+    try:
+        for _ in range(workers):
+            task = next(iterator, None)
+            if task is not None:
+                pending.add(pool.submit(run, task))
+        while pending:
+            complete, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in complete:
+                future.result()
+            for _ in complete:
+                task = next(iterator, None)
+                if task is not None:
+                    pending.add(pool.submit(run, task))
+    except BaseException:
+        with _process_lock:
+            stop.set()
+            for process, owner in list(_processes.items()):
+                if owner is stop:
+                    process.kill()
+        raise
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def acquire_lock(path):

@@ -4,14 +4,16 @@ import json
 from pathlib import Path
 
 from common.io.json import atomic_json, sha
-from common.runtime.process import run_jsonl
+from common.runtime.process import run_jsonl, run_tasks
 from theory.parameters import Parameters
 from theory.runtime import measure as schema
 from theory.runtime.measure import measure_request
 from theory.runtime.protocol import POPULATION_POLICIES, read_response, task_line
 
+from ...runtime.completed import cached
 
-def execute(tasks, directory, binary, *, force=False, limit=None):
+
+def execute(tasks, directory, binary, *, force=False, limit=None, workers=1):
     """Run or resume exact task-matching JSON caches, using split initial RNG streams and actual graph projection; limit truncates execution, not the design."""
     from smp_meso_bindings.kinetic_runner import prepare_kinetic_request
 
@@ -21,13 +23,13 @@ def execute(tasks, directory, binary, *, force=False, limit=None):
     if binding_path.exists() and json.loads(binding_path.read_text()) != binding:
         raise ValueError("population binary changed; use a new output directory")
     atomic_json(binding_path, binding)
-    for index, task in enumerate(tasks[:limit] if limit else tasks):
+
+    def run(index_task):
+        index, task = index_task
         path = directory / f"{task['id']}.json"
-        if path.exists() and not force:
-            if json.loads(path.read_text())["task"] != task:
-                raise ValueError(f"cache protocol differs: {path}")
+        if path.exists() and not force and cached(path, task, "micro"):
             print(f"cached {task['id']}", flush=True)
-            continue
+            return
         raw_request = measure_request(task["id"], Parameters(**task["parameters"]), **task.get("request_options", {}))
         snapshot_steps = sorted({*raw_request["snapshots"]["record_steps"], raw_request["steps"]})
         request = prepare_kinetic_request(raw_request)
@@ -61,3 +63,6 @@ def execute(tasks, directory, binary, *, force=False, limit=None):
         temporary = path.with_suffix(".tmp")
         temporary.write_text(json.dumps({"task": task, "result": result}, separators=(",", ":")) + "\n")
         temporary.replace(path)
+
+    selected = tasks[:limit] if limit else tasks
+    run_tasks(run, enumerate(selected), workers)

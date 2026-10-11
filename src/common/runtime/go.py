@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -12,11 +14,18 @@ from common.runtime.environment import runtime_environment
 
 def source_manifest(root):
     """Hash production Go sources plus go.mod/go.sum in a runtime working tree; exclude tests, vendor and binary directories."""
-    return {
-        str(p.relative_to(root)): sha(p)
-        for p in sorted(root.rglob("*.go"))
-        if not p.name.endswith("_test.go") and not any(x in p.parts for x in (".git", "bin", "vendor"))
-    } | {p: sha(root / p) for p in ("go.mod", "go.sum")}
+    sources = []
+    excluded = {".git", "bin", "vendor", "outputs", "inputs", "artifacts", "datasets", ".venv", ".cache"}
+    for directory, children, files in os.walk(root):
+        children[:] = [name for name in children if name not in excluded]
+        sources.extend(
+            Path(directory) / name
+            for name in files
+            if name.endswith(".go") and not name.endswith("_test.go") and not name.startswith("._")
+        )
+    return {str(p.relative_to(root)): sha(p) for p in sorted(sources)} | {
+        name: sha(root / name) for name in ("go.mod", "go.sum")
+    }
 
 
 def engine_manifest(engine_root):
@@ -26,7 +35,7 @@ def engine_manifest(engine_root):
     }
 
 
-def build_adapter(destination, meso_root, micro_root, backend, engine_root):
+def build_adapter(destination, meso_root, micro_root, backend, engine_root, *, link_stage=None):
     """Build the shared adapter against both supplied runtime source checkouts.
 
     Generate local module replacements and caches inside destination; preserve
@@ -37,6 +46,12 @@ def build_adapter(destination, meso_root, micro_root, backend, engine_root):
     destination = Path(destination).resolve()
     destination.mkdir(parents=True, exist_ok=True)
     env = runtime_environment(destination)
+    if link_stage is not None:
+        link_stage = Path(link_stage).resolve()
+        (link_stage / "tmp").mkdir(parents=True, exist_ok=True)
+        env["GOTMPDIR"] = str(link_stage / "tmp")
+        # The external linker uses TMPDIR independently of Go's work directory.
+        env["TMPDIR"] = str(link_stage / "tmp")
     inputs = {
         "meso": source_manifest(meso_root),
         "micro": source_manifest(micro_root),
@@ -50,7 +65,15 @@ def build_adapter(destination, meso_root, micro_root, backend, engine_root):
     if binary.exists() and manifest.exists():
         old = json.loads(manifest.read_text())
         if old["source_fingerprint"] == ident and old["binary_sha256"] == sha(binary):
-            return old
+            # The scientific manifest stays immutable; a caller may recreate a
+            # removed APFS execution stage from its verified provenance copy.
+            if link_stage is not None:
+                target = link_stage / "paper-theory-engine"
+                shutil.copy2(binary, target)
+                if sha(target) != old["binary_sha256"]:
+                    raise RuntimeError("staged binary copy differs")
+                return {**old, "binary": str(target), "cached_binary": str(binary)}
+            return {**old, "binary": str(binary), "cached_binary": str(binary)}
         raise RuntimeError("source/backend changed: use a NEW build directory; existing run snapshots are immutable")
     (destination / "go.mod").write_text(
         (engine_root / "go.mod").read_text()
@@ -62,10 +85,15 @@ def build_adapter(destination, meso_root, micro_root, backend, engine_root):
     )
     (destination / "go.sum").write_text((micro_root / "go.sum").read_text() + (meso_root / "go.sum").read_text())
     subprocess.run(["go", "mod", "tidy", "-modfile", str(destination / "go.mod")], cwd=engine_root, env=env, check=True)
-    command = ["go", "build", "-modfile", str(destination / "go.mod"), "-p", "4", "-o", str(binary)]
+    target = link_stage / "paper-theory-engine" if link_stage is not None else binary
+    command = ["go", "build", "-modfile", str(destination / "go.mod"), "-p", "4", "-o", str(target)]
     if backend != "purego":
         command += ["-tags", backend]
     subprocess.run(command + ["."], cwd=engine_root, env=env, check=True)
+    if target != binary:
+        shutil.copy2(target, binary)
+        if sha(target) != sha(binary):
+            raise RuntimeError("staged binary copy differs")
     if (
         source_manifest(meso_root) != inputs["meso"]
         or source_manifest(micro_root) != inputs["micro"]
@@ -76,7 +104,8 @@ def build_adapter(destination, meso_root, micro_root, backend, engine_root):
         **inputs,
         "source_fingerprint": ident,
         "binary_sha256": sha(binary),
-        "binary": str(binary),
+        "binary": str(target),
+        "cached_binary": str(binary),
         "meso_git_head": subprocess.check_output(["git", "-C", str(meso_root), "rev-parse", "HEAD"], text=True).strip(),
         "micro_git_head": subprocess.check_output(
             ["git", "-C", str(micro_root), "rev-parse", "HEAD"], text=True

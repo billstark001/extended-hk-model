@@ -1,6 +1,7 @@
 """Select, freeze and execute the new evidence design under one output root."""
 
 import json
+import shutil
 from collections import Counter
 from pathlib import Path
 
@@ -34,22 +35,37 @@ def perform(a, root, build_dir, meso, micro):
 
         from ..runtime.build import build
 
-        manifest = build(build_dir, meso, micro, a.backend)
+        stage = getattr(a, "build_stage", None)
+        manifest = build(build_dir, meso, micro, a.backend, link_stage=stage)
+        # A build interrupted after the adapter can restore it into a new APFS
+        # stage while its immutable manifest still names the original stage.
+        a.engine = Path(manifest["binary"])
         binary = a.binary or root / "bin" / "smp-kinetic"
-        build_binary(command_name="kinetic", source_root=meso, output_path=binary, backend=a.backend)
+        target = stage / "smp-kinetic" if stage else binary
+        build_binary(command_name="kinetic", source_root=meso, output_path=target, backend=a.backend)
+        if target != binary:
+            binary.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(target, binary)
+            if sha(target) != sha(binary):
+                raise RuntimeError("staged kinetic binary copy differs")
         # Bind the public binary to actual production source hashes too.
         from common.runtime.go import source_manifest
 
         atomic_json(
             root / "bin" / "kinetic_manifest.json",
             {
-                "binary": str(binary),
+                "binary": str(target),
+                "cached_binary": str(binary),
                 "binary_sha256": sha(binary),
                 "source": source_manifest(meso),
                 "backend": a.backend,
                 "adapter_source": manifest["engine"],
             },
         )
+        if stage:
+            # macOS can stall executable mappings on exFAT even when copy hashes
+            # match. Execute the small APFS binary; retain the Cache provenance copy.
+            a.binary = target
         return
     if a.action in ("plan", "run", "smoke"):
         candidate = plan(directory, a.profile, a.horizon)
@@ -60,7 +76,7 @@ def perform(a, root, build_dir, meso, micro):
 
         binary = a.binary or root / "bin" / "smp-kinetic"
         manifest = json.loads((build_dir / "manifest.json").read_text())
-        engine = Path(manifest["binary"])
+        engine = Path(getattr(a, "engine", None) or manifest["binary"])
         if sha(engine) != manifest["binary_sha256"]:
             raise ValueError("engine binary differs from build manifest")
         lock = directory / "active.lock"
@@ -72,6 +88,7 @@ def perform(a, root, build_dir, meso, micro):
                 binary,
                 force=a.force,
                 limit=a.limit,
+                workers=a.workers,
             )
             population(
                 [t for t in candidate["tasks"] if t["kind"] == "micro"],
@@ -79,6 +96,7 @@ def perform(a, root, build_dir, meso, micro):
                 engine,
                 force=a.force,
                 limit=a.limit,
+                workers=a.workers,
             )
         finally:
             release_lock(lock)
@@ -88,7 +106,10 @@ def perform(a, root, build_dir, meso, micro):
 
         return analyze(directory)
     if a.action == "plot":
-        from .plot import plot
+        if a.profile.startswith("main"):
+            from .main_figures import plot
+        else:
+            from .plot import plot
 
         return plot(directory)
     if a.action == "status":

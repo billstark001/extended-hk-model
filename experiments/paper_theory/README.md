@@ -94,7 +94,7 @@ PYTHONPATH=src:. python -m experiments.paper_theory plan --suite evidence --prof
 PYTHONPATH=src:. python -m experiments.paper_theory pipeline --suite evidence --profile paper --output-root /path/to/new-evidence
 ```
 
-Use `--micro-root`/`--meso-root` for source checkouts outside the default sibling locations. Install the dependencies described in `docs/runtime-dependencies.md` first. The paper profile is a large study; planning does not estimate its cost or authorize launching it. Execution currently runs evidence tasks sequentially, with no nested parallelism; `--limit` limits each family and reports incomplete coverage.
+Use `--micro-root`/`--meso-root` for source checkouts outside the default sibling locations. Install the dependencies described in `docs/runtime-dependencies.md` first. The paper profile is a large study; planning does not estimate its cost or authorize launching it. `--workers` controls concurrent independent jobs, with one Go thread per job; `--limit` limits each family and reports incomplete coverage.
 
 The mean clock is a finite-window survival integral in tau=alpha*t. Long-window endpoint references are reused for prefix areas; plateau checks, tail20 sensitivity and weak-release status are retained. Conditional micro intervals resample process branches at one fixed initial state. Population intervals resample independent initial states and their branches, giving each initial state equal weight. Recommendation contrasts use the shared initial state/process-seed design. Fixed pair endpoint normalization is a separately labeled sensitivity control; these data do not imply an infinite-mean theorem.
 
@@ -103,3 +103,68 @@ The formal design covers HK/Deffuant, Random and Opinion/Structure zeta=1/4; par
 Figures `mean_release`, `scaling_collapse`, `matched_micro_means` and `population_robustness` provide the proposed primary evidence. `numerical_controls`, full state comparison tables, prefix and plateau diagnostics can support supplementary material. Existing T50 workflows remain available for sensitivity and historical reproduction; the historical `figures` command still addresses its frozen dataset and is not used by `evidence`.
 
 Use `--horizon` on the evidence paper profile to predeclare a longer common window in a new output directory when the tail diagnostics require it. The default is 480; stopping remains fixed-window so scaling and prefix comparisons have matching time domains.
+
+## Current main figures, with historical data reads prohibited
+
+`evidence.design.design()` is a facade. `paper_design.paper_design()` preserves
+the original evidence plan; `main_design.design()` defines the three remaining
+main figures after removal of the CAS overview figure. The `main` profile uses
+epsilon=.2/.4/.8, alpha=.02, all five weighted recommenders and both dynamics.
+It adds the edge/node mean-area log ratio, representative raw tails, two initial
+graphs with eight conditional branches each at N=500/B=161/Q=33, and matched
+N=250/500/1000/2000 distributions, variance, marginal-referenced edge pairing,
+restricted areas and closure errors for Random/Opinion4 at r=2 through tau=120.
+Population runs use B=161/Q=33 and four independent
+initial states with four branches each. Analytic-initial mesoscopic runs have
+a tau=480 cap, with joint state/energy stopping after tau=120 and 40 tau of
+stationarity. Microscopic/pair ensembles retain the common tau=480 window.
+Observed endpoint areas, unavailable later prefixes and stopping diagnostics
+are explicit; curves are not extended after stopping. Alpha collapse compares
+raw curves on their common observed interval. Prefix, grid, quadrature and
+physical-step controls remain.
+
+The dedicated entry point below refuses existing scientific/build caches by default,
+builds the solvers from the two source checkouts, and exports only five PDF/PNG
+figure pairs per confidence radius plus small tables and manifests. The baseline
+epsilon=.4 figures are at the root; epsilon=.2/.8 versions are in separate
+subdirectories named in the figure manifest. Raw JSON/NPZ, build files and
+runtime caches stay under the new work directory. Small executables link and
+run from a temporary APFS directory to avoid macOS exFAT mapping failures;
+verified provenance copies remain in Cache. On macOS, Accelerate is the default
+BLAS backend; select `--backend purego` for the portable fallback.
+It disables dotenv and uses
+a Python read audit hook that permits code, dependencies and generated files;
+old inputs and resolved symlink targets are rejected. The Go scientific
+executables receive generated requests on stdin; the audit records subprocess
+commands but does not claim to trace all Go kernel-level reads.
+
+```sh
+PYTHON_DOTENV_DISABLED=1 PYTHONPATH=src:. python -m experiments.paper_theory.evidence.run_main \
+  --profile paper --workers 4 \
+  --work-dir /Volumes/Cache/extended-hk-model-paper/NEW_EMPTY_RUN \
+  --publish-dir outputs/experiments/paper_theory/main_figures/NEW_RESULT \
+  --model-root "$PWD" \
+  --micro-root ../social-media-models --meso-root ../social-media-mesoscopic-models
+```
+
+Use `--profile smoke` for the complete short pipeline, with N=40/80 and tau=.4.
+It checks all plotting paths and matching controls; these figures are not
+scientific results. Formal output names are `mean_recommendation_clocks`,
+`mean_micro_validation`, `population_robustness`, `scaling_collapse` and
+`numerical_controls`. Means are unclipped integrals; all figures retain the
+finite-window/end-reference qualification. Tail stability alone does not prove
+an infinite-time mean. The manuscript launcher is
+`artifacts/theory_main_figures_20261012/run_full.sh` in the paper repository.
+
+Explicit `--resume` continues the same work and publication directories. It
+verifies the frozen design, source/request-schema hashes, backend and exact
+original executables, restores executable copies to APFS, skips valid completed
+tasks and reruns incomplete tasks from their initial state. Analysis, plotting
+and partial exports can also be resumed. Only worker count may change without
+starting a new scientific run. Whole-run OS locks prevent competing launchers;
+stale legacy task locks are recovered only after their owner PID has exited.
+Ctrl-C/SIGTERM stop new task submissions and kill active solver subprocesses.
+Each `attempt-*` directory records status and a separate read audit. Retain the
+original `build/` and `bin/` copies and unchanged source checkouts for resume.
+The paper launcher exposes this as `bash run_full.sh resume RUN_DIRECTORY` and
+appends output to the same `stdout.log`.
