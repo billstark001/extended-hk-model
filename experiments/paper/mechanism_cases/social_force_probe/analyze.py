@@ -11,10 +11,7 @@ import numpy as np
 from matplotlib.axes import Axes
 
 from experiments.paper.mechanism_cases.social_force_probe.scenarios import OUTPUT_DIR, SCENARIOS
-from ehk.plotting.landscape import (
-    plot_potential_curves,
-    potential_from_force,
-)
+from ehk.plotting.landscape import plot_potential_curves, potential_from_force
 
 
 LandscapeKind = Literal["observational", "probe"]
@@ -23,55 +20,43 @@ LANDSCAPE_CHOICES = get_args(LandscapeKind)
 
 @dataclass(frozen=True)
 class ProbeLandscape:
-  x: np.ndarray
-  normalized_time: np.ndarray
-  total_force: np.ndarray
-  neighbor_force: np.ndarray
+    x: np.ndarray
+    normalized_time: np.ndarray
+    total_force: np.ndarray
+    neighbor_force: np.ndarray
 
-  def force(self, *, neighbor_only: bool) -> np.ndarray:
-    return self.neighbor_force if neighbor_only else self.total_force
+    def force(self, *, neighbor_only: bool) -> np.ndarray:
+        return self.neighbor_force if neighbor_only else self.total_force
 
-  def potential(self, *, neighbor_only: bool) -> np.ndarray:
-    return potential_from_force(
-        self.x,
-        self.force(neighbor_only=neighbor_only),
-    )
+    def potential(self, *, neighbor_only: bool) -> np.ndarray:
+        return potential_from_force(self.x, self.force(neighbor_only=neighbor_only))
 
 
 @lru_cache(maxsize=None)
-def load_probe_landscape(
-    scenario_key: str,
-    result_dir: str | Path | None = None,
-) -> ProbeLandscape:
-  """Load one probe NPZ and validate that it belongs to the requested record."""
-  if scenario_key not in SCENARIOS:
-    raise KeyError(f"unknown mechanism scenario: {scenario_key}")
+def load_probe_landscape(scenario_key: str, result_dir: str | Path | None = None) -> ProbeLandscape:
+    """Load one probe NPZ and validate that it belongs to the requested record."""
+    if scenario_key not in SCENARIOS:
+        raise KeyError(f"unknown mechanism scenario: {scenario_key}")
 
-  path = Path(result_dir) if result_dir is not None else OUTPUT_DIR.resolve()
-  path = path / f"counterfactual_probe_{scenario_key}.npz"
-  if not path.is_file():
-    raise FileNotFoundError(
-        f"probe landscape not found: {path}; run "
-        f"`python -m experiments.paper.mechanism_cases.social_force_probe.run "
-        f"--scenario {scenario_key} --no-plot` first"
-    )
+    path = Path(result_dir) if result_dir is not None else OUTPUT_DIR.resolve()
+    path = path / f"counterfactual_probe_{scenario_key}.npz"
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"probe landscape not found: {path}; run "
+            f"`python -m experiments.paper.mechanism_cases.social_force_probe.run "
+            f"--scenario {scenario_key} --no-plot` first"
+        )
 
-  with np.load(path) as result:
-    result_key = str(result["scenario_key"].item())
-    if result_key != scenario_key:
-      raise ValueError(
-          f"{path} contains scenario {result_key!r}, "
-          f"expected {scenario_key!r}"
-      )
-    return ProbeLandscape(
-        x=np.asarray(result["x"], dtype=float),
-        normalized_time=np.asarray(result["normalized_time"], dtype=float),
-        total_force=np.asarray(result["social_force_mean"], dtype=float),
-        neighbor_force=np.asarray(
-            result["social_force_neighbor_mean"],
-            dtype=float,
-        ),
-    )
+    with np.load(path) as result:
+        result_key = str(result["scenario_key"].item())
+        if result_key != scenario_key:
+            raise ValueError(f"{path} contains scenario {result_key!r}, expected {scenario_key!r}")
+        return ProbeLandscape(
+            x=np.asarray(result["x"], dtype=float),
+            normalized_time=np.asarray(result["normalized_time"], dtype=float),
+            total_force=np.asarray(result["social_force_mean"], dtype=float),
+            neighbor_force=np.asarray(result["social_force_neighbor_mean"], dtype=float),
+        )
 
 
 def plot_probe_potential(
@@ -83,16 +68,9 @@ def plot_probe_potential(
     ylabel: bool,
     result_dir: str | Path | None = None,
 ) -> np.ndarray:
-  """Plot a probe potential while leaving the trajectory panel unchanged."""
-  result = load_probe_landscape(scenario_key, result_dir)
-  potential = result.potential(neighbor_only=neighbor_only)
+    """Plot a probe potential while leaving the trajectory panel unchanged."""
+    result = load_probe_landscape(scenario_key, result_dir)
+    potential = result.potential(neighbor_only=neighbor_only)
 
-  plot_potential_curves(
-      potential_axis,
-      result.x,
-      potential,
-      result.normalized_time,
-      xlabel=xlabel,
-      ylabel=ylabel,
-  )
-  return potential
+    plot_potential_curves(potential_axis, result.x, potential, result.normalized_time, xlabel=xlabel, ylabel=ylabel)
+    return potential

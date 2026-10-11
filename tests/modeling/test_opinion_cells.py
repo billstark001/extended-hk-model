@@ -3,10 +3,7 @@ import unittest
 import numpy as np
 
 from ehk.metrics.homophily import uniform_concordance_probability
-from ehk.modeling.opinion_cells import (
-    compromise_jump_geometry,
-    confidence_geometry,
-)
+from ehk.modeling.opinion_cells import compromise_jump_geometry, confidence_geometry
 
 
 class ConfidenceGeometryTests(unittest.TestCase):
@@ -27,21 +24,9 @@ class ConfidenceGeometryTests(unittest.TestCase):
 
     def test_pair_geometry_has_exchange_symmetry(self):
         geometry = confidence_geometry(self._grid(21), epsilon=0.45)
-        np.testing.assert_allclose(
-            geometry.concordance,
-            geometry.concordance.T,
-            atol=2e-14,
-        )
-        np.testing.assert_allclose(
-            geometry.displacement,
-            -geometry.displacement.T,
-            atol=2e-14,
-        )
-        np.testing.assert_allclose(
-            geometry.displacement_second,
-            geometry.displacement_second.T,
-            atol=2e-14,
-        )
+        np.testing.assert_allclose(geometry.concordance, geometry.concordance.T, atol=2e-14)
+        np.testing.assert_allclose(geometry.displacement, -geometry.displacement.T, atol=2e-14)
+        np.testing.assert_allclose(geometry.displacement_second, geometry.displacement_second.T, atol=2e-14)
         self.assertGreaterEqual(float(geometry.concordance.min()), 0.0)
         self.assertLessEqual(float(geometry.concordance.max()), 1.0)
 
@@ -51,37 +36,20 @@ class ConfidenceGeometryTests(unittest.TestCase):
         dx = x[1] - x[0]
         expected_second = x * x + dx * dx / 12.0
         np.testing.assert_allclose(geometry.concordance, 1.0, atol=2e-14)
+        np.testing.assert_allclose(geometry.target_first, np.broadcast_to(x, geometry.target_first.shape), atol=2e-14)
         np.testing.assert_allclose(
-            geometry.target_first,
-            np.broadcast_to(x, geometry.target_first.shape),
-            atol=2e-14,
+            geometry.target_second, np.broadcast_to(expected_second, geometry.target_second.shape), atol=2e-14
         )
-        np.testing.assert_allclose(
-            geometry.target_second,
-            np.broadcast_to(expected_second, geometry.target_second.shape),
-            atol=2e-14,
-        )
-        np.testing.assert_allclose(
-            geometry.displacement,
-            x[None, :] - x[:, None],
-            atol=2e-14,
-        )
+        np.testing.assert_allclose(geometry.displacement, x[None, :] - x[:, None], atol=2e-14)
         expected_displacement_second = (x[None, :] - x[:, None]) ** 2 + dx * dx / 6.0
-        np.testing.assert_allclose(
-            geometry.displacement_second,
-            expected_displacement_second,
-            atol=2e-14,
-        )
+        np.testing.assert_allclose(geometry.displacement_second, expected_displacement_second, atol=2e-14)
 
     def test_center_mode_reproduces_legacy_mask(self):
         x = self._grid(15)
         geometry = confidence_geometry(x, epsilon=0.45, mode="center")
         expected = (np.abs(x[:, None] - x[None, :]) <= 0.45).astype(float)
         np.testing.assert_array_equal(geometry.concordance, expected)
-        np.testing.assert_allclose(
-            geometry.displacement,
-            expected * (x[None, :] - x[:, None]),
-        )
+        np.testing.assert_allclose(geometry.displacement, expected * (x[None, :] - x[:, None]))
 
     def test_jump_quadrature_is_conditional_and_preserves_pair_mean(self):
         x = self._grid(31)
@@ -95,14 +63,9 @@ class ConfidenceGeometryTests(unittest.TestCase):
         self.assertAlmostEqual(float(jump.weight[source, target].sum()), 1.0, places=14)
         destinations = jump.destination_index[source, target]
         valid = destinations >= 0
-        numerical_mean = float(
-            jump.weight[source, target, valid] @ x[destinations[valid]]
-        )
+        numerical_mean = float(jump.weight[source, target, valid] @ x[destinations[valid]])
         expected_mean = float(
-            x[source]
-            + influence
-            * confidence.displacement[source, target]
-            / confidence.concordance[source, target]
+            x[source] + influence * confidence.displacement[source, target] / confidence.concordance[source, target]
         )
         self.assertAlmostEqual(numerical_mean, expected_mean, places=13)
 

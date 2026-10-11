@@ -14,24 +14,10 @@ scenarios = {
 }
 
 if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser(
-        description="Run simulations for a given scenario."
-    )
-    parser.add_argument(
-        "scenario",
-        choices=scenarios.keys(),
-        help="The scenario to run simulations for.",
-    )
-    parser.add_argument(
-        "--workspace", help="The workspace name to store simulation results."
-    )
-    parser.add_argument(
-        "--concurrency",
-        type=int,
-        default=4,
-        help="Number of concurrent simulations to run.",
-    )
+    parser = argparse.ArgumentParser(description="Run simulations for a given scenario.")
+    parser.add_argument("scenario", choices=scenarios.keys(), help="The scenario to run simulations for.")
+    parser.add_argument("--workspace", help="The workspace name to store simulation results.")
+    parser.add_argument("--concurrency", type=int, default=4, help="Number of concurrent simulations to run.")
 
     args = parser.parse_args()
 
@@ -39,9 +25,7 @@ if __name__ == "__main__":
         print("Please specify a scenario to run simulations for.")
         exit(1)
     if args.scenario not in scenarios:
-        print(
-            f'Invalid scenario specified. Available scenarios: {", ".join(scenarios.keys())}'
-        )
+        print(f"Invalid scenario specified. Available scenarios: {', '.join(scenarios.keys())}")
         exit(1)
 
     simulation_result_dir = workspace_dir(args.workspace, args.scenario)
@@ -51,9 +35,4 @@ if __name__ == "__main__":
 
     print(f"Result Directory: {simulation_result_dir}")
 
-    run_scenarios(
-        SMP_BINARY.resolve(),
-        simulation_result_dir,
-        scenarios[args.scenario],
-        concurrency=args.concurrency,
-    )
+    run_scenarios(SMP_BINARY.resolve(), simulation_result_dir, scenarios[args.scenario], concurrency=args.concurrency)

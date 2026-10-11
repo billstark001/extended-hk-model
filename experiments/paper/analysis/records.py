@@ -17,16 +17,7 @@ def _():
     pass
 
 
-exclude = [
-    "name",
-    "origin",
-    "tolerance",
-    "decay",
-    "rewiring",
-    "retweet",
-    "recsys_type",
-    "tweet_retain_count",
-]
+exclude = ["name", "origin", "tolerance", "decay", "rewiring", "retweet", "recsys_type", "tweet_retain_count"]
 
 
 class ScenarioStatistics(Base):
@@ -53,43 +44,25 @@ class ScenarioStatistics(Base):
 
     g_index_mean_active: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
-    x_indices: Mapped[Optional[np.ndarray]] = mapped_column(
-        NumpyArrayType(dtype=np.int32), nullable=True
-    )
-    h_index: Mapped[Optional[np.ndarray]] = mapped_column(
-        NumpyArrayType(dtype=np.float64), nullable=True
-    )
-    p_index: Mapped[Optional[np.ndarray]] = mapped_column(
-        NumpyArrayType(dtype=np.float64), nullable=True
-    )
-    g_index: Mapped[Optional[np.ndarray]] = mapped_column(
-        NumpyArrayType(dtype=np.float64), nullable=True
-    )
+    x_indices: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.int32), nullable=True)
+    h_index: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.float64), nullable=True)
+    p_index: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.float64), nullable=True)
+    g_index: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.float64), nullable=True)
 
     grad_index: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     event_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     event_step_mean: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     triads: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
-    x_bc_hom: Mapped[Optional[np.ndarray]] = mapped_column(
-        NumpyArrayType(dtype=np.int32), nullable=True
-    )
-    bc_hom_smpl: Mapped[Optional[np.ndarray]] = mapped_column(
-        NumpyArrayType(dtype=np.float64), nullable=True
-    )
+    x_bc_hom: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.int32), nullable=True)
+    bc_hom_smpl: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.float64), nullable=True)
 
-    x_mean_vars: Mapped[Optional[np.ndarray]] = mapped_column(
-        NumpyArrayType(dtype=np.int32), nullable=True
-    )
-    mean_vars_smpl: Mapped[Optional[np.ndarray]] = mapped_column(
-        NumpyArrayType(dtype=np.float64), nullable=True
-    )
+    x_mean_vars: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.int32), nullable=True)
+    mean_vars_smpl: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.float64), nullable=True)
 
     opinion_diff: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
-    x_opinion_diff_mean: Mapped[Optional[np.ndarray]] = mapped_column(
-        NumpyArrayType(dtype=np.int32), nullable=True
-    )
+    x_opinion_diff_mean: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.int32), nullable=True)
     opinion_diff_mean_smpl: Mapped[Optional[np.ndarray]] = mapped_column(
         NumpyArrayType(dtype=np.float64), nullable=True
     )
@@ -97,27 +70,17 @@ class ScenarioStatistics(Base):
     last_community_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     last_community_sizes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    last_opinion_peak_count: Mapped[Optional[int]] = mapped_column(
-        Integer, nullable=True
-    )
+    last_opinion_peak_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     p_backdrop: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     h_backdrop: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     g_backdrop: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
-    opinion_diff_seg_mean: Mapped[Optional[np.ndarray]] = mapped_column(
-        NumpyArrayType(dtype=np.float64), nullable=True
-    )
-    opinion_diff_seg_std: Mapped[Optional[np.ndarray]] = mapped_column(
-        NumpyArrayType(dtype=np.float64), nullable=True
-    )
+    opinion_diff_seg_mean: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.float64), nullable=True)
+    opinion_diff_seg_std: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.float64), nullable=True)
 
 
-def stats_from_dict(
-    scenario_metadata: "ScenarioMetadata",
-    stats_dict: dict,
-    origin: str,
-) -> ScenarioStatistics:
+def stats_from_dict(scenario_metadata: "ScenarioMetadata", stats_dict: dict, origin: str) -> ScenarioStatistics:
     _d = {}
     for k, v in stats_dict.items():
         if k in exclude:

@@ -13,54 +13,45 @@ NORMALIZED_TIMES = tuple(i / 10 for i in range(11))
 # Use common random numbers across scenarios to reduce Monte Carlo noise in
 # their comparison. Seeds are strings because the Go/Python protocol preserves
 # uint64 values exactly in this representation.
-PROBE_RNG = {
-    "Algorithm": "pcg64-dxsm-v1",
-    "Seed1": "0x4c414e4453434150",
-    "Seed2": "0x50524f4245323032",
-}
+PROBE_RNG = {"Algorithm": "pcg64-dxsm-v1", "Seed1": "0x4c414e4453434150", "Seed2": "0x50524f4245323032"}
 
-INPUT_DIR = register_path(
-    "EHK_SOCIAL_FORCE_INPUT_DIR", "outputs/experiments/paper/mechanism_cases/raw"
-)
-PROBE_BINARY = register_path(
-    "SMP_PROBE_BINARY", "../social-media-models/smp-probe"
-)
+INPUT_DIR = register_path("EHK_SOCIAL_FORCE_INPUT_DIR", "outputs/experiments/paper/mechanism_cases/raw")
+PROBE_BINARY = register_path("SMP_PROBE_BINARY", "../social-media-models/smp-probe")
 OUTPUT_DIR = register_path(
-    "EHK_SOCIAL_FORCE_OUTPUT_DIR",
-    "outputs/experiments/paper/mechanism_cases/social_force_probe",
+    "EHK_SOCIAL_FORCE_OUTPUT_DIR", "outputs/experiments/paper/mechanism_cases/social_force_probe"
 )
 
 
 @dataclass(frozen=True)
 class LandscapeScenario:
-  key: str
-  unique_name: str
-  active_step: int
-  label: str
-  influence: float
-  rewiring_rate: float
-  repost_rate: float = 0.0
-  recsys_factory_type: str = "Random"
-  post_retain_count: int = 3
+    key: str
+    unique_name: str
+    active_step: int
+    label: str
+    influence: float
+    rewiring_rate: float
+    repost_rate: float = 0.0
+    recsys_factory_type: str = "Random"
+    post_retain_count: int = 3
 
-  def metadata(self) -> dict[str, Any]:
-    return {
-        "UniqueName": self.unique_name,
-        "DynamicsType": "HK",
-        "HKParams": {
-            "Tolerance": 0.45,
-            "Influence": self.influence,
-            "RewiringRate": self.rewiring_rate,
-            "RepostRate": self.repost_rate,
-        },
-        "RecsysFactoryType": self.recsys_factory_type,
-        "RecsysCount": 10,
-        "PostRetainCount": self.post_retain_count,
-        # The legacy run has no metadata.json, but its events.db contains the
-        # rewiring history needed to reconstruct intermediate frozen graphs.
-        "RewiringEvent": True,
-        "PostEvent": True,
-    }
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "UniqueName": self.unique_name,
+            "DynamicsType": "HK",
+            "HKParams": {
+                "Tolerance": 0.45,
+                "Influence": self.influence,
+                "RewiringRate": self.rewiring_rate,
+                "RepostRate": self.repost_rate,
+            },
+            "RecsysFactoryType": self.recsys_factory_type,
+            "RecsysCount": 10,
+            "PostRetainCount": self.post_retain_count,
+            # The legacy run has no metadata.json, but its events.db contains the
+            # rewiring history needed to reconstruct intermediate frozen graphs.
+            "RewiringEvent": True,
+            "PostEvent": True,
+        }
 
 
 # These are the records used by f_mech_map_baseline.py and

@@ -12,18 +12,9 @@ from experiments.paper.mechanism_cases.social_force_probe.analyze import load_pr
 class LandscapeUtilityTests(unittest.TestCase):
     def test_potential_integration_supports_multiple_curves(self):
         x = np.array([-1.0, 0.0, 1.0])
-        forces = np.array([
-            [1.0, 1.0, 1.0],
-            [-1.0, -1.0, -1.0],
-        ])
+        forces = np.array([[1.0, 1.0, 1.0], [-1.0, -1.0, -1.0]])
         potential = potential_from_force(x, forces)
-        np.testing.assert_allclose(
-            potential,
-            np.array([
-                [1.0, 0.0, -1.0],
-                [-1.0, 0.0, 1.0],
-            ]),
-        )
+        np.testing.assert_allclose(potential, np.array([[1.0, 0.0, -1.0], [-1.0, 0.0, 1.0]]))
         np.testing.assert_allclose(np.mean(potential, axis=1), 0.0)
 
     def test_scenario_order_covers_every_mechanism_map_record(self):

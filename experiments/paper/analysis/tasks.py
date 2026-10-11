@@ -22,23 +22,23 @@ def merge_stats_to_context(
     include_names: list[str] | None = None,
     exclude_names: list[str] | None = None,
 ):
-  if stats is None:
-    return
+    if stats is None:
+        return
 
-  sel_names = set(include_names if include_names else ctx.get_state_names())
-  if exclude_names:
-    sel_names = sel_names - set(exclude_names)
+    sel_names = set(include_names if include_names else ctx.get_state_names())
+    if exclude_names:
+        sel_names = sel_names - set(exclude_names)
 
-  state_dict = {}
-  if ctx_name_to_stat_name is None:
-    ctx_name_to_stat_name = {}
-  for sel_name in sel_names:
-    stat_name = ctx_name_to_stat_name[sel_name] if sel_name in ctx_name_to_stat_name else sel_name
-    if hasattr(stats, stat_name):
-      value = getattr(stats, stat_name)
-      if value is not None:
-        state_dict[sel_name] = value
-  ctx.set_state(**state_dict)
+    state_dict = {}
+    if ctx_name_to_stat_name is None:
+        ctx_name_to_stat_name = {}
+    for sel_name in sel_names:
+        stat_name = ctx_name_to_stat_name[sel_name] if sel_name in ctx_name_to_stat_name else sel_name
+        if hasattr(stats, stat_name):
+            value = getattr(stats, stat_name)
+            if value is not None:
+                state_dict[sel_name] = value
+    ctx.set_state(**state_dict)
 
 
 # These 3 lists control which common statistics are present for each mode.
@@ -102,29 +102,29 @@ REP_COMMON_STATS = [
 
 
 def _extract_hk_params(scenario_metadata: "cfg.ScenarioMetadata") -> dict:
-  return scenario_metadata["HKParams"]
+    return scenario_metadata["HKParams"]
 
 
 def _skip_if_peak_exists(exist_stats: ScenarioStatistics | None) -> bool:
-  return exist_stats is not None and exist_stats.last_opinion_peak_count is not None
+    return exist_stats is not None and exist_stats.last_opinion_peak_count is not None
 
 
 def _skip_gradation(exist_stats: ScenarioStatistics | None) -> bool:
-  return exist_stats is not None
+    return exist_stats is not None
 
 
 def _extra_stats_none() -> dict[str, object]:
-  return {}
+    return {}
 
 
 def _extra_stats_gradation() -> dict[str, object]:
-  return {
-      "p_backdrop": c.p_backdrop,
-      "h_backdrop": c.h_backdrop,
-      "g_backdrop": c.g_backdrop,
-      "opinion_diff_seg_mean": c.opinion_diff_seg_mean,
-      "opinion_diff_seg_std": c.opinion_diff_seg_std,
-  }
+    return {
+        "p_backdrop": c.p_backdrop,
+        "h_backdrop": c.h_backdrop,
+        "g_backdrop": c.g_backdrop,
+        "opinion_diff_seg_mean": c.opinion_diff_seg_mean,
+        "opinion_diff_seg_std": c.opinion_diff_seg_std,
+    }
 
 
 COMMON_STAT_BUILDERS: dict[str, Callable[[], object]] = {
@@ -150,12 +150,12 @@ COMMON_STAT_BUILDERS: dict[str, Callable[[], object]] = {
 
 @dataclass(frozen=True)
 class ModeConfig:
-  name: str
-  scenarios: list[cfg.ScenarioMetadata]
-  common_stats: list[str]
-  opinion_peak_distance: int
-  skip_exist: Callable[[ScenarioStatistics | None], bool]
-  extra_stats_builder: Callable[[], dict[str, object]]
+    name: str
+    scenarios: list[cfg.ScenarioMetadata]
+    common_stats: list[str]
+    opinion_peak_distance: int
+    skip_exist: Callable[[ScenarioStatistics | None], bool]
+    extra_stats_builder: Callable[[], dict[str, object]]
 
 
 MODE_CONFIGS: dict[str, ModeConfig] = {
@@ -187,12 +187,12 @@ MODE_CONFIGS: dict[str, ModeConfig] = {
 
 
 def _build_common_stats(selected_names: list[str]) -> dict[str, object]:
-  stats: dict[str, object] = {}
-  for name in selected_names:
-    if name not in COMMON_STAT_BUILDERS:
-      raise ValueError(f"Unknown common stat name: {name}")
-    stats[name] = COMMON_STAT_BUILDERS[name]()
-  return stats
+    stats: dict[str, object] = {}
+    for name in selected_names:
+        if name not in COMMON_STAT_BUILDERS:
+            raise ValueError(f"Unknown common stat name: {name}")
+        stats[name] = COMMON_STAT_BUILDERS[name]()
+    return stats
 
 
 def get_statistics_for_mode(
@@ -204,90 +204,82 @@ def get_statistics_for_mode(
     active_threshold=0.98,
     min_inactive_value=0.75,
 ):
-  from smp_bindings import RawSimulationRecord
+    from smp_bindings import RawSimulationRecord
 
-  config = MODE_CONFIGS[mode]
-  if config.skip_exist(exist_stats):
-    return
+    config = MODE_CONFIGS[mode]
+    if config.skip_exist(exist_stats):
+        return
 
-  scenario_name = scenario_metadata["UniqueName"]
+    scenario_name = scenario_metadata["UniqueName"]
 
-  scenario_record = RawSimulationRecord(
-      scenario_base_path,
-      scenario_metadata,
-  )
+    scenario_record = RawSimulationRecord(scenario_base_path, scenario_metadata)
 
-  with scenario_record:
+    with scenario_record:
+        if not scenario_record.is_finished:
+            return None
 
-    if not scenario_record.is_finished:
-      return None
+        assert scenario_record.is_sanitized, "non-sanitized scenario"
 
-    assert scenario_record.is_sanitized, "non-sanitized scenario"
+        c.set_state(
+            scenario_record=scenario_record,
+            active_threshold=active_threshold,
+            min_inactive_value=min_inactive_value,
+            opinion_peak_distance=config.opinion_peak_distance,
+        )
 
-    c.set_state(
-        scenario_record=scenario_record,
-        active_threshold=active_threshold,
-        min_inactive_value=min_inactive_value,
-        opinion_peak_distance=config.opinion_peak_distance,
-    )
+        merge_stats_to_context(
+            exist_stats,
+            c,
+            {"total_steps": "step", "gradation_index_hp": "grad_index", "n_triads": "triads"},
+            exclude_names=["id", "name", "origin"],
+        )
 
-    merge_stats_to_context(
-        exist_stats,
-        c,
-        {
-            "total_steps": "step",
-            "gradation_index_hp": "grad_index",
-            "n_triads": "triads",
-        },
-        exclude_names=["id", "name", "origin"],
-    )
+        hk_params = _extract_hk_params(scenario_metadata)
+        selected_common_stats = _build_common_stats(config.common_stats)
+        selected_extra_stats = config.extra_stats_builder()
 
-    hk_params = _extract_hk_params(scenario_metadata)
-    selected_common_stats = _build_common_stats(config.common_stats)
-    selected_extra_stats = config.extra_stats_builder()
-
-    return ScenarioStatistics(
-        id=exist_stats.id if exist_stats else None,
-        name=scenario_name,
-        origin=origin,
-        tolerance=hk_params["Tolerance"],
-        decay=hk_params["Influence"],
-        rewiring=hk_params["RewiringRate"],
-        retweet=hk_params["RepostRate"],
-        recsys_type=scenario_metadata["RecsysFactoryType"],
-        tweet_retain_count=scenario_metadata["PostRetainCount"],
-        **selected_common_stats,
-        **selected_extra_stats,
-    )
+        return ScenarioStatistics(
+            id=exist_stats.id if exist_stats else None,
+            name=scenario_name,
+            origin=origin,
+            tolerance=hk_params["Tolerance"],
+            decay=hk_params["Influence"],
+            rewiring=hk_params["RewiringRate"],
+            retweet=hk_params["RepostRate"],
+            recsys_type=scenario_metadata["RecsysFactoryType"],
+            tweet_retain_count=scenario_metadata["PostRetainCount"],
+            **selected_common_stats,
+            **selected_extra_stats,
+        )
 
 
 def get_mode_names() -> list[str]:
-  return sorted(MODE_CONFIGS.keys())
+    return sorted(MODE_CONFIGS.keys())
 
 
 def run_mode(mode: str, instance_name: str, concurrency: int):
-  if mode not in MODE_CONFIGS:
-    valid = ", ".join(get_mode_names())
-    raise ValueError(f"Unsupported mode: {mode}. expected one of: {valid}")
+    if mode not in MODE_CONFIGS:
+        valid = ", ".join(get_mode_names())
+        raise ValueError(f"Unsupported mode: {mode}. expected one of: {valid}")
 
-  plot_path = str(STAT_INPUT.resolve())
-  os.makedirs(plot_path, exist_ok=True)
-  stats_db_path = os.path.join(plot_path, "stats.db")
+    plot_path = str(STAT_INPUT.resolve())
+    os.makedirs(plot_path, exist_ok=True)
+    stats_db_path = os.path.join(plot_path, "stats.db")
 
-  scenario_base_path = str(workspace_dir(instance_name))
-  os.makedirs(scenario_base_path, exist_ok=True)
+    scenario_base_path = str(workspace_dir(instance_name))
+    os.makedirs(scenario_base_path, exist_ok=True)
 
-  c.set_state(active_threshold=0.98, min_inactive_value=0.75)
+    c.set_state(active_threshold=0.98, min_inactive_value=0.75)
 
-  mode_config = MODE_CONFIGS[mode]
-  get_statistics = partial(get_statistics_for_mode, mode=mode)
+    mode_config = MODE_CONFIGS[mode]
+    get_statistics = partial(get_statistics_for_mode, mode=mode)
 
-  generate_stats(
-      get_statistics,
-      scenario_base_path,
-      stats_db_path,
-      resolve_instance_name(instance_name),
-      mode_config.scenarios,
-      ignore_exist=False,
-      concurrency=concurrency,
-  )
+    generate_stats(
+        get_statistics,
+        scenario_base_path,
+        stats_db_path,
+        resolve_instance_name(instance_name),
+        mode_config.scenarios,
+        ignore_exist=False,
+        concurrency=concurrency,
+    )
