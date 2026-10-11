@@ -54,3 +54,50 @@ def mean_interval(values, weights, confidence):
         "upper": float(high) if len(values) > 1 else None,
         "valid_processes": len(values),
     }
+
+
+def hierarchical_weights(cluster_sizes, protocol):
+    """Resample independent initial states, then process branches within each.
+
+    Each initial state has equal weight even with unequal branch counts.
+    The returned weights act on concatenated branch arrays in cluster order.
+    """
+    sizes = np.asarray(cluster_sizes, int)
+    if sizes.ndim != 1 or not len(sizes) or np.any(sizes < 1):
+        raise ValueError("positive cluster sizes required")
+    rng = np.random.default_rng(protocol["bootstrap_seed"])
+    count = protocol["bootstrap_samples"]
+    offsets = np.r_[0, sizes.cumsum()]
+    weights = np.zeros((count, sizes.sum()))
+    for b in range(count):
+        for i in rng.integers(len(sizes), size=len(sizes)):
+            picks = rng.integers(sizes[i], size=sizes[i])
+            weights[b, offsets[i] : offsets[i + 1]] += np.bincount(picks, minlength=sizes[i]) / (len(sizes) * sizes[i])
+    return weights
+
+
+def paired_difference(left, right, *, confidence=0.95, identifiable=True):
+    """Percentile interval of paired bootstrap differences; nonfinite samples stay invalid."""
+    delta = np.asarray(left, float) - np.asarray(right, float)
+    good = np.isfinite(delta)
+    tail = (1 - confidence) / 2
+    lo, hi = np.quantile(delta[good], [tail, 1 - tail]) if good.any() else (np.nan, np.nan)
+    return {
+        "lower": float(lo) if identifiable else None,
+        "upper": float(hi) if identifiable else None,
+        "valid_fraction": float(good.mean()),
+    }
+
+
+def clustered_interval(clusters, weights, *, confidence=0.95):
+    """Equal-initial point estimate and hierarchical percentile interval for scalars."""
+    values = np.concatenate(clusters)
+    center = float(np.mean([np.mean(c) for c in clusters]))
+    tail = (1 - confidence) / 2
+    boot = weights @ values
+    lo, hi = np.quantile(boot, [tail, 1 - tail])
+    return {
+        "mean": center,
+        "lower": float(lo) if len(clusters) > 1 else None,
+        "upper": float(hi) if len(clusters) > 1 else None,
+    }
