@@ -161,6 +161,8 @@ cython_debug/
 **/.DS_Store
 nohup.out
 run*/
+# Runtime packages are source code, not generated run directories.
+!runtime/
 outputs/
 
 # cache files
