@@ -33,6 +33,7 @@ def parser():
     p.add_argument(
         "--suite",
         choices=(
+            "evidence",
             "validation",
             "ensembles",
             "scaling",
@@ -55,6 +56,7 @@ def parser():
     p.add_argument("--binary", type=Path)
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--hours", type=float)
+    p.add_argument("--horizon", type=float, help="evidence scaled-time horizon; formal >=120, smoke <=1")
     p.add_argument("--no-wall-budget", action="store_true")
     p.add_argument("--job-timeout", type=float)
     p.add_argument("--families", nargs="+", choices=("micro", "clocks", "operator", "kernel"))
@@ -91,6 +93,12 @@ def perform(a, extra):
     micro = a.micro_root.expanduser().resolve() if a.micro_root else MICRO.resolve()
     meso = a.meso_root.expanduser().resolve() if a.meso_root else MESO.resolve()
     root = output_root(a.output_root)
+    if a.suite == "evidence":
+        from .evidence.workflow import perform as evidence
+
+        if extra:
+            raise ValueError("unexpected evidence arguments: " + " ".join(extra))
+        return evidence(a, root, build_dir, meso, micro)
     if a.action == "build":
         if a.suite in ("validation", "ensembles", "population"):
             manifest = build(build_dir, meso, micro, a.backend)
@@ -325,7 +333,7 @@ def main(argv=None):
     # Keep interruption and failure semantics of the old foreground scripts.
     status = 0
     stages = ["build", "plan", "estimate", "run", "analyze"]
-    if a.suite in ("population", "scaling", "release", "population_closure"):
+    if a.suite in ("evidence", "population", "scaling", "release", "population_closure"):
         stages.append("plot")
     for action in stages:
         if action == "estimate" and not a.baseline_label:
