@@ -7,7 +7,7 @@ from concurrent.futures import CancelledError, Future, ProcessPoolExecutor, as_c
 from sqlalchemy.orm import Session, undefer
 from tqdm import tqdm
 
-from ehk.common.storage.sqlite import create_db_engine_and_session, sync_sqlite_table
+from common.storage.sqlite import create_db_engine_and_session, sync_sqlite_table
 from ehk.micro.scenarios import ScenarioMetadata
 from experiments.paper.analysis.records import ScenarioStatistics
 

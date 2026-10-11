@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ehk.common.settings import REPOSITORY_ROOT, register_path
+from common.settings import REPOSITORY_ROOT, register_path
 
 
 def test_path_setting_uses_repository_relative_default(monkeypatch):

@@ -7,9 +7,9 @@ from matplotlib.axes import Axes
 
 from scipy.stats import gaussian_kde
 
-from ehk.common.plotting import plt_figure, plt_save_and_close, setup_paper_params
-from ehk.common.numerics import adaptive_moving_stats
-from ehk.common.storage.sqlite import create_db_engine_and_session
+from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
+from common.numerics import adaptive_moving_stats
+from common.storage.sqlite import create_db_engine_and_session
 from experiments.paper.paths import STAT_INPUT, MECHANISM_OUTPUT
 from experiments.paper.analysis.records import ScenarioStatistics
 

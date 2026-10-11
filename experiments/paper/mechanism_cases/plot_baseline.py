@@ -7,17 +7,16 @@ import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.gridspec import GridSpec
 
-from ehk.common.plotting import (
+from common.plotting import (
     plt_figure,
     setup_paper_params,
-    plot_network_snapshot,
-    plot_opinion_colorbar,
 )
+from ehk.plotting import plot_network_snapshot, plot_opinion_colorbar
 import experiments.paper.scenarios as cfg
 from experiments.paper.paths import MECHANISM_OUTPUT
 from experiments.workspaces import workspace_dir
 from experiments.paper.mechanism_cases.social_force_probe.scenarios import SCENARIOS
-from ehk.common.plotting.landscape import save_landscape_figure
+from ehk.plotting.landscape import save_landscape_figure
 from experiments.paper.mechanism_cases.social_force_probe.analyze import (
     LANDSCAPE_CHOICES,
     LandscapeKind,

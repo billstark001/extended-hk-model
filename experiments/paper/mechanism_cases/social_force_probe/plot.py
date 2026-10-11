@@ -8,9 +8,9 @@ from typing import Sequence
 
 import numpy as np
 
-from ehk.common.plotting import plt_figure, setup_paper_params
+from common.plotting import plt_figure, setup_paper_params
 from experiments.paper.mechanism_cases.social_force_probe.scenarios import OUTPUT_DIR, SCENARIOS
-from ehk.common.plotting.landscape import (
+from ehk.plotting.landscape import (
     format_landscape_axis,
     plot_normalized_time_colorbar,
     plot_potential_curves,

@@ -15,6 +15,7 @@ dependencies = [
   "msgpack",
   "networkx",
   "numpy",
+  "pandas",
   "python-dotenv",
   "scipy",
   "seaborn",

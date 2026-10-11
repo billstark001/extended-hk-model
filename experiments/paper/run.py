@@ -1,6 +1,6 @@
 import argparse
 
-from ehk.common.io.files import init_logger
+from common.io.logging import init_logger
 from ehk.micro.runner import run_scenarios
 import experiments.paper.scenarios as cfg
 from experiments.paths import SMP_BINARY

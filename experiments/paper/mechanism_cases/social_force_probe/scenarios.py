@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from ehk.common.settings import register_path
+from common.settings import register_path
 
 
 NORMALIZED_TIMES = tuple(i / 10 for i in range(11))

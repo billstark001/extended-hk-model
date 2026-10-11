@@ -23,7 +23,7 @@ from experiments.paper.mechanism_cases.social_force_probe.scenarios import (
     LandscapeScenario,
 )
 from experiments.paper.mechanism_cases.social_force_probe.plot import plot_results
-from ehk.common.plotting.landscape import potential_from_force
+from ehk.plotting.landscape import potential_from_force
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]

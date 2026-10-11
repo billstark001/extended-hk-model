@@ -1,7 +1,7 @@
 from typing import List
 import sys
 
-from ehk.common.storage.sqlite import create_db_session
+from common.storage.sqlite import create_db_session
 from experiments.paper.analysis.records import ScenarioStatistics
 
 if __name__ == "__main__":

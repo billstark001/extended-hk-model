@@ -1,19 +1,20 @@
-from numpy.typing import NDArray
-from typing import Optional, Tuple, Callable, TypeVar, List, Literal, cast, Any
-from scipy.interpolate import interp1d
-from collections import OrderedDict, deque
-import numpy as np
+"""Adaptive sampling, kernel-weighted moving statistics and force/potential estimates."""
 
-from .kde import gaussian_kernel, compute_kde_density, compute_weighted_stats
+from collections import OrderedDict, deque
+from typing import Any, Callable, List, Literal, Optional, Tuple, TypeVar, cast
+
+import numpy as np
+from numpy.typing import NDArray
+from scipy.interpolate import interp1d
+
+from .kde import compute_kde_density, compute_weighted_stats, gaussian_kernel
 
 
 # Moving statistics
 def moving_average(
-    data: NDArray,
-    window_size: int,
-    pad_mode: str = "edge",
-    convolve_mode: Literal["valid", "same", "full"] = "valid",
+    data: NDArray, window_size: int, pad_mode: str = "edge", convolve_mode: Literal["valid", "same", "full"] = "valid"
 ) -> NDArray:
+    """Pad a one-dimensional series and convolve a uniform window; output length depends on window parity and mode."""
     if window_size < 2:
         return data
     pad_width = window_size // 2
@@ -57,9 +58,7 @@ def adaptive_moving_stats(
         if edge_method == "reflect":
             left_mask = x < (min_val + padding)
             right_mask = x > (max_val - padding)
-            x_extended = np.concatenate(
-                [2 * min_val - x[left_mask], x, 2 * max_val - x[right_mask]]
-            )
+            x_extended = np.concatenate([2 * min_val - x[left_mask], x, 2 * max_val - x[right_mask]])
             y_extended = np.concatenate([y[left_mask], y, y[right_mask]])
         else:
             x_extended, y_extended = x, y
@@ -72,9 +71,7 @@ def adaptive_moving_stats(
         density_x_pts = (
             x_extended
             if density_estimation_point is None
-            else np.linspace(
-                min_padded, max_padded, density_estimation_point, dtype=float
-            )
+            else np.linspace(min_padded, max_padded, density_estimation_point, dtype=float)
         )
     else:
         density_x_pts = density_x
@@ -83,23 +80,13 @@ def adaptive_moving_stats(
 
     # Output evaluation points.
     if result_x is None:
-        result_x_pts = (
-            x
-            if result_point is None
-            else np.linspace(min_val, max_val, result_point, dtype=float)
-        )
+        result_x_pts = x if result_point is None else np.linspace(min_val, max_val, result_point, dtype=float)
     else:
         result_x_pts = result_x
 
     # Interpolate the density and derive an adaptive bandwidth.
-    fill_value: Any = (
-        "extrapolate"
-        if edge_method in ["extrapolate", "none"]
-        else (density[0], density[-1])
-    )
-    density_interp = interp1d(
-        density_x_pts, density, fill_value=fill_value, bounds_error=False
-    )
+    fill_value: Any = "extrapolate" if edge_method in ["extrapolate", "none"] else (density[0], density[-1])
+    density_interp = interp1d(density_x_pts, density, fill_value=fill_value, bounds_error=False)
     density_resampled = np.maximum(density_interp(result_x_pts), epsilon)
 
     h_t = h0 * (density_resampled / g) ** (-alpha)
@@ -108,9 +95,7 @@ def adaptive_moving_stats(
     if max_bandwidth is not None:
         h_t = np.minimum(h_t, max_bandwidth)
 
-    means, variances = compute_weighted_stats(
-        result_x_pts, x_extended, y_extended, h_t, epsilon
-    )
+    means, variances = compute_weighted_stats(result_x_pts, x_extended, y_extended, h_t, epsilon)
 
     return result_x_pts, means, variances
 
@@ -130,6 +115,12 @@ def adaptive_discrete_sampling(
     int_midpoint: bool = False,
     err_func: Callable[[T, T, T, float], float] | None = None,
 ) -> Tuple[List[float], List[T]]:
+    """Return ordered sample times and values after recursive interpolation-error refinement.
+
+    min_interval limits refinement and max_interval forces coarse intervals to
+    split. int_midpoint rounds evaluation times; err_func receives left, right,
+    midpoint values and the midpoint fraction. f may be evaluated at rejected points.
+    """
     if t_start >= t_end:
         raise ValueError("t_start must be less than t_end")
     if min_interval <= 0:
@@ -165,9 +156,7 @@ def adaptive_discrete_sampling(
             # e.g. if T is float, err_func=lambda a, b, mid, rate: abs(mid - (b * rate + a * (1 - rate)))
             error = err_func(f_left, f_right, f_mid, t_mid_rate)
         else:
-            f_interp = cast(Any, f_right) * t_mid_rate + cast(Any, f_left) * (
-                1 - t_mid_rate
-            )
+            f_interp = cast(Any, f_right) * t_mid_rate + cast(Any, f_left) * (1 - t_mid_rate)
             error = abs(cast(Any, f_mid) - f_interp)
 
         if error > error_threshold or force_sample:
@@ -179,35 +168,23 @@ def adaptive_discrete_sampling(
 
 
 # Data merging
-def merge_data_with_axes(
-    *data: Tuple[NDArray, NDArray]
-) -> Tuple[NDArray, List[NDArray]]:
+def merge_data_with_axes(*data: Tuple[NDArray, NDArray]) -> Tuple[NDArray, List[NDArray]]:
+    """Merge input grids into a sorted union and linearly interpolate each series along axis 0, extrapolating outside its range."""
     x_merged = np.unique(np.concatenate([x for x, _ in data]))
     y_list = [
-        interp1d(
-            x,
-            y,
-            axis=0,
-            kind="linear",
-            bounds_error=False,
-            fill_value=cast(Any, "extrapolate"),
-        )(x_merged)
+        interp1d(x, y, axis=0, kind="linear", bounds_error=False, fill_value=cast(Any, "extrapolate"))(x_merged)
         for x, y in data
     ]
     return x_merged, y_list
 
 
 # Force-field and potential estimation
-def estimate_force_field_kde(
-    x_data: NDArray, dx_data: NDArray, x_grid: NDArray, h: float, k: float = 1.0
-) -> NDArray:
+def estimate_force_field_kde(x_data: NDArray, dx_data: NDArray, x_grid: NDArray, h: float, k: float = 1.0) -> NDArray:
     """Estimate the force field with a kernel-weighted mean."""
     diff = x_grid.reshape(-1, 1) - x_data.reshape(1, -1)
     weights = gaussian_kernel(diff, h)
     F_i = k * dx_data
-    return np.sum(weights * F_i.reshape(1, -1), axis=1) / (
-        np.sum(weights, axis=1) + 1e-14
-    )
+    return np.sum(weights * F_i.reshape(1, -1), axis=1) / (np.sum(weights, axis=1) + 1e-14)
 
 
 def estimate_potential_from_force(x_grid: NDArray, F_grid: NDArray) -> NDArray:

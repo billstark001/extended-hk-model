@@ -7,8 +7,8 @@ from sqlalchemy import ColumnExpressionArgument
 from sqlalchemy.orm import Session
 from matplotlib.axes import Axes
 
-from ehk.common.plotting import plt_figure, plt_save_and_close, setup_paper_params
-from ehk.common.storage.sqlite import create_db_engine_and_session
+from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
+from common.storage.sqlite import create_db_engine_and_session
 import experiments.paper.scenarios as cfg
 from experiments.paper.paths import STAT_INPUT, PATHWAY_OUTPUT
 from experiments.paper.pathway_index.data_utils import piecewise_linear_integral_trapz

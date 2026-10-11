@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from experiments.paper.mechanism_cases.social_force_probe.scenarios import SCENARIOS, SCENARIO_ORDER
-from ehk.common.plotting.landscape import potential_from_force
+from ehk.plotting.landscape import potential_from_force
 from experiments.paper.mechanism_cases.social_force_probe.analyze import load_probe_landscape
 
 

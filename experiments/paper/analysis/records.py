@@ -5,7 +5,7 @@ from sqlalchemy import Integer, Float, String, Text
 from sqlalchemy.orm import declarative_base, Mapped, mapped_column
 from typing import Optional
 
-from ehk.common.storage.sqlite import NumpyArrayType
+from common.storage.sqlite import NumpyArrayType
 
 if TYPE_CHECKING:
     from ehk.micro.scenarios import ScenarioMetadata

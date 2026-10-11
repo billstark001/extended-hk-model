@@ -10,12 +10,12 @@ from matplotlib.figure import Figure
 from scipy.interpolate import interp1d
 from dataclasses import dataclass, asdict
 
-from ehk.common.plotting import plt_figure, setup_paper_params
-from ehk.common.numerics import estimate_force_field_kde
+from common.plotting import plt_figure, setup_paper_params
+from common.numerics import estimate_force_field_kde
 import experiments.paper.scenarios as cfg
 from experiments.paper.paths import MECHANISM_OUTPUT
 from experiments.workspaces import workspace_dir
-from ehk.common.plotting.landscape import (
+from ehk.plotting.landscape import (
     CMAP_NAME,
     format_landscape_axis,
     plot_normalized_time_colorbar,

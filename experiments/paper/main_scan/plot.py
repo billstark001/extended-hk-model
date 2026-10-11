@@ -9,8 +9,8 @@ import numpy as np
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
-from ehk.common.plotting import plt_figure, plt_save_and_close, setup_paper_params
-from ehk.common.storage.sqlite import create_db_engine_and_session
+from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
+from common.storage.sqlite import create_db_engine_and_session
 import experiments.paper.scenarios as cfg
 from experiments.paper.paths import STAT_INPUT, MAIN_SCAN_OUTPUT
 from experiments.paper.analysis.records import ScenarioStatistics

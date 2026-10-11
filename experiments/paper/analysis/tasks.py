@@ -9,7 +9,7 @@ import experiments.paper.scenarios as cfg
 from experiments.paper.paths import STAT_INPUT
 from experiments.workspaces import instance_name as resolve_instance_name
 from experiments.workspaces import workspace_dir
-from ehk.micro.pipeline import Context
+from common.pipeline import Context
 from ehk.micro.observables import c
 from experiments.paper.analysis.execution import generate_stats
 from experiments.paper.analysis.records import ScenarioStatistics

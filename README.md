@@ -6,7 +6,21 @@ Install the Python project with `python -m pip install -e .`, and install the ex
 
 Run `python -m experiments.paper.run --help` for paper simulation groups. Analysis and plots remain in `experiments/paper`. Use `python -m experiments.paper.mechanism_cases.social_force_probe.run --help` for the microscopic mechanism probe.
 
+Shared utilities live in `src/common`; microscopic model tools and visualizations remain in `src/ehk`.
+
 The next paper will use `src/theory` and `experiments/paper_theory`; see [architecture](docs/architecture.md). Prior abandoned theory studies and local data were archived outside this checkout.
+
+## Development
+
+Install `ruff` to format and check the shared and microscopic packages:
+
+```sh
+python -m pip install ruff
+ruff format src/common src/ehk
+ruff check src/common src/ehk
+```
+
+The root `ruff.toml` uses 120 columns and keeps short containers compact despite trailing commas. Public API docstrings describe units, array shapes, cache identity and output side effects.
 
 ## Citation
 

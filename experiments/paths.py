@@ -1,6 +1,6 @@
 """Path registrations for experiment inputs and outputs."""
 
-from ehk.common.settings import register_path
+from common.settings import register_path
 
 
 SMP_BINARY = register_path("SMP_BINARY_PATH", "../social-media-models/smp")

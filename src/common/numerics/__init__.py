@@ -1,3 +1,5 @@
+"""Reusable sampling, smoothing, divergence and array-integration utilities."""
+
 from .adaptive import (  # noqa: F401
     adaptive_discrete_sampling,
     adaptive_moving_stats,

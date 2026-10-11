@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
-import os
 
 from dotenv import load_dotenv
 
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 @dataclass(frozen=True)
@@ -20,6 +19,7 @@ class PathSetting:
     default: Path
 
     def resolve(self) -> Path:
+        """Read dotenv/environment now and resolve relative values against the model repository; create no directories."""
         load_dotenv()
         raw_value = os.environ.get(self.environment)
         value = Path(raw_value).expanduser() if raw_value else self.default

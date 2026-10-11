@@ -1,6 +1,6 @@
 import sys
 
-from ehk.common.storage.sqlite import create_db_engine_and_session
+from common.storage.sqlite import create_db_engine_and_session
 from experiments.paper.analysis.records import ScenarioStatistics
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ehk.common.settings import environment_value
+from common.settings import environment_value
 from experiments.paths import WORKSPACE_MANIFEST
 
 

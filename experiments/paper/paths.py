@@ -1,6 +1,6 @@
 """Path registrations for paper experiments."""
 
-from ehk.common.settings import register_path
+from common.settings import register_path
 
 
 STAT_INPUT = register_path(

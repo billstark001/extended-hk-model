@@ -1,15 +1,14 @@
-from typing import Any, Optional
-from numpy.typing import NDArray
-
 import dataclasses
+from typing import Any, Optional
 
-import numpy as np
 import networkx as nx
+import numpy as np
+from numpy.typing import NDArray
 from scipy.stats import norm
 
-from ehk.common.numerics.kde import (
-    get_kde_pdf,
+from common.numerics.kde import (
     LINSPACE_SMPL_COUNT,
+    get_kde_pdf,
     js_divergence_continuous_fast,
     kl_divergence_continuous_fast,
 )
@@ -30,12 +29,7 @@ def ideal_dist_init_array(x: np.ndarray, k: float = 2):
     return ret_array
 
 
-def ideal_dist_worst_obj_array(
-    axis: np.ndarray,
-    cl: float,
-    effective_sample_size: int,
-    min_bw: float,
-):
+def ideal_dist_worst_obj_array(axis: np.ndarray, cl: float, effective_sample_size: int, min_bw: float):
     m = max(1, effective_sample_size)
     std = cl / 2  # std. of dataset
     factor = max(
@@ -44,9 +38,7 @@ def ideal_dist_worst_obj_array(
     )
     std_norm = std * factor
 
-    o_worst_vals = 0.5 * norm.pdf(axis, 0, std_norm) + 0.5 * norm.pdf(
-        axis, cl, std_norm
-    )
+    o_worst_vals = 0.5 * norm.pdf(axis, 0, std_norm) + 0.5 * norm.pdf(axis, cl, std_norm)
 
     return o_worst_vals
 
@@ -93,11 +85,7 @@ class DistanceCalculator:
         self.use_js_divergence = use_js_divergence
         self.use_debug_data = use_debug_data
 
-        self.div = (
-            js_divergence_continuous_fast
-            if use_js_divergence
-            else kl_divergence_continuous_fast
-        )
+        self.div = js_divergence_continuous_fast if use_js_divergence else kl_divergence_continuous_fast
 
         err_range = self.min_bandwidth * 4
         self.err_range = err_range
@@ -111,29 +99,16 @@ class DistanceCalculator:
         self.triu_indices = np.triu_indices(sample_count, k=1)
 
         # Cache data-independent constants used by every collect() call.
-        self._params_dict: Any = dict(
-            xmin=0 - err_range, xmax=k + err_range, t_err=t_err, n=self.axis
-        )
+        self._params_dict: Any = dict(xmin=0 - err_range, xmax=k + err_range, t_err=t_err, n=self.axis)
         s_worst_vals = norm.pdf(self.axis, 0, min_bandwidth)
         self.s_worst_vals = s_worst_vals
         if use_js_divergence:
-            self._s_scale_rand = self._s_scale_worst = self.div(
-                s_worst_vals, o_rand_vals, **self._params_dict
-            )
+            self._s_scale_rand = self._s_scale_worst = self.div(s_worst_vals, o_rand_vals, **self._params_dict)
         else:
-            self._s_scale_rand = self.div(
-                s_worst_vals, o_rand_vals, **self._params_dict
-            )
-            self._s_scale_worst = self.div(
-                o_rand_vals, s_worst_vals, **self._params_dict
-            )
+            self._s_scale_rand = self.div(s_worst_vals, o_rand_vals, **self._params_dict)
+            self._s_scale_worst = self.div(o_rand_vals, s_worst_vals, **self._params_dict)
 
-    def calculate(
-        self,
-        digraph: nx.DiGraph,
-        opinion: np.ndarray,
-        t_opinion: float = 0.4,
-    ) -> DistanceResult:
+    def calculate(self, digraph: nx.DiGraph, opinion: np.ndarray, t_opinion: float = 0.4) -> DistanceResult:
 
         k = self.k
 
@@ -173,18 +148,14 @@ class DistanceCalculator:
         # objective
         o_worst_b = o_sample[o_sample >= t_opinion]
         o_worst_v = float(t_opinion if o_worst_b.size == 0 else np.mean(o_worst_b))
-        o_worst_vals = ideal_dist_worst_obj_array(
-            axis, o_worst_v, len(o_kde), self.min_bandwidth
-        )
+        o_worst_vals = ideal_dist_worst_obj_array(axis, o_worst_v, len(o_kde), self.min_bandwidth)
 
         # Use the cached worst-case subjective-polarization values.
         s_worst_vals = self.s_worst_vals
 
         # The subjective scale is cached; the objective scale is data-dependent.
         params_dict = self._params_dict
-        o_scale_worst = o_scale_rand = self.div(
-            o_worst_vals, o_rand_vals, **params_dict
-        )
+        o_scale_worst = o_scale_rand = self.div(o_worst_vals, o_rand_vals, **params_dict)
         s_scale_rand = self._s_scale_rand
         s_scale_worst = self._s_scale_worst
         if not self.use_js_divergence:
@@ -210,10 +181,4 @@ class DistanceCalculator:
         worst_o = self.div(o_vals, o_worst_vals, **params_dict) / o_scale_worst
         worst_s = self.div(s_vals, s_worst_vals, **params_dict) / s_scale_worst
 
-        return DistanceResult(
-            rand_o=rand_o,
-            rand_s=rand_s,
-            worst_o=worst_o,
-            worst_s=worst_s,
-            debug_data=debug_data,
-        )
+        return DistanceResult(rand_o=rand_o, rand_s=rand_s, worst_o=worst_o, worst_s=worst_s, debug_data=debug_data)

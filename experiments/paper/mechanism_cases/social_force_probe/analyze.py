@@ -11,7 +11,7 @@ import numpy as np
 from matplotlib.axes import Axes
 
 from experiments.paper.mechanism_cases.social_force_probe.scenarios import OUTPUT_DIR, SCENARIOS
-from ehk.common.plotting.landscape import (
+from ehk.plotting.landscape import (
     plot_potential_curves,
     potential_from_force,
 )
