@@ -8,6 +8,8 @@ Run `python -m experiments.paper.run --help` for paper simulation groups. Analys
 
 Shared utilities live in `src/common`; microscopic model tools remain in `src/ehk`. The theory paper (unpublished yet) uses `src/theory` for mathematical operators and observable definitions, and `experiments/paper_theory` for parameter designs, analysis and figures. See the [experiment guide](experiments/paper_theory/README.md) and [architecture](docs/architecture.md). The [paper-code migration guide](experiments/paper_theory/MIGRATION.md) covers the migrated generation, fitting, analysis and plotting workflows. Large data stays external; generated outputs remain ignored. CAS 2026 is a literature reference for the theory workflow and supplies no required raw dataset. Prior abandoned theory studies remain archival. Use `python -m experiments.paper_theory --help` for the unified theory interface; its custom micro/pair experiments use one Go adapter.
 
+Standalone workflow commands live in [`tools/`](tools/README.md): `hdd-bridge` archives completed SSD simulations to HDD, and `waitpid` attaches a follow-up command to an existing process.
+
 ## Development
 
 Install `ruff` to format and check the Python packages:
