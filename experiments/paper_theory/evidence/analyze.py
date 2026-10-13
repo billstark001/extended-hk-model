@@ -2,6 +2,7 @@
 
 import json
 from collections import defaultdict
+from typing import cast
 
 import numpy as np
 
@@ -12,11 +13,13 @@ from theory.release import release_clock
 from theory.release.ensemble import clock_statistics, plateau_check
 from theory.runtime.records import read_micro
 from theory.scaling import curve_distance
+from theory.types import MicroFrame, PairFrame, ResolvedMicroRecord
 from theory.validation import compare_fields
 
 from ..data import write_csv
 from ..runtime.measure_analysis import cached_cases
 from ..scaling.analyze import scaling_rows
+from ..types import CoverageRow, EvidenceReport, FrozenMainPlan, ProvenanceRow
 
 KEYS = (
     "dynamics",
@@ -41,22 +44,39 @@ def metadata(p):
     return {k: p[k] for k in KEYS}
 
 
-def compact_record(record):
+def retain_projection(frame: MicroFrame | PairFrame, endpoint: bool) -> bool:
+    """Keep state fields at declared snapshots or the observed endpoint."""
+    if np.asarray(frame.get("edge", [])).size or endpoint:
+        if "rho" in frame:
+            frame["rho"] = np.asarray(frame["rho"], dtype=float)
+        if "edge" in frame:
+            frame["edge"] = np.asarray(frame["edge"], dtype=float)
+        return True
+    return False
+
+
+def compact_record(record: ResolvedMicroRecord) -> ResolvedMicroRecord:
     """Keep full fields only at snapshots/endpoints, not at every energy sample."""
     result = record["result"]
     result["pair_frames_fingerprint"] = content_fingerprint(result["pair"]["frames"])
-    for name, fields in (
-        ("frames", ("exact_node_energy", "exact_edge_energy")),
-        ("pair", ("node_energy", "edge_energy")),
-    ):
-        frames = result[name] if name == "frames" else result[name]["frames"]
-        for i, frame in enumerate(frames):
-            if np.asarray(frame.get("edge", [])).size or i == len(frames) - 1:
-                for field in ("rho", "edge"):
-                    if field in frame:
-                        frame[field] = np.asarray(frame[field], dtype=float)
-            else:
-                frames[i] = {k: frame[k] for k in ("time", "step", *fields)}
+    micro = result["frames"]
+    for i, frame in enumerate(micro):
+        if not retain_projection(frame, i == len(micro) - 1):
+            micro[i] = {
+                "time": frame["time"],
+                "step": frame["step"],
+                "exact_node_energy": frame["exact_node_energy"],
+                "exact_edge_energy": frame["exact_edge_energy"],
+            }
+    pair = result["pair"]["frames"]
+    for i, prediction in enumerate(pair):
+        if not retain_projection(prediction, i == len(pair) - 1):
+            pair[i] = {
+                "time": prediction["time"],
+                "step": prediction["step"],
+                "node_energy": prediction["node_energy"],
+                "edge_energy": prediction["edge_energy"],
+            }
     return record
 
 
@@ -347,10 +367,10 @@ def micro_tables(records, protocol):
     for group, (row, sample) in cohort_samples.items():
         if row["recommender"] == "random":
             continue
-        reference = list(group)
-        reference[1] = "random"
-        reference[2] = 1.0
-        other = cohort_samples.get(tuple(reference))
+        baseline_key = list(group)
+        baseline_key[1] = "random"
+        baseline_key[2] = 1.0
+        other = cohort_samples.get(tuple(baseline_key))
         if other:
             baseline, base_sample = other
             if row["process_seeds"] != baseline["process_seeds"]:
@@ -416,15 +436,15 @@ def micro_tables(records, protocol):
 
 def analyze(directory):
     """Validate coverage/provenance and write standalone tables and an evidence report."""
-    plan = json.loads((directory / "plan.json").read_text())
+    plan = cast(FrozenMainPlan, json.loads((directory / "plan.json").read_text()))
     if fingerprint({k: v for k, v in plan.items() if k != "plan_fingerprint"}) != plan["plan_fingerprint"]:
         raise ValueError("evidence plan hash mismatch")
     tasks = {t["id"]: t for t in plan["tasks"]}
     protocol = plan["analysis_protocol"]
     cases = list(cached_cases(directory / "measure"))
-    records = []
-    coverage = []
-    provenance = []
+    records: list[ResolvedMicroRecord] = []
+    coverage: list[CoverageRow] = []
+    provenance: list[ProvenanceRow] = []
     pair_provenance = {}
     for task in tasks.values():
         suffix = ".npz" if task["kind"] == "measure" else ".msgpack.lz4"
@@ -476,7 +496,7 @@ def analyze(directory):
             write_csv(path, rows)
         else:
             path.unlink(missing_ok=True)  # No stale rows in a partial/legacy analysis.
-    summary = {
+    summary: EvidenceReport = {
         "schema": 1,
         "profile": plan["profile"],
         "plan_fingerprint": plan["plan_fingerprint"],

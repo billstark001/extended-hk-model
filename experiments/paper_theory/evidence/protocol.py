@@ -1,6 +1,8 @@
 """Shared physical laws and analysis protocol; independent of design generators."""
 
-PROTOCOL = {
+from theory.types import Recommender, ReleaseProtocol
+
+PROTOCOL: ReleaseProtocol = {
     "schema": 1,
     "bootstrap_seed": 87231,
     "bootstrap_samples": 1000,
@@ -14,7 +16,7 @@ PROTOCOL = {
     "uncertainty_unit": "conditional processes and hierarchical initial-state/process bootstrap",
     "interpretation": "finite-window diagnostics; no infinite-mean or N-independent theorem",
 }
-KERNELS = (
+KERNELS: tuple[tuple[Recommender, float], ...] = (
     ("random", 1.0),
     ("opinion_random", 1.0),
     ("opinion_random", 4.0),

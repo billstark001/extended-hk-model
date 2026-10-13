@@ -10,22 +10,23 @@ from common.runtime.failures import BatchTaskError
 from common.runtime.process import acquire_lock, release_lock
 from theory.runtime.store import write_design
 
+from ..types import FrozenMainPlan, MainProfile
 from .design import design
 
 
-def plan(directory, profile, horizon=None):
+def plan(directory: Path, profile: MainProfile, horizon: float | None = None) -> FrozenMainPlan:
     candidate = design(profile, horizon)
     path = directory / "plan.json"
-    candidate = {**candidate, "plan_fingerprint": fingerprint(candidate)}
+    frozen: FrozenMainPlan = {**candidate, "plan_fingerprint": fingerprint(candidate)}
     if path.exists():
-        if json.loads(path.read_text()) != candidate:
+        if json.loads(path.read_text()) != frozen:
             raise ValueError("evidence plan changed; use a new output directory")
     else:
-        atomic_json(path, candidate)
+        atomic_json(path, frozen)
     for kind in ("measure", "micro"):
-        write_design(directory / kind / "design.json", [t for t in candidate["tasks"] if t["kind"] == kind])
-    print(dict(Counter(t["kind"] for t in candidate["tasks"])), flush=True)
-    return candidate
+        write_design(directory / kind / "design.json", [t for t in frozen["tasks"] if t["kind"] == kind])
+    print(dict(Counter(t["kind"] for t in frozen["tasks"])), flush=True)
+    return frozen
 
 
 def perform(a, root, build_dir, meso, micro):
@@ -86,20 +87,31 @@ def perform(a, root, build_dir, meso, micro):
         failures = []
         interrupted = False
         try:
-            for runner, kind, target, executable in (
-                (measure, "measure", directory / "measure", binary),
-                (population, "micro", directory / "micro" / "raw", engine),
+            for kind, target, executable in (
+                ("measure", directory / "measure", binary),
+                ("micro", directory / "micro" / "raw", engine),
             ):
                 try:
-                    runner(
-                        [t for t in candidate["tasks"] if t["kind"] == kind],
-                        target,
-                        executable,
-                        force=a.force,
-                        limit=a.limit,
-                        workers=a.workers,
-                        store=store,
-                    )
+                    if kind == "measure":
+                        measure(
+                            [t for t in candidate["tasks"] if t["kind"] == "measure"],
+                            target,
+                            executable,
+                            force=a.force,
+                            limit=a.limit,
+                            workers=a.workers,
+                            store=store,
+                        )
+                    else:
+                        population(
+                            [t for t in candidate["tasks"] if t["kind"] == "micro"],
+                            target,
+                            executable,
+                            force=a.force,
+                            limit=a.limit,
+                            workers=a.workers,
+                            store=store,
+                        )
                 except BatchTaskError as error:
                     failures.extend(error.failures)
         except BaseException as error:

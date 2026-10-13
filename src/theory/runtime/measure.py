@@ -1,21 +1,26 @@
 """Request adapter for the public mesoscopic runtime."""
 
 import math
+from collections.abc import Sequence
+from typing import Any, cast
 
 import numpy as np
+from typing_extensions import Unpack
 
+from common.types import PathInput
 from theory.parameters import Parameters
+from theory.types import FloatVector, MeasureOptions, MeasureResult, StoppingOptions
 
 
 def measure_request(
     identifier: str,
     parameters: Parameters,
     *,
-    initial_mass=None,
+    initial_mass: FloatVector | None = None,
     final_state: bool = True,
-    snapshot_taus=(),
-    stopping=None,
-) -> dict:
+    snapshot_taus: Sequence[float] = (),
+    stopping: StoppingOptions | None = None,
+) -> dict[str, Any]:
     """Translate Parameters into a public kinetic request with cell masses on [-1,1].
 
     Optional initial_mass must be a normalized nonnegative bins-vector. Convert
@@ -36,7 +41,7 @@ def measure_request(
         raise ValueError("initial mass must be a normalized nonnegative bins-vector")
     steps = math.ceil(p.horizon / (p.alpha * p.dt) - 1e-12)
     interval = max(1, round(p.record_tau / (p.alpha * p.dt)))
-    request = {
+    request: dict[str, Any] = {
         "request_id": identifier,
         "population": p.population,
         "opinion_bins": p.bins,
@@ -112,7 +117,9 @@ def measure_request(
     return request
 
 
-def run_measure(binary, identifier, parameters, **options):
+def run_measure(
+    binary: PathInput, identifier: str, parameters: Parameters, **options: Unpack[MeasureOptions]
+) -> MeasureResult:
     """Use the binding's exact codec with cancellable subprocess transport."""
     import json
 
@@ -128,4 +135,4 @@ def run_measure(binary, identifier, parameters, **options):
         or not isinstance(response.get("result"), dict)
     ):
         raise RuntimeError(f"{identifier}: invalid kinetic response: {response.get('error')}")
-    return response["result"]
+    return cast(MeasureResult, response["result"])

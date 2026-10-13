@@ -7,12 +7,15 @@
 `src/theory` owns parameters, energies, finite exposure probabilities, recommendation/rewiring operators, transport, distribution/trajectory comparisons and release observables. `release/` includes restricted means, T50/other first-crossing quantiles, plateau diagnostics, conditional statistics and empirical survival/mixture fits. T50 remains available as a sensitivity diagnostic. `runtime/` owns public request schemas, JSONL/binary execution, result identity/completion checks and verified micro/pair references. It does not implement a kinetic/PDE solver. Model-independent binary codecs, array conversion/comparison, subprocess cancellation, retry and local storage staging belong in `src/common`.
 
 ```text
+src/common/types.py          generic record, transport, storage and provenance contracts
 src/common/runtime/          resource environment, Go builds, subprocesses, storage staging
 src/common/io/               generic codecs, typed arrays, streaming hashes and CSV I/O
+src/theory/types.py          physical parameter, task, request and result contracts
 src/theory/runtime/          request/result contracts, pair identity and completion validation
 src/theory/release/          mathematical clocks, statistical estimators, empirical fits
 experiments/paper_theory/
   __main__.py                one command interface
+  types.py                   frozen plans, study protocols and run/migration metadata
   designs.py, protocols.py   historical study choices and analysis protocols
   runtime/                   study build selection and measure-sweep orchestration
     engine/                  Go adapter to the two public runtime libraries
@@ -37,5 +40,9 @@ The only Python `main()` in `paper_theory` is its canonical `__main__.py`. Launc
 Figure assemblers share study colors/selection through `evidence/figure_style.py`; they do not import each other for helpers. Generic panel decoration/saving lives in `common.plotting`. CSV-only plotting reads frozen exports and writes a separate directory. Migration orchestrates library codecs and result contracts, without depending on simulation orchestration. Existing main plan bytes and scientific task IDs are independent of transport/storage choices.
 
 Dependency direction is `ehk → common`, `theory → common`, and `paper_theory → common/theory/public runtimes`. Neither source package imports experiments. Importing analysis creates no outputs and does not load a solver. CLI startup configures caches and subprocess limits explicitly. Builds bind actual source/toolchain/backend/binary hashes; plans and raw protocols reject incompatible resumes. Offline analysis needs frozen records, not a runtime executable.
+
+TypedDict definitions are concentrated in the three owning layers above; consumers import them directly rather than re-exporting aliases or introducing local duplicate schemas. `Parameters` retains its validated dataclass behavior, while `ParametersData` describes its serialized fields. Measure and microscopic tasks are distinguished by their literal `kind`; microscopic seeds and identities are required. Stored branches allow a shared pair reference, and resolved records require the pair trace. Exact microscopic energies remain separate from optional projected/binned fields. Array annotations specify dtype, while existing validators enforce shape, conservation and scientific identity.
+
+Type declarations do not coerce data or add defaults. Dynamic decoding, dataclass serialization and public binding adapters use explicit casts at their boundaries. The public binding retains ownership of the nested kinetic request schema. Generic codecs keep unknown payloads generic, with scientific readers supplying the precise task/result view. Main/main_smoke frozen plans, task IDs, record bytes and offline compatibility are verified independently of static types.
 
 Large inputs stay outside Git; generated builds, raw records, tables and figures stay ignored. Historical paper artifacts are optional provenance/data inputs, never code dependencies. `evidence` does not read them. CAS 2026 remains external empirical motivation; this repository does not recreate a CAS dataset. See the [study guide](../experiments/paper_theory/README.md) and [three-repository installation](runtime-dependencies.md).

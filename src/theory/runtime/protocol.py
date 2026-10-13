@@ -3,10 +3,11 @@
 from copy import deepcopy
 
 from common.io.json import canonical
+from theory.types import PopulationPolicies
 
 # Historical audits share initial RNG draws and enforce nominal-degree rows.
 # Apply these defaults at transport time so frozen task identities remain intact.
-AUDIT_POLICIES = {
+AUDIT_POLICIES: PopulationPolicies = {
     "initial_rng": "shared",
     "projection": "fixed_degree_rows",
     "record_policy": "audit",
@@ -14,7 +15,7 @@ AUDIT_POLICIES = {
 }
 # Population comparisons separate opinion/graph streams and retain actual graph
 # mass and edge normalization; compact frames avoid saving unused edge fields.
-POPULATION_POLICIES = {
+POPULATION_POLICIES: PopulationPolicies = {
     "initial_rng": "split",
     "projection": "actual",
     "record_policy": "population",

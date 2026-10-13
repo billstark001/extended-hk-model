@@ -1,11 +1,15 @@
 """Parameter-bound NPZ measurement serialization with explicit timestamps."""
 
 import json
+from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 
+from theory.types import MeasureResult, MeasureTask
 
-def save_result(path, item, result):
+
+def save_result(path: Path, item: MeasureTask, result: MeasureResult) -> None:
     """Persist one sweep result as NPZ, restoring first-step energies while keeping other observables on their original timestamps."""
     series = {key: np.asarray(value) for key, value in result["series"].items()}
     if not {"time", "node_energy", "edge_energy"} <= series.keys():
@@ -41,6 +45,6 @@ def save_result(path, item, result):
             handle,
             metadata=json.dumps(item, sort_keys=True),
             diagnostics=json.dumps(result["diagnostics"], sort_keys=True),
-            **series,
+            **cast(dict[str, Any], series),
         )
     temporary.replace(path)

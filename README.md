@@ -12,15 +12,18 @@ Standalone workflow commands live in [`tools/`](tools/README.md): `hdd-bridge` a
 
 ## Development
 
-Install `ruff` to format and check the Python packages:
+Install the optional type checker and `ruff` to check the Python packages:
 
 ```sh
-python -m pip install ruff
-ruff format src/common src/ehk src/theory experiments/paper_theory
-ruff check src/common src/ehk src/theory experiments/paper_theory
+python -m pip install -e '.[typecheck]' ruff
+ruff format src/common src/ehk src/theory experiments/paper_theory tests
+ruff check src/common src/ehk src/theory experiments/paper_theory tests
+python -m mypy
 ```
 
 The root `ruff.toml` uses 120 columns and keeps short containers compact despite trailing commas. Public API docstrings describe units, array shapes, cache identity and output side effects; experiment protocols and generated numerical results retain their existing meaning.
+
+`pyproject.toml` selects the typed theory/storage core, main workflow and positive contract fixtures for mypy. Tests also check that malformed seeds, missing task fields, misspelled energies and invalid pair hashes produce type errors when mypy is installed. Data contracts are concentrated in `common.types`, `theory.types` and `experiments.paper_theory.types`, following the [module boundaries](docs/architecture.md). They retain plain dictionaries, existing wire formats and NumPy arrays. `typing_extensions` supports the project's Python 3.10 minimum; no Pydantic dependency is needed.
 
 ## Citation
 

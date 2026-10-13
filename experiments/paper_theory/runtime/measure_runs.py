@@ -6,29 +6,41 @@ from pathlib import Path
 from common.io.json import atomic_json, sha
 from common.runtime.failures import ProtocolError, TaskError
 from common.runtime.process import run_tasks
+from common.runtime.storage import RunStorage
+from common.types import PathInput, RuntimeBinding
 from theory.parameters import Parameters
 from theory.runtime import measure
 from theory.runtime.archives import save_result
 from theory.runtime.completed import cached
+from theory.types import MeasureTask
 
 
-def execute(tasks, directory, binary, *, force=False, limit=None, workers=1, store=None):
+def execute(
+    tasks: list[MeasureTask],
+    directory: Path,
+    binary: PathInput,
+    *,
+    force: bool = False,
+    limit: int | None = None,
+    workers: int = 1,
+    store: RunStorage | None = None,
+) -> None:
     """Run or resume parameter-matching sweep caches, reject mass/degree conservation failures and atomically save successful NPZ results."""
-    binding = {"binary_sha256": sha(binary), "request_schema_sha256": sha(Path(measure.__file__))}
+    binding: RuntimeBinding = {"binary_sha256": sha(binary), "request_schema_sha256": sha(Path(measure.__file__))}
     binding_path = directory / "binding.json"
 
-    def bind():
+    def bind() -> None:
         if binding_path.exists() and json.loads(binding_path.read_text()) != binding:
             raise ProtocolError("measure binary changed; use a new output directory")
         atomic_json(binding_path, binding)
 
     store.read(bind) if store else bind()
 
-    def run(index_item):
+    def run(index_item: tuple[int, MeasureTask]) -> None:
         index, item = index_item
         path = directory / "raw" / f"{item['id']}.npz"
 
-        def check():
+        def check() -> bool:
             return path.exists() and not force and cached(path, item, "measure")
 
         if store.read(check) if store else check():

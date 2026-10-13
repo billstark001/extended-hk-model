@@ -3,14 +3,27 @@
 from dataclasses import asdict, replace
 from itertools import product
 from math import ceil
+from typing import cast
+
+from typing_extensions import Unpack
 
 from common.io.json import fingerprint
 from theory.parameters import Parameters
+from theory.types import (
+    MeasureOptions,
+    MicroTaskFields,
+    ParametersData,
+    StoppingOptions,
+    Task,
+    TaskKind,
+    TaskSpecification,
+)
 
+from ..types import AnalysisProtocol, MainPlan, MainRole
 from .protocol import KERNELS, PROTOCOL
 
 
-def stopping_options(p):
+def stopping_options(p: Parameters) -> StoppingOptions:
     """Check joint state/energy stationarity in scaled time, independent of dt/alpha."""
     tau_step = p.alpha * p.dt
     return {
@@ -24,7 +37,7 @@ def stopping_options(p):
     }
 
 
-def design(smoke=False, horizon=None):
+def design(smoke: bool = False, horizon: float | None = None) -> MainPlan:
     """Freeze physical settings, matched seeds, tails and numerical controls."""
     horizon = (0.4 if smoke else 480.0) if horizon is None else horizon
     if horizon <= 0 or (smoke and horizon > 1) or (not smoke and horizon < 480):
@@ -36,20 +49,22 @@ def design(smoke=False, horizon=None):
     snapshots = sorted(
         {min(t, horizon) for t in ([0.1, 0.2, horizon] if smoke else [4.0, 24.0, 30.0, 120.0, 240.0, 480.0, horizon])}
     )
-    tasks = {}
+    tasks: dict[str, Task] = {}
     epsilons = (0.4,) if smoke else (0.2, 0.4, 0.8)
 
-    def add(kind, p, role, **extra):
+    def add(kind: TaskKind, p: Parameters, role: MainRole, **extra: Unpack[MicroTaskFields]) -> None:
         for epsilon in epsilons:
             setting = replace(p, epsilon=epsilon)
             setting.validate()
-            options = {"snapshot_taus": snapshots}
+            options: MeasureOptions = {"snapshot_taus": snapshots}
             if kind == "measure" and not smoke:
                 options["stopping"] = stopping_options(setting)
-            task = dict(kind=kind, parameters=asdict(setting), request_options=options, **extra)
+            task: TaskSpecification = dict(
+                kind=kind, parameters=cast(ParametersData, asdict(setting)), request_options=options, **extra
+            )
             identifier = kind + "_" + fingerprint(task)[:20]
             if identifier not in tasks:
-                tasks[identifier] = dict(task, id=identifier, roles=[])
+                tasks[identifier] = cast(Task, dict(task, id=identifier, roles=[]))
             if role not in tasks[identifier]["roles"]:
                 tasks[identifier]["roles"].append(role)
 
@@ -63,7 +78,12 @@ def design(smoke=False, horizon=None):
         (0.01, 0.02) if smoke else (0.04, 0.02, 0.01, 0.005, 0.0025),
     ):
         add("measure", replace(base, dynamics=rule, recommender=rec, steepness=z, ratio=ratio, alpha=alpha), "scaling")
-    controls = ((bins, quad, 1.0), (31 if smoke else 81, quad, 1.0), (bins, 5 if smoke else 9, 1.0), (bins, quad, 0.5))
+    controls: tuple[tuple[int, int, float], ...] = (
+        (bins, quad, 1.0),
+        (31 if smoke else 81, quad, 1.0),
+        (bins, 5 if smoke else 9, 1.0),
+        (bins, quad, 0.5),
+    )
     if not smoke:
         controls += ((241, quad, 1.0),)
     for rule, (rec, z), (b, q, dt) in product(("hk", "deffuant"), (KERNELS[2], KERNELS[4]), controls):
@@ -116,29 +136,29 @@ def design(smoke=False, horizon=None):
             process_seed=24000 + initial * 100 + branch,
             selection="weighted",
         )
-    protocol = dict(
-        PROTOCOL,
-        prefix_taus=[t for t in snapshots if t >= (0.1 if smoke else 30)],
-        numerical_baseline={"bins": bins, "quadrature": quad, "dt": 1.0},
-        main_population_bins=bins,
-        main_population_quadrature=quad,
-        population_horizon_tau=population_horizon,
-        population_kernels=[list(k) for k in population_kernels],
-        population_ratio=2.0,
-        population_claim="finite-window structure robustness; structural-score size audit is separate",
-        main_snapshot_tau=0.2 if smoke else 24.0,
-        baseline_alpha=0.02,
-        baseline_epsilon=0.4,
-        confidence_radii=list(epsilons),
-        matched_population=matched_population,
-        matched_bins=bins,
-        matched_quadrature=quad,
-        minimum_plateau_tau=120.0,
-        adaptive_measure_stopping=not smoke,
-        maximum_horizon_tau=horizon,
-        measure_stopping="joint state/energy rates; tau>=120, stable for 40 tau; no extrapolated tail",
-        primary_clock="unclipped finite-window residual area; full means require tail confirmation",
-    )
+    protocol: AnalysisProtocol = {
+        **PROTOCOL,
+        "prefix_taus": [t for t in snapshots if t >= (0.1 if smoke else 30)],
+        "numerical_baseline": {"bins": bins, "quadrature": quad, "dt": 1.0},
+        "main_population_bins": bins,
+        "main_population_quadrature": quad,
+        "population_horizon_tau": population_horizon,
+        "population_kernels": [list(k) for k in population_kernels],
+        "population_ratio": 2.0,
+        "population_claim": "finite-window structure robustness; structural-score size audit is separate",
+        "main_snapshot_tau": 0.2 if smoke else 24.0,
+        "baseline_alpha": 0.02,
+        "baseline_epsilon": 0.4,
+        "confidence_radii": list(epsilons),
+        "matched_population": matched_population,
+        "matched_bins": bins,
+        "matched_quadrature": quad,
+        "minimum_plateau_tau": 120.0,
+        "adaptive_measure_stopping": not smoke,
+        "maximum_horizon_tau": horizon,
+        "measure_stopping": "joint state/energy rates; tau>=120, stable for 40 tau; no extrapolated tail",
+        "primary_clock": "unclipped finite-window residual area; full means require tail confirmation",
+    }
     return dict(
         schema=1, profile="main_smoke" if smoke else "main", analysis_protocol=protocol, tasks=list(tasks.values())
     )

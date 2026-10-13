@@ -2,6 +2,7 @@
 
 import json
 from collections import defaultdict
+from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,6 +16,7 @@ from theory.runtime.records import read_micro
 from theory.validation import fields_on
 
 from ..runtime.measure_analysis import cached_cases
+from ..types import FrozenMainPlan
 from .figure_style import COLORS, RULES, clock_label, color_legend, matches, read_table, save
 from .protocol import KERNELS
 
@@ -176,7 +178,7 @@ def population_figure(directory, output, plan):
     axes[0, 0].plot(x, rho * bins / 2, color="k", ls="--", label="Micro branch mean")
     axes[0, 0].set(xlabel="Opinion", ylabel=r"Node density $\rho$", title="HK Opinion4, initial 0")
     axes[0, 0].legend(frameon=False)
-    vmax = max((e / e.sum()).max(), (edge / edge.sum()).max()) * bins**2 / 4
+    vmax = max(np.max(e / e.sum()), np.max(edge / edge.sum())) * bins**2 / 4
     for ax, matrix, title in (
         (axes[0, 1], e, "Pair directed-edge density"),
         (axes[0, 2], edge, "Micro directed-edge density"),
@@ -284,7 +286,7 @@ def supplementary_figures(directory, output, plan, cases):
 
 def plot(directory):
     """Refuse partial coverage; generate each main and supplemental figure anew."""
-    plan = json.loads((directory / "plan.json").read_text())
+    plan = cast(FrozenMainPlan, json.loads((directory / "plan.json").read_text()))
     report = json.loads((directory / "report.json").read_text())
     if report["missing"] or report["completed"] != report["planned"]:
         raise ValueError("main figures require the complete declared design")

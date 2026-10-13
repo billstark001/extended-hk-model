@@ -1,9 +1,12 @@
 """Microscopic record fields and verified deterministic pair references."""
 
 from pathlib import Path
+from typing import cast
 
 from common.io.json import fingerprint, sha
 from common.io.records import promote_arrays, read_record
+from common.types import PathInput
+from theory.types import MicroRecord, PairRecord, PairTrace, ResolvedMicroRecord
 
 ARRAY_FIELDS = {"axis", "rho", "edge", "velocity", "node_potential", "edge_potential", "polarization", "homophily"}
 
@@ -13,10 +16,10 @@ def scientific_arrays(value):
     return promote_arrays(value, ARRAY_FIELDS)
 
 
-def read_micro(path, *, record=None):
+def read_micro(path: PathInput, *, record: MicroRecord | None = None) -> ResolvedMicroRecord:
     """Resolve a shared pair in memory; optionally reuse an already decoded record."""
     path = Path(path)
-    record = read_record(path) if record is None else record
+    record = cast(MicroRecord, read_record(path)) if record is None else record
     reference = record["result"].get("pair_ref")
     if reference is not None:
         if len(reference["key"]) != 64 or any(c not in "0123456789abcdef" for c in reference["key"]):
@@ -26,7 +29,7 @@ def read_micro(path, *, record=None):
             raise ValueError("pair reference escapes the run")
         if sha(pair_path) != reference["sha256"]:
             raise ValueError("shared pair hash mismatch")
-        pair = read_record(pair_path)
+        pair = cast(PairRecord, read_record(pair_path))
         identity = {k: v for k, v in pair["task"].items() if k != "id"}
         if pair["task"]["id"] != reference["key"] or fingerprint(identity) != reference["key"]:
             raise ValueError("shared pair identity mismatch")
@@ -35,8 +38,8 @@ def read_micro(path, *, record=None):
         for name in ("parameters", "initial_seed", "request_options", "selection"):
             if pair["task"].get(name) != record["task"].get(name):
                 raise ValueError(f"shared pair {name} mismatch")
-        trace = dict(pair["result"]["pair"])
+        trace: PairTrace = {**pair["result"]["pair"]}
         if "pair_diagnostics" in record["result"]:
             trace["diagnostics"] = record["result"]["pair_diagnostics"]
         record["result"]["pair"] = trace
-    return record
+    return cast(ResolvedMicroRecord, record)

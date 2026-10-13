@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,6 +12,7 @@ from matplotlib.lines import Line2D
 from common.io.json import atomic_json, fingerprint, sha
 from common.plotting.figures import decorate, numeric_log_ticks
 
+from ..types import FrozenMainPlan
 from .figure_style import COLORS, LABELS, RULES, matches, read_table, save
 from .protocol import KERNELS
 
@@ -408,7 +410,7 @@ def numerical_figure(directory, output, plan):
 
 def plot_tables(directory, output=None):
     directory = Path(directory)
-    plan = json.loads((directory / "plan.json").read_text())
+    plan = cast(FrozenMainPlan, json.loads((directory / "plan.json").read_text()))
     if fingerprint({k: v for k, v in plan.items() if k != "plan_fingerprint"}) != plan["plan_fingerprint"]:
         raise ValueError("frozen plan hash mismatch")
     report = json.loads((directory / "report.json").read_text())

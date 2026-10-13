@@ -7,21 +7,28 @@ import shutil
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar, cast
+
+from typing_extensions import Unpack
 
 from common.io.json import atomic_json, fingerprint, sha
+from common.types import EventDetails, EventHook, EventState, PathInput, PendingCommit, RunEvent, StorageOwner
 
 from .failures import ProtocolError
 from .process import cancellation_event
 
+ResultT = TypeVar("ResultT")
+
 STORAGE_ERRORS = {errno.EIO, errno.ENXIO, errno.ENODEV, errno.ESTALE, errno.ENOSPC}
 
 
-def storage_error(error):
+def storage_error(error: BaseException) -> bool:
     return isinstance(error, OSError) and error.errno in STORAGE_ERRORS
 
 
-def retry_io(operation, *, event=None, delay=1.0):
+def retry_io(operation: Callable[[], ResultT], *, event: EventHook | None = None, delay: float = 1.0) -> ResultT:
     """An unreadable disk is not a corrupt record. Wait without resampling seeds."""
     attempt = 0
     while True:
@@ -49,7 +56,7 @@ class RunStorage:
     capped at max_record_bytes. Pending commits survive launcher restarts.
     """
 
-    def __init__(self, root, control, *, max_record_bytes=512 << 20):
+    def __init__(self, root: PathInput, control: PathInput, *, max_record_bytes: int = 512 << 20) -> None:
         self.root = Path(root).resolve()
         self.control = Path(control).resolve()
         self.spool = self.control / "spool"
@@ -59,7 +66,7 @@ class RunStorage:
         self.marker = self.root / "storage_owner.json"
         if not self.root.is_dir():
             raise FileNotFoundError(self.root)
-        owner = {"schema": 1, "root": str(self.root), "control": str(self.control)}
+        owner: StorageOwner = {"schema": 1, "root": str(self.root), "control": str(self.control)}
         if self.marker.exists():
             if json.loads(self.marker.read_text()) != owner:
                 raise ProtocolError("storage ownership changed")
@@ -67,16 +74,17 @@ class RunStorage:
             atomic_json(self.marker, owner)
         self.owner = owner
 
-    def event(self, task, state, **extra):
-        identifier = None
+    def event(self, task: object, state: EventState, **extra: Unpack[EventDetails]) -> None:
+        identifier: str | None = None
         if task is not None:
             item = task[1] if isinstance(task, tuple) else task
             identifier = item.get("id") if isinstance(item, dict) else str(item)
         with self._journal_lock, (self.control / "events.jsonl").open("a") as stream:
-            stream.write(json.dumps({"time": time.time(), "task": identifier, "state": state, **extra}) + "\n")
+            entry: RunEvent = {"time": time.time(), "task": identifier, "state": state, **extra}
+            stream.write(json.dumps(entry) + "\n")
             stream.flush()
 
-    def check(self):
+    def check(self) -> None:
         try:
             saved = json.loads(self.marker.read_text())
         except FileNotFoundError as error:
@@ -84,19 +92,19 @@ class RunStorage:
         if saved != self.owner:
             raise ProtocolError("a different volume/run occupies the result path")
 
-    def read(self, operation):
-        def checked():
+    def read(self, operation: Callable[[], ResultT]) -> ResultT:
+        def checked() -> ResultT:
             self.check()
             return operation()
 
         return retry_io(checked, event=self.event)
 
-    def temporary(self, prefix="transport-"):
+    def temporary(self, prefix: str = "transport-") -> Path:
         fd, path = tempfile.mkstemp(prefix=prefix, dir=self.spool)
         os.close(fd)
         return Path(path)
 
-    def commit(self, destination, writer):
+    def commit(self, destination: PathInput, writer: Callable[[Path], object]) -> None:
         destination = Path(destination).resolve()
         if not destination.is_relative_to(self.root):
             raise ProtocolError("result destination escapes its run")
@@ -105,16 +113,17 @@ class RunStorage:
         source = self.spool / (key + destination.suffix)
         pending = self.spool / (key + ".pending.json")
         if not pending.exists():
-            atomic_json(pending, {"destination": relative, "source": source.name, "sha256": None})
+            initial: PendingCommit = {"destination": relative, "source": source.name, "sha256": None}
+            atomic_json(pending, initial)
         if not source.exists():
             writer(source)
-        metadata = json.loads(pending.read_text())
+        metadata = cast(PendingCommit, json.loads(pending.read_text()))
         metadata["sha256"] = sha(source)
         atomic_json(pending, metadata)
         self.publish(pending)
 
-    def publish(self, pending):
-        metadata = json.loads(pending.read_text())
+    def publish(self, pending: Path) -> None:
+        metadata = cast(PendingCommit, json.loads(pending.read_text()))
         source = self.spool / metadata["source"]
         destination = self.root / metadata["destination"]
         if not destination.resolve().is_relative_to(self.root) or source.parent != self.spool:
@@ -148,9 +157,9 @@ class RunStorage:
         pending.unlink()
         source.unlink()
 
-    def recover(self):
+    def recover(self) -> None:
         for pending in sorted(self.spool.glob("*.pending.json")):
-            metadata = json.loads(pending.read_text())
+            metadata = cast(PendingCommit, json.loads(pending.read_text()))
             if (self.spool / metadata["source"]).exists():
                 self.publish(pending)
             else:

@@ -114,3 +114,18 @@ of the 20261012 formal run has been performed while its external disk is absent.
 
 The CAS study is literature motivation, not a dataset supplied to these runs.
 See [installation](../../docs/runtime-dependencies.md) for the three checkouts.
+
+## Data contracts
+
+Important dictionary models use TypedDict: physical parameters, measure/micro
+tasks, shared pair identities and references, exact/projected frames, results,
+frozen plans, run provenance and storage/migration metadata. Definitions live in
+`src/common/types.py`, `src/theory/types.py` and this package's `types.py`, according
+to ownership. Consumers retain the existing dictionaries and NumPy arrays;
+scientific validation and source/binary compatibility checks remain explicit.
+The `Parameters` dataclass retains its existing validation and defaults.
+
+Install `python -m pip install -e '.[typecheck]'` and run `python -m mypy` from
+the repository root to check the selected core, main execution/analysis paths
+and positive fixtures. The test suite includes malformed contract examples.
+These checks require no scientific run or raw dataset.

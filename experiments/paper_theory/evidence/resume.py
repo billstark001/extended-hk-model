@@ -6,10 +6,13 @@ import os
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
+from typing import cast
 
 from common.io.json import atomic_json, sha
 from common.runtime.go import engine_manifest, source_manifest
 from theory.runtime import measure as schema
+
+from ..types import RunManifest
 
 
 @contextmanager
@@ -36,12 +39,12 @@ def read_owned(path, work):
     return json.loads(path.read_text())
 
 
-def settings(work, publish, args):
+def settings(work: Path, publish: Path, args) -> RunManifest:
     """Read the original run manifest; explicit overrides must agree."""
     manifest = work / "run_manifest.json"
     old = None
     if args.resume:
-        old = read_owned(manifest, work)
+        old = cast(RunManifest, read_owned(manifest, work))
         if old["profile"] not in ("main", "main_smoke"):
             raise ValueError("resume requires a canonical main or main_smoke profile")
         for name in ("profile", "backend", "horizon"):
@@ -54,7 +57,7 @@ def settings(work, publish, args):
         args.profile = args.profile or "main"
         args.backend = args.backend or ("accelerate" if os.uname().sysname == "Darwin" else "purego")
     engine = Path(__file__).resolve().parents[1] / "runtime" / "engine"
-    candidate = {
+    candidate: RunManifest = {
         "schema": 1,
         "work_dir": str(work),
         "publish_dir": str(publish),

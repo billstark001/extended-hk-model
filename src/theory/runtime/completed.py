@@ -2,6 +2,8 @@
 
 import json
 import math
+from collections.abc import Mapping
+from typing import Any, Literal, cast
 from zipfile import BadZipFile
 
 import numpy as np
@@ -9,17 +11,19 @@ import numpy as np
 from common.io.records import read_record
 from common.runtime.failures import ProtocolError
 from common.runtime.storage import storage_error
+from common.types import PathInput
+from theory.types import ConservationDiagnostics, MicroRecord, PairTask, Task, TaskKind
 
 from .records import read_micro
 
 
-def conservation(diagnostics):
+def conservation(diagnostics: ConservationDiagnostics) -> None:
     values = [diagnostics[name] for name in ("max_node_mass_residual", "max_fixed_degree_residual")]
     if not all(np.isfinite(v) and v <= 1e-8 for v in values):
         raise ValueError("invalid conservation diagnostics")
 
 
-def cached(path, task, kind):
+def cached(path: PathInput, task: Task | PairTask, kind: TaskKind | Literal["pair"]) -> bool:
     """Invalid/truncated records are rerun; a different task is never overwritten."""
     try:
         if kind == "measure":
@@ -45,9 +49,9 @@ def cached(path, task, kind):
             metadata = record["task"]
             if metadata != task:
                 raise ProtocolError(f"cache protocol differs: {path}")
+            result: Mapping[str, Any] = record["result"]
             if kind != "pair":
-                record = read_micro(path, record=record)
-            result = record["result"]
+                result = read_micro(path, record=cast(MicroRecord, record))["result"]
             conservation(result["pair"]["diagnostics"])
             p = task["parameters"]
             endpoint = math.ceil(p["horizon"] / (p["alpha"] * p["dt"]) - 1e-12) * p["dt"]

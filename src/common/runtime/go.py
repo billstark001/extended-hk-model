@@ -7,14 +7,16 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import cast
 
 from common.io.json import atomic_json, fingerprint, sha
 from common.runtime.environment import runtime_environment
+from common.types import Backend, BuildInputs, BuildManifest, FileHashes
 
 
-def source_manifest(root):
+def source_manifest(root: Path) -> FileHashes:
     """Hash production Go sources plus go.mod/go.sum in a runtime working tree; exclude tests, vendor and binary directories."""
-    sources = []
+    sources: list[Path] = []
     excluded = {".git", "bin", "vendor", "outputs", "inputs", "artifacts", "datasets", ".venv", ".cache"}
     for directory, children, files in os.walk(root):
         children[:] = [name for name in children if name not in excluded]
@@ -28,14 +30,22 @@ def source_manifest(root):
     }
 
 
-def engine_manifest(engine_root):
+def engine_manifest(engine_root: Path) -> FileHashes:
     """Hash the custom adapter production Go files and declared go.mod, excluding benchmark/test files."""
     return {p.name: sha(p) for p in sorted(engine_root.glob("*.go")) if not p.name.endswith("_test.go")} | {
         "go.mod": sha(engine_root / "go.mod")
     }
 
 
-def build_adapter(destination, meso_root, micro_root, backend, engine_root, *, link_stage=None):
+def build_adapter(
+    destination: Path,
+    meso_root: Path,
+    micro_root: Path,
+    backend: Backend,
+    engine_root: Path,
+    *,
+    link_stage: Path | None = None,
+) -> BuildManifest:
     """Build the shared adapter against both supplied runtime source checkouts.
 
     Generate local module replacements and caches inside destination; preserve
@@ -52,7 +62,7 @@ def build_adapter(destination, meso_root, micro_root, backend, engine_root, *, l
         env["GOTMPDIR"] = str(link_stage / "tmp")
         # The external linker uses TMPDIR independently of Go's work directory.
         env["TMPDIR"] = str(link_stage / "tmp")
-    inputs = {
+    inputs: BuildInputs = {
         "meso": source_manifest(meso_root),
         "micro": source_manifest(micro_root),
         "engine": engine_manifest(engine_root),
@@ -63,7 +73,7 @@ def build_adapter(destination, meso_root, micro_root, backend, engine_root, *, l
     binary = destination / "paper-theory-engine"
     manifest = destination / "manifest.json"
     if binary.exists() and manifest.exists():
-        old = json.loads(manifest.read_text())
+        old = cast(BuildManifest, json.loads(manifest.read_text()))
         if old["source_fingerprint"] == ident and old["binary_sha256"] == sha(binary):
             # The scientific manifest stays immutable; a caller may recreate a
             # removed APFS execution stage from its verified provenance copy.
@@ -100,7 +110,7 @@ def build_adapter(destination, meso_root, micro_root, backend, engine_root, *, l
         or engine_manifest(engine_root) != inputs["engine"]
     ):
         raise RuntimeError("source changed during build; use a new directory and rebuild")
-    result = {
+    result: BuildManifest = {
         **inputs,
         "source_fingerprint": ident,
         "binary_sha256": sha(binary),

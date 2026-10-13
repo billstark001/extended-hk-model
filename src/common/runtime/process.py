@@ -4,6 +4,7 @@ import subprocess
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from typing import cast
 
 from .failures import BatchTaskError, ProtocolError
 
@@ -36,8 +37,8 @@ def run_jsonl(binary, line, *, timeout=None, arguments=()):
             _processes.pop(process, None)
 
 
-def cancellation_event():
-    return getattr(_local, "stop", None)
+def cancellation_event() -> threading.Event | None:
+    return cast(threading.Event | None, getattr(_local, "stop", None))
 
 
 def run_binary(binary, line, output, *, arguments=(), timeout=None, max_bytes=1 << 30):

@@ -3,6 +3,7 @@
 import json
 import shutil
 from pathlib import Path
+from typing import cast
 
 from common.io.json import atomic_json, fingerprint, sha
 from common.io.records import equivalent, read_record, record_path, write_record
@@ -10,23 +11,25 @@ from theory.runtime.completed import cached
 from theory.runtime.population import pair_identity
 from theory.runtime.records import read_micro, scientific_arrays
 
+from ..types import FrozenMainPlan, MigrationIdentity, MigrationManifest
+
 
 def migrate(source, destination):
     source, destination = Path(source).resolve(), Path(destination).resolve()
     if destination == source or destination.is_relative_to(source):
         raise ValueError("migration requires a separate destination outside the original run")
-    plan = json.loads((source / "plan.json").read_text())
+    plan = cast(FrozenMainPlan, json.loads((source / "plan.json").read_text()))
     if fingerprint({k: v for k, v in plan.items() if k != "plan_fingerprint"}) != plan["plan_fingerprint"]:
         raise ValueError("source frozen plan hash mismatch")
     if not (source / "micro" / "raw").is_dir():
         raise FileNotFoundError("raw records unavailable; figure/CSV exports cannot reconstruct trajectories")
-    identity = {"source": str(source), "plan_fingerprint": plan["plan_fingerprint"]}
+    identity: MigrationIdentity = {"source": str(source), "plan_fingerprint": plan["plan_fingerprint"]}
     marker = destination / "migration_manifest.json"
     if destination.exists() and any(destination.iterdir()):
         if not marker.is_file() or json.loads(marker.read_text())["identity"] != identity:
             raise ValueError("destination belongs to another conversion")
     destination.mkdir(parents=True, exist_ok=True)
-    manifest = (
+    manifest: MigrationManifest = (
         json.loads(marker.read_text())
         if marker.exists()
         else {
