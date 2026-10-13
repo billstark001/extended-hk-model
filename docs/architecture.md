@@ -4,32 +4,37 @@
 
 `src/common` owns model-independent settings, I/O and hashes, numerical/statistical tools, plotting primitives and process/build/environment services. `src/ehk` owns microscopic observables, geometry and model-specific visualizations. The existing `experiments/paper` workflows are retained; any remaining embedded mathematical or system helpers there are recorded as legacy boundary debt, outside this theory-focused change.
 
-`src/theory` owns parameters, energies, finite exposure probabilities, recommendation/rewiring operators, transport, distribution/trajectory comparisons and release observables. `release/` includes restricted means, T50/other first-crossing quantiles, plateau diagnostics, conditional statistics and empirical survival/mixture fits. T50 remains available as a sensitivity diagnostic. `runtime/` owns public request schemas, JSONL policy/transport, result identity and execution services. It does not implement a kinetic/PDE solver.
+`src/theory` owns parameters, energies, finite exposure probabilities, recommendation/rewiring operators, transport, distribution/trajectory comparisons and release observables. `release/` includes restricted means, T50/other first-crossing quantiles, plateau diagnostics, conditional statistics and empirical survival/mixture fits. T50 remains available as a sensitivity diagnostic. `runtime/` owns public request schemas, JSONL/binary execution, result identity/completion checks and verified micro/pair references. It does not implement a kinetic/PDE solver. Model-independent binary codecs, array conversion/comparison, subprocess cancellation, retry and local storage staging belong in `src/common`.
 
 ```text
-src/common/runtime/          explicit resource environment, Go builds, subprocesses
-src/theory/runtime/          request/result contracts and bounded execution
+src/common/runtime/          resource environment, Go builds, subprocesses, storage staging
+src/common/io/               generic codecs, typed arrays, streaming hashes and CSV I/O
+src/theory/runtime/          request/result contracts, pair identity and completion validation
 src/theory/release/          mathematical clocks, statistical estimators, empirical fits
 experiments/paper_theory/
   __main__.py                one command interface
   designs.py, protocols.py   historical study choices and analysis protocols
-  runtime/                   study build selection, runner, routes, sweep orchestration
+  runtime/                   study build selection and measure-sweep orchestration
     engine/                  Go adapter to the two public runtime libraries
-  evidence/                  fresh revised-paper plan, analysis/report/figure assembly
+  evidence/                  main/main_smoke plan, analysis/figures and explicit migration
   micro_validation/          matched micro/pair, conditional ensembles, finite population
   release_clocks/            release study selection and historical fit audits
   operator_validation/       measure/Fokker–Planck and numerical comparisons
   kernel_validation/         finite exposure and mixed-increment audits
   scaling/                   compatible small-update comparison assembly
   energy_scan/               baseline/expanded study orchestration
-  manuscript/                historical evidence reports and fixed-data claim audits
+  manuscript/                historical evidence reports and reusable figure helpers
 ```
 
 The Go adapter can remain under `experiments`: it constructs explicit initial states, invokes public solvers and exports inspection/audit results. Model stepping and recommendation factories remain in the two Go libraries. Existing adapter projection and diagnostic instrumentation are retained; new mathematical/statistical estimators go into `src`. No solver is duplicated in the experiments.
 
-`evidence` is the active fresh workflow for the proposed revision. One parameter-only plan generates measure and matched micro trajectories, then restricted means, conditional/hierarchical intervals, recommendation contrasts, fixed-r alpha collapse, state comparisons, numerical controls and finite-N robustness figures. Its paper profile includes both zeta=1/4 and a common tau=480 window with shorter prefixes. Smoke traverses the same paths with short horizons; it cannot establish a plateau or a paper result. Own endpoint and fixed pair endpoint normalization are explicit alternatives. Numerical diagnostics do not automatically justify extrapolating an infinite mean.
+`evidence` is the active workflow, with `main` and `main_smoke` as its only design profiles. One parameter-only plan generates measure and matched micro trajectories, then restricted means, conditional/hierarchical intervals, recommendation contrasts, fixed-r alpha collapse, state comparisons, numerical controls and finite-N robustness figures. Main includes both zeta=1/4 and a common tau=480 matched window with shorter prefixes. Main smoke traverses the same paths with short horizons; it cannot establish a plateau or a paper result. Own endpoint and fixed pair endpoint normalization are explicit alternatives. Numerical diagnostics do not automatically justify extrapolating an infinite mean.
 
-Old suites and T50 analyses stay available for historical reproducibility. The fixed historical manuscript figure assembler is not the fresh result entry point. Before removing unused experiments, classify their scientific role: main result, supplementary diagnostic, historical reproduction, or redundant workflow. Do not extend an unused historical scan to produce revised-paper evidence when the shared fresh plan covers it.
+Old suite/scan/clocks CLI routes and the superseded evidence paper/smoke generators are removed. Uncalled historical script modules and their private helpers are removed as well, including the fixed manuscript figure/claim/budget assemblers. Historical readers, T50 estimators and reusable analysis/figure functions remain importable libraries. Do not extend a historical scan to produce revised-paper evidence when the shared main plan covers it.
+
+The only Python `main()` in `paper_theory` is its canonical `__main__.py`. Launch orchestration receives parsed arguments directly; it does not maintain another CLI or translate arguments into command strings. Runtime calls use their owning module/function rather than old function names or forwarding wrappers. Resume requires the original authenticated run manifest and canonical main/main_smoke profile names. Offline record readers preserve the original data formats independently of generation entry points.
+
+Figure assemblers share study colors/selection through `evidence/figure_style.py`; they do not import each other for helpers. Generic panel decoration/saving lives in `common.plotting`. CSV-only plotting reads frozen exports and writes a separate directory. Migration orchestrates library codecs and result contracts, without depending on simulation orchestration. Existing main plan bytes and scientific task IDs are independent of transport/storage choices.
 
 Dependency direction is `ehk → common`, `theory → common`, and `paper_theory → common/theory/public runtimes`. Neither source package imports experiments. Importing analysis creates no outputs and does not load a solver. CLI startup configures caches and subprocess limits explicitly. Builds bind actual source/toolchain/backend/binary hashes; plans and raw protocols reject incompatible resumes. Offline analysis needs frozen records, not a runtime executable.
 

@@ -6,7 +6,7 @@ Install the Python project and the separate runtime bindings as described in [ru
 
 Run `python -m experiments.paper.run --help` for paper simulation groups. Analysis and plots remain in `experiments/paper`. Use `python -m experiments.paper.mechanism_cases.social_force_probe.run --help` for the microscopic mechanism probe.
 
-Shared utilities live in `src/common`; microscopic model tools remain in `src/ehk`. The theory paper (unpublished yet) uses `src/theory` for mathematical operators and observable definitions, and `experiments/paper_theory` for parameter designs, analysis and figures. See the [experiment guide](experiments/paper_theory/README.md) and [architecture](docs/architecture.md). The [paper-code migration guide](experiments/paper_theory/MIGRATION.md) covers the migrated generation, fitting, analysis and plotting workflows. Large data stays external; generated outputs remain ignored. CAS 2026 is a literature reference for the theory workflow and supplies no required raw dataset. Prior abandoned theory studies remain archival. Use `python -m experiments.paper_theory --help` for the unified theory interface; its custom micro/pair experiments use one Go adapter.
+Shared utilities live in `src/common`; microscopic model tools remain in `src/ehk`. The theory paper (unpublished yet) uses `src/theory` for mathematical operators and observable definitions, and `experiments/paper_theory` for parameter designs, analysis and figures. See the [experiment guide](experiments/paper_theory/README.md) and [architecture](docs/architecture.md). The [paper-code migration guide](experiments/paper_theory/MIGRATION.md) covers the migrated generation, fitting, analysis and plotting workflows. Large data stays external; generated outputs remain ignored. CAS 2026 is a literature reference for the theory workflow and supplies no required raw dataset. Prior abandoned theory studies remain archival. Use `python -m experiments.paper_theory --help` for the main/main_smoke interface; it supports frozen-data analysis and CSV-only plotting, with shared pair predictions and resumable binary records.
 
 Standalone workflow commands live in [`tools/`](tools/README.md): `hdd-bridge` archives completed SSD simulations to HDD, and `waitpid` attaches a follow-up command to an existing process.
 
@@ -26,15 +26,15 @@ The root `ruff.toml` uses 120 columns and keeps short containers compact despite
 
 If you use this code in your research, please cite:
 
-``` bibtex
+```bibtex
 @misc{zhao2026segregation,
-    title={Segregation Before Polarization: How Recommendation Strategies Shape Echo Chamber Pathways}, 
+    title={Segregation Before Polarization: How Recommendation Strategies Shape Echo Chamber Pathways},
     author={Junning Zhao and Kazutoshi Sasahara and Yu Chen},
     year={2026},
     eprint={2601.16457},
     archivePrefix={arXiv},
     primaryClass={cs.SI},
-    url={https://arxiv.org/abs/2601.16457}, 
+    url={https://arxiv.org/abs/2601.16457},
 }
 ```
 

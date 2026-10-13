@@ -3,11 +3,11 @@
 The three repositories have separate responsibilities. Keep them as separate
 checkouts; `extended-hk-model` owns experiment orchestration, not the solvers.
 
-| Repository | Owns | Dependencies for this paper |
-| --- | --- | --- |
-| [extended-hk-model](https://github.com/billstark001/extended-hk-model) | Python theory, experiment designs, fitting, analysis, figures, one small Go experiment adapter | Python packages in `pyproject.toml`; both runtime source checkouts for compiled micro/pair experiments |
-| [social-media-models](https://github.com/billstark001/social-media-models) | Public microscopic Go dynamics/recommenders; `smp`, `smp-batch`, `smp-probe`; `smp_bindings` Python reader/launcher | Its own Go and Python dependencies; it does not import this experiment repository |
-| [social-media-mesoscopic-models](https://github.com/billstark001/social-media-mesoscopic-models) | Public pair-measure Go dynamics; `bin/smp-kinetic`; `smp_meso_bindings` Python launcher | Its own Go and Python dependencies; it does not import this experiment repository |
+| Repository                                                                                       | Owns                                                                                                                | Dependencies for this paper                                                                            |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [extended-hk-model](https://github.com/billstark001/extended-hk-model)                           | Python theory, experiment designs, fitting, analysis, figures, one small Go experiment adapter                      | Python packages in `pyproject.toml`; both runtime source checkouts for compiled micro/pair experiments |
+| [social-media-models](https://github.com/billstark001/social-media-models)                       | Public microscopic Go dynamics/recommenders; `smp`, `smp-batch`, `smp-probe`; `smp_bindings` Python reader/launcher | Its own Go and Python dependencies; it does not import this experiment repository                      |
+| [social-media-mesoscopic-models](https://github.com/billstark001/social-media-mesoscopic-models) | Public pair-measure Go dynamics; `bin/smp-kinetic`; `smp_meso_bindings` Python launcher                             | Its own Go and Python dependencies; it does not import this experiment repository                      |
 
 ## Install
 
@@ -51,14 +51,21 @@ SMP_PROBE_BINARY=/path/to/social-media-models/smp-probe
 EHK_PAPER_THEORY_OUTPUT_DIR=/path/to/generated/theory
 ```
 
-Build the public mesoscopic command or the shared experiment adapter through the unified interface:
+The main `run` command builds both the public mesoscopic executable and the
+small experiment adapter; `resume` restores the original verified executable
+copies. The active CLI uses `main`/`main_smoke`, without the old suite dispatcher.
 
 ```sh
-python -m experiments.paper_theory build --suite scaling
-python -m experiments.paper_theory build --suite validation
+python -m experiments.paper_theory plan --profile main --work-dir /path/to/new-run
+python -m experiments.paper_theory run --profile main --work-dir /path/to/new-run --publish-dir /path/to/export
+python -m experiments.paper_theory plot --run-dir /path/to/export --tables-only
 ```
 
-The first command builds `smp-kinetic` under the configured ignored output tree. The second builds the single `runtime/engine` adapter linking both runtime source modules; `validation`, `ensembles` and matched `population` use this same binary. `--micro-root`, `--meso-root`, `--backend` and `--build-dir` override the corresponding build settings. Generated module files and binaries stay under outputs. Do not edit runtime module replacements or copy solver implementations here. Changed build inputs require a new immutable build directory. See the [workflow guide](../experiments/paper_theory/README.md) for presets and pipelines.
+Keep `.venv`, control logs/caches and pending result commits on local APFS.
+Bulk records may remain external. `--control-dir`, `--micro-root`, `--meso-root`
+and `--backend` configure generation. Builds retain immutable source/module and
+binary hashes; changed build inputs require a new run. See the
+[workflow guide](../experiments/paper_theory/README.md).
 
 ## External data and output links
 
@@ -71,13 +78,13 @@ volumes are a data-availability issue, not a reason to place the records in Git.
 
 For the theory workflows, configure these read-only input roots. The revision-named settings refer to historical dataset layouts; they do not select legacy code entry points:
 
-| Setting | Expected contents |
-| --- | --- |
-| `EHK_RELEASE_SCAN_INPUT_DIR` | `raw_shards/*.npz`, `low_parameter_fits.csv`, `edge_timescale_fits.csv` |
-| `EHK_RELEASE_CLOCK_INPUT_DIR` | `parameter_clocks/data/*.csv`, optional `raw/*.npz` refinements |
-| `EHK_REVISION_INPUT_DIR` | `revision_core_v3/`, `revision_followup_v1/`, with frozen plans, bindings, status, per-family raw results and analysis |
-| `EHK_REVISION_REVIEW_INPUT_DIR` | `review_20261007/`, `review_followup_20261007/` tables |
-| `EHK_MANUSCRIPT_INPUT_DIR` | Existing `provenance.json`, `rewiring_sign_audit.json`, `tables/` for the historical claim audit |
+| Setting                         | Expected contents                                                                                                      |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `EHK_RELEASE_SCAN_INPUT_DIR`    | `raw_shards/*.npz`, `low_parameter_fits.csv`, `edge_timescale_fits.csv`                                                |
+| `EHK_RELEASE_CLOCK_INPUT_DIR`   | `parameter_clocks/data/*.csv`, optional `raw/*.npz` refinements                                                        |
+| `EHK_REVISION_INPUT_DIR`        | `revision_core_v3/`, `revision_followup_v1/`, with frozen plans, bindings, status, per-family raw results and analysis |
+| `EHK_REVISION_REVIEW_INPUT_DIR` | `review_20261007/`, `review_followup_20261007/` tables                                                                 |
+| `EHK_MANUSCRIPT_INPUT_DIR`      | Existing `provenance.json`, `rewiring_sign_audit.json`, `tables/` for the historical claim audit                       |
 
 Input defaults are under `outputs/inputs/paper_theory`, separate from generated
 `outputs/experiments/paper_theory`; no paper checkout is a runtime default. These inputs can remain on external storage, or be exposed
