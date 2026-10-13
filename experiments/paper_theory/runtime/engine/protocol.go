@@ -16,6 +16,8 @@ type Task struct {
 	Projection string `json:"projection"`
 	// RecordPolicy selects conditional-audit fields or compact population frames.
 	RecordPolicy string `json:"record_policy"`
+	// CompactRecords affects recording only; never enters frozen scientific IDs.
+	CompactRecords bool `json:"compact_records"`
 	// EnergyNormalization divides edge sums by N*k (nominal) or actual edge count.
 	EnergyNormalization string                       `json:"energy_normalization"`
 	ID                  string                       `json:"id"`

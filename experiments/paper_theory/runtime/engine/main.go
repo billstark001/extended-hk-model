@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -21,7 +22,7 @@ func run(t Task) (any, error) {
 		result, err = kinetic.TraceFromState(t.Request, kinetic.TraceOptions{InitialState: initial, PhysicalStep: t.PhysicalDt, SnapshotSteps: t.SnapshotSteps, EnergyBudgets: t.Budgets})
 	case "frozen":
 		result, err = kinetic.InspectFrozenState(t.Request, initial)
-	case "micro":
+	case "micro", "micro_only", "pair_only":
 		result, err = runMicro(t)
 	case "parity":
 		var reference kinetic.Result
@@ -41,6 +42,8 @@ func run(t Task) (any, error) {
 // main accepts exactly one strict JSON object per line. Stdout is reserved for
 // identified ok/error responses; transport failures are reported on stderr.
 func main() {
+	binaryOutput := flag.Bool("msgpack", false, "write lossless binary array responses")
+	flag.Parse()
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 65536), 64<<20)
 	encoder := json.NewEncoder(os.Stdout)
@@ -66,7 +69,13 @@ func main() {
 		if err != nil {
 			response = map[string]any{"id": t.ID, "status": "error", "error": err.Error()}
 		}
-		if err := encoder.Encode(response); err != nil {
+		var outputError error
+		if *binaryOutput {
+			outputError = encodeBinary(os.Stdout, response)
+		} else {
+			outputError = encoder.Encode(response)
+		}
+		if err := outputError; err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

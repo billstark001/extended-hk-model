@@ -125,6 +125,7 @@ type MicroFrame struct {
 	MeanDegree      float64 `json:"mean_degree"`
 	ExactVariance   float64 `json:"exact_variance"`
 	ExactDiscordant float64 `json:"exact_discordant"`
+	Projected       bool    `json:"projected"`
 }
 
 // MicroResult pairs one physical microscopic start with its projected trace.
@@ -196,9 +197,11 @@ func runMicro(t Task) (MicroResult, error) {
 	if e != nil {
 		return out, e
 	}
-	out.Pair, err = kinetic.TraceFromState(t.Request, kinetic.TraceOptions{InitialState: &projection, PhysicalStep: 1, SnapshotSteps: t.SnapshotSteps, EnergyBudgets: t.Budgets})
-	if err != nil {
-		return out, err
+	if t.Kind != "micro_only" {
+		out.Pair, err = kinetic.TraceFromState(t.Request, kinetic.TraceOptions{InitialState: &projection, PhysicalStep: 1, SnapshotSteps: t.SnapshotSteps, EnergyBudgets: t.Budgets})
+		if err != nil {
+			return out, err
+		}
 	}
 	wanted := map[int]bool{}
 	for _, k := range t.SnapshotSteps {
@@ -209,9 +212,15 @@ func runMicro(t Task) (MicroResult, error) {
 			f := &out.Pair.Frames[i]
 			if !wanted[f.Step] && f.Step != t.Request.Steps {
 				f.Edge = nil
+				if t.CompactRecords {
+					f.Rho = nil
+				}
 			}
 			f.Velocity, f.NodePotential, f.EdgePotential = nil, nil, nil
 		}
+	}
+	if t.Kind == "pair_only" {
+		return out, nil
 	}
 	m, err := makeMicro(t, ops, g, t.ProcessSeed)
 	if err != nil {
@@ -222,6 +231,13 @@ func runMicro(t Task) (MicroResult, error) {
 		audits[k] = true
 	}
 	axis := out.Pair.Axis
+	if t.Kind == "micro_only" {
+		axis = make([]float64, t.Request.OpinionBins)
+		dx := (t.Request.Initial.OpinionMax - t.Request.Initial.OpinionMin) / float64(len(axis))
+		for i := range axis {
+			axis[i] = t.Request.Initial.OpinionMin + (float64(i)+0.5)*dx
+		}
+	}
 	rewires := 0
 	for step := 0; step <= t.Request.Steps; step++ {
 		if audits[step] && t.Branches > 0 {
@@ -232,13 +248,17 @@ func runMicro(t Task) (MicroResult, error) {
 			out.Audits = append(out.Audits, a)
 		}
 		if wanted[step] || step == 0 || step%t.Request.RecordEvery == 0 || step == t.Request.Steps {
-			rho, edge := project(m.Model.GetOpinions(), m.Model.GetGraph(), t.Request.OpinionBins)
-			f := kinetic.DescribeState(axis, rho, edge, t.Request.Dynamics.Tolerance, t.Request.OutDegree)
-			f.Time = float64(step)
-			f.Step = step
-			if wanted[step] || step == t.Request.Steps || t.RecordPolicy == "population" {
-				f.Rho = rho
-				f.Edge = edge
+			projected := !t.CompactRecords || wanted[step] || step == 0 || step == t.Request.Steps
+			var edge []float64
+			f := kinetic.InspectionFrame{Time: float64(step), Step: step}
+			if projected {
+				var rho []float64
+				rho, edge = project(m.Model.GetOpinions(), m.Model.GetGraph(), t.Request.OpinionBins)
+				f = kinetic.DescribeState(axis, rho, edge, t.Request.Dynamics.Tolerance, t.Request.OutDegree)
+				f.Time, f.Step = float64(step), step
+				if wanted[step] || step == t.Request.Steps || t.RecordPolicy == "population" {
+					f.Rho, f.Edge = rho, edge
+				}
 			}
 			energy, err := observables.MeasureEnergy(m.Model.GetOpinions(), m.Model.GetGraph(), t.Request.Dynamics.Tolerance, 1)
 			if err != nil {
@@ -274,11 +294,14 @@ func runMicro(t Task) (MicroResult, error) {
 					f.Edge = nil
 				}
 			}
-			sum := 0.0
-			for _, x := range edge {
-				sum += x
+			sum := float64(energy.Edges) / float64(energy.Nodes)
+			if projected {
+				sum = 0
+				for _, x := range edge {
+					sum += x
+				}
 			}
-			out.Frames = append(out.Frames, MicroFrame{InspectionFrame: f, ExactNodeEnergy: u, ExactEdgeEnergy: e, Rewires: rewires, MeanDegree: sum, ExactVariance: variance, ExactDiscordant: discordant})
+			out.Frames = append(out.Frames, MicroFrame{InspectionFrame: f, ExactNodeEnergy: u, ExactEdgeEnergy: e, Rewires: rewires, MeanDegree: sum, ExactVariance: variance, ExactDiscordant: discordant, Projected: projected})
 		}
 		if step < t.Request.Steps {
 			rw, _ := m.Step()

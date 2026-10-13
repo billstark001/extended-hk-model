@@ -21,8 +21,12 @@ def fingerprint(value):
 
 
 def sha(path):
-    """Return a file-content SHA256; this helper reads the entire file into memory."""
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    """Hash large records with bounded memory."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def atomic_json(path, value):
