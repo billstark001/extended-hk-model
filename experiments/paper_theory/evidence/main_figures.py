@@ -1,6 +1,5 @@
 """Current main figures assembled exclusively from this run's frozen records."""
 
-import csv
 import json
 from collections import defaultdict
 
@@ -9,158 +8,28 @@ import numpy as np
 from matplotlib.lines import Line2D
 
 from common.io.json import atomic_json
+from common.io.records import record_path
+from common.plotting.figures import decorate
 from common.statistics import bootstrap_weights
+from theory.runtime.records import read_micro
 from theory.validation import fields_on
 
 from ..runtime.measure_analysis import cached_cases
-from .paper_design import KERNELS
-
-COLORS = ("#555555", "#86b5d8", "#166da8", "#eba981", "#bd4e19")
-LABELS = ("Random", "Opinion1", "Opinion4", "Structure1", "Structure4")
-RULES = ("hk", "deffuant")
-
-
-def read_table(directory, name, epsilon=None):
-    with (directory / "tables" / (name + ".csv")).open() as stream:
-        rows = list(csv.DictReader(stream))
-    for row in rows:
-        for key, value in row.items():
-            try:
-                row[key] = float(value) if value != "" else np.nan
-            except ValueError:
-                pass
-    return rows if epsilon is None else [r for r in rows if r.get("epsilon") == epsilon]
-
-
-def matches(row, **values):
-    return all(row[k] == v for k, v in values.items())
-
-
-def save(figure, directory, name, epsilon=None):
-    if epsilon is not None:
-        title = figure._suptitle.get_text() if figure._suptitle is not None else ""
-        figure.suptitle(f"epsilon={epsilon:g}" + ("; " + title if title else ""), fontsize=11)
-    figure.savefig(directory / (name + ".pdf"), bbox_inches="tight")
-    figure.savefig(directory / (name + ".png"), dpi=180, bbox_inches="tight")
-    plt.close(figure)
-
-
-def clock_label(horizon):
-    return rf"Endpoint-referenced residual area ($\tau_{{max}}={horizon:g}$)"
-
-
-def decorate(axes):
-    for i, ax in enumerate(np.asarray(axes).flat):
-        ax.text(0.01, 1.04, f"({chr(97 + i)})", transform=ax.transAxes, fontsize=10)
-        ax.spines[["top", "right"]].set_visible(False)
-        ax.grid(alpha=0.15)
-
-
-def color_legend(kernels=None):
-    return [
-        Line2D([], [], color=c, label=label)
-        for c, label, kernel in zip(COLORS, LABELS, KERNELS)
-        if kernels is None or kernel in kernels
-    ]
+from .figure_style import COLORS, RULES, clock_label, color_legend, matches, read_table, save
+from .protocol import KERNELS
 
 
 def mean_figure(directory, output, plan, cases):
-    protocol = plan["analysis_protocol"]
-    horizon = max(protocol["prefix_taus"])
-    rows = read_table(directory, "mean_release", protocol["baseline_epsilon"])
-    adaptive = protocol.get("adaptive_measure_stopping", False)
-    rows = [
-        r
-        for r in rows
-        if "effects" in r["roles"]
-        and (r.get("is_observed_endpoint") == "True" if adaptive else r["horizon_tau"] == horizon)
-    ]
-    fig, axes = plt.subplots(4, 2, figsize=(11, 12), constrained_layout=True)
-    for col, rule in enumerate(RULES):
-        for color, (rec, z) in zip(COLORS, KERNELS):
-            channels = {}
-            for i, channel in enumerate(("node", "edge")):
-                group = sorted(
-                    (r for r in rows if matches(r, dynamics=rule, recommender=rec, steepness=z, channel=channel)),
-                    key=lambda r: r["ratio"],
-                )
-                x = np.array([r["ratio"] for r in group])
-                y = np.array([r["mean_tau"] for r in group])
-                channels[channel] = dict(zip(x, y))
-                axes[i, col].plot(x, y, color=color, lw=1.5)
-                for r in group:
-                    axes[i, col].plot(
-                        r["ratio"],
-                        r["mean_tau"],
-                        "o",
-                        color=color,
-                        ms=3,
-                        mfc=color if r["plateau_confirmed"] == "True" else "white",
-                    )
-            x = sorted(channels["node"].keys() & channels["edge"].keys())
-            delta = [
-                np.log(channels["edge"][r] / channels["node"][r])
-                if channels["node"][r] > 0 and channels["edge"][r] > 0
-                else np.nan
-                for r in x
-            ]
-            axes[2, col].plot(x, delta, "o-", color=color, ms=3, mfc="white")
-        for i in range(3):
-            axes[i, col].set_xscale("symlog", linthresh=0.125)
-            axes[i, col].set_xlabel(r"$r=q/\alpha$ (zero retained)")
-            axes[i, col].axvline(0, color="k", ls=":", alpha=0.25)
-        axes[0, col].set_title("HK" if rule == "hk" else "One-sided Deffuant")
-        end = "obs" if adaptive else "max"
-        axes[0, col].set_ylabel(rf"Node area $\overline{{\Theta}}_\rho^{{[0,\tau_{{{end}}}]}}$")
-        axes[1, col].set_ylabel(rf"Edge area $\overline{{\Theta}}_E^{{[0,\tau_{{{end}}}]}}$")
-        axes[2, col].set_ylabel(r"$\log(\overline{\Theta}_E/\overline{\Theta}_\rho)$")
-        axes[2, col].axhline(0, color="k", lw=0.7, alpha=0.4)
-        # The same raw curves used by the integrals expose unresolved tails.
-        ratio = 10.0 if plan["profile"] == "main" else 2.0
-        for rec, z, color in (
-            ("random", 1.0, COLORS[0]),
-            ("opinion_random", 4.0, COLORS[2]),
-            ("structure_random_l0", 4.0, COLORS[4]),
-        ):
-            case = next(
-                c
-                for c in cases
-                if matches(
-                    c,
-                    dynamics=rule,
-                    recommender=rec,
-                    steepness=z,
-                    ratio=ratio,
-                    alpha=protocol["baseline_alpha"],
-                    population=500,
-                    bins=protocol["matched_bins"],
-                    quadrature=protocol["matched_quadrature"],
-                    dt=1.0,
-                )
-            )
-            for channel, ls in (("node", "-"), ("edge", "--")):
-                axes[3, col].plot(case["tau"], case[channel + "_energy"], color=color, ls=ls)
-        axes[3, col].set(
-            xlabel=r"Scaled time $\tau=\alpha t$", ylabel="Raw capped energy", title=f"Tail inspection at r={ratio:g}"
-        )
-    decorate(axes)
-    fig.suptitle(
-        (
-            f"Observed endpoint-referenced residual area (cap tau={horizon:g}; joint stability stopping)"
-            if adaptive
-            else clock_label(horizon)
-        )
-        + "\nHollow markers: terminal plateau unconfirmed; solid/dashed tails: node/edge",
-        fontsize=11,
-    )
-    fig.legend(handles=color_legend(), loc="outside lower center", ncol=5, frameon=False)
-    save(fig, output, "mean_recommendation_clocks", protocol["baseline_epsilon"])
+    from .table_figures import absolute_figure, recommendation_figure
+
+    recommendation_figure(directory, output, plan)
+    absolute_figure(directory, output, plan)
 
 
 def matched_records(directory, plan):
     for task in plan["tasks"]:
         if task["kind"] == "micro" and "matched" in task["roles"]:
-            record = json.loads((directory / "micro" / "raw" / (task["id"] + ".json")).read_text())
+            record = read_micro(record_path(directory / "micro" / "raw", task["id"]))
             for frames in (record["result"]["frames"], record["result"]["pair"]["frames"]):
                 for frame in frames:
                     frame.pop("rho", None)
@@ -234,8 +103,8 @@ def micro_figure(directory, output, plan):
         )
     decorate(axes)
     handles = [
-        Line2D([], [], color=c, label=l)
-        for c, l in zip((COLORS[0], COLORS[2], COLORS[4]), ("Random", "Opinion4", "Structure4"))
+        Line2D([], [], color=c, label=label)
+        for c, label in zip((COLORS[0], COLORS[2], COLORS[4]), ("Random", "Opinion4", "Structure4"))
     ]
     handles += [
         Line2D([], [], color="k", ls=ls, label=label)
@@ -286,7 +155,7 @@ def population_figure(directory, output, plan):
     ]
     pairs, micros = [], []
     for task in tasks:
-        result = json.loads((directory / "micro" / "raw" / (task["id"] + ".json")).read_text())["result"]
+        result = read_micro(record_path(directory / "micro" / "raw", task["id"]))["result"]
 
         def snapshot(frames):
             return next(
@@ -454,7 +323,7 @@ def plot(directory):
                 "former_fig3_now_fig2": "mean_micro_validation",
                 "former_fig4_now_fig3": "population_robustness",
             },
-            "supplementary": ["scaling_collapse", "numerical_controls"],
+            "supplementary": ["absolute_release_areas", "scaling_collapse", "numerical_controls"],
             "baseline_epsilon": plan["analysis_protocol"]["baseline_epsilon"],
             "epsilon_directories": views,
             "clock_scope": "finite-window, own endpoint reference; tail confirmation is a separate diagnostic",
@@ -462,4 +331,4 @@ def plot(directory):
             "input_scope": "only this run's plan, records and tables",
         },
     )
-    print(f"generated {5 * len(confidence_radii)} PDF/PNG figure pairs in {output}", flush=True)
+    print(f"generated {6 * len(confidence_radii)} PDF/PNG figure pairs in {output}", flush=True)

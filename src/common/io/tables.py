@@ -1,6 +1,7 @@
 """Write heterogeneous rows without dropping fields."""
 
 import csv
+import math
 
 
 def table(path, rows):
@@ -11,3 +12,16 @@ def table(path, rows):
         w = csv.DictWriter(f, fieldnames=keys)
         w.writeheader()
         w.writerows(rows)
+
+
+def numeric_rows(path):
+    """Read CSV rows, parsing numeric cells and representing empty cells as NaN."""
+    with path.open() as stream:
+        rows = list(csv.DictReader(stream))
+    for row in rows:
+        for key, value in row.items():
+            try:
+                row[key] = float(value) if value != "" else math.nan
+            except (ValueError, TypeError):
+                pass
+    return rows
