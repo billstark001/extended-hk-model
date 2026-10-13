@@ -1,5 +1,6 @@
 """Regression checks for reading frozen data and the relocated runtime boundary."""
 
+import ast
 import json
 import subprocess
 import sys
@@ -13,6 +14,22 @@ from experiments.paper_theory.energy_scan.expanded import design as expanded_des
 from experiments.paper_theory.energy_scan.expanded import run as expanded_run
 from experiments.paper_theory.energy_scan.expanded import storage as expanded_storage
 from theory.runtime.kinetic import KineticParameters, KineticResolution, kinetic_request
+
+
+def test_source_packages_follow_repository_dependency_direction():
+    root = Path(__file__).resolve().parents[2]
+    for package in ("common", "ehk", "theory"):
+        forbidden = {"experiments"} | ({"ehk", "theory"} if package == "common" else set())
+        for path in (root / "src" / package).rglob("*.py"):
+            for node in ast.walk(ast.parse(path.read_text())):
+                names = (
+                    [alias.name for alias in node.names]
+                    if isinstance(node, ast.Import)
+                    else [node.module]
+                    if isinstance(node, ast.ImportFrom) and not node.level
+                    else []
+                )
+                assert not any(name and name.split(".")[0] in forbidden for name in names), path
 
 
 def test_imports_need_no_runtime_or_data_and_create_no_outputs(tmp_path):

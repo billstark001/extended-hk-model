@@ -7,7 +7,7 @@ from math import ceil
 from common.io.json import fingerprint
 from theory.parameters import Parameters
 
-from .paper_design import KERNELS, PROTOCOL
+from .protocol import KERNELS, PROTOCOL
 
 
 def stopping_options(p):

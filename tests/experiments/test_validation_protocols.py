@@ -11,9 +11,9 @@ from common.statistics import bootstrap_weights, mean_interval
 from experiments.paper_theory import protocols as definitions
 from experiments.paper_theory.designs import generate
 from experiments.paper_theory.protocols import ANALYSIS
-from experiments.paper_theory.runtime.runner import resolve_frozen_plan
 from experiments.paper_theory.runtime.tasks import request, task
 from theory.release import batch_half_times, clocks, confirmed_clocks, curve_clock_interval, energy_tail_check
+from theory.runtime.store import resolve_frozen_plan
 
 
 class TestScientificChecks(unittest.TestCase):

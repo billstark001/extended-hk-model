@@ -37,32 +37,21 @@ def read_owned(path, work):
 
 
 def settings(work, publish, args):
-    """Infer saved settings for legacy runs; explicit overrides must agree."""
+    """Read the original run manifest; explicit overrides must agree."""
     manifest = work / "run_manifest.json"
     old = None
     if args.resume:
-        if manifest.exists():
-            old = read_owned(manifest, work)
-        else:
-            plans = list((work / "evidence").glob("main*/plan.json"))
-            if len(plans) != 1:
-                raise ValueError("legacy resume requires exactly one frozen main plan")
-            plan = read_owned(plans[0], work)
-            build = read_owned(work / "build" / "manifest.json", work)
-            old = {
-                "profile": "smoke" if plan["profile"] == "main_smoke" else "paper",
-                "horizon": plan["analysis_protocol"]["maximum_horizon_tau"],
-                "backend": build["backend"],
-                "sources": {name: build[name] for name in ("meso", "micro", "engine")},
-                "request_schema_sha256": sha(Path(schema.__file__)),
-            }
+        old = read_owned(manifest, work)
+        if old["profile"] not in ("main", "main_smoke"):
+            raise ValueError("resume requires a canonical main or main_smoke profile")
         for name in ("profile", "backend", "horizon"):
             explicit = getattr(args, name)
-            if explicit is not None and explicit != old[name]:
+            saved = old[name]
+            if explicit is not None and explicit != saved:
                 raise ValueError(f"resume cannot change {name}; use a new run")
-            setattr(args, name, old[name])
+            setattr(args, name, saved)
     else:
-        args.profile = args.profile or "paper"
+        args.profile = args.profile or "main"
         args.backend = args.backend or ("accelerate" if os.uname().sysname == "Darwin" else "purego")
     engine = Path(__file__).resolve().parents[1] / "runtime" / "engine"
     candidate = {
@@ -83,7 +72,7 @@ def settings(work, publish, args):
         for key, value in old.items():
             if candidate.get(key) != value:
                 raise ValueError(f"resume {key} changed; use a new run")
-    # Legacy binding files also authenticate the request schema originally used.
+    # Binding files authenticate the request schema originally used.
     for binding in (work / "evidence").glob("main*/*/binding.json"):
         if read_owned(binding, work)["request_schema_sha256"] != candidate["request_schema_sha256"]:
             raise ValueError("resume request schema changed; use a new run")
@@ -103,7 +92,7 @@ def restore_binaries(work, stage, config):
         raw = [
             p
             for p in (work / "evidence").glob("main*/*/raw/*")
-            if not p.name.startswith("._") and p.suffix in (".npz", ".json")
+            if not p.name.startswith("._") and (p.suffix in (".npz", ".json") or p.name.endswith(".msgpack.lz4"))
         ]
         if bindings or raw:
             raise ValueError("bound run lacks original executables; cannot safely rebuild")
@@ -131,7 +120,7 @@ def restore_binaries(work, stage, config):
 
 
 def recover_task_lock(directory):
-    """Recover a legacy PID lock only when its owner has actually exited."""
+    """Recover a task PID lock only when its owner has actually exited."""
     path = directory / "active.lock"
     if not path.exists():
         return

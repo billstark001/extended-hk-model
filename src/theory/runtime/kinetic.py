@@ -113,17 +113,3 @@ def kinetic_request(
             )
     request["stopping"] = asdict(stopping or KineticStopping())
     return request
-
-
-def run_kinetic_batch_parallel(*args, **kwargs):
-    """Lazily call the public parallel-batch binding, forwarding arguments and response order unchanged."""
-    from smp_meso_bindings import run_kinetic_batch_parallel as run
-
-    return run(*args, **kwargs)
-
-
-def run_kinetic(*args, **kwargs):
-    """Lazily call the public single-request binding, forwarding its arguments and response unchanged."""
-    from smp_meso_bindings import run_kinetic as run
-
-    return run(*args, **kwargs)

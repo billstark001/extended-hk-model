@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-from ..paths import CLOCK_INPUT, SCAN_INPUT, output_root
+from ..paths import SCAN_INPUT, output_root
 
 
 def configured(name, default):
@@ -13,18 +13,13 @@ def configured(name, default):
 
 ROOT = configured("EHK_CLOCK_OUTPUT_DIR", output_root() / "release_clocks")
 SOURCE = SCAN_INPUT.resolve()
-INPUT = CLOCK_INPUT.resolve()
 DATA = ROOT / "data"
-FIGURES = ROOT / "figures"
 PILOT = ROOT / "pilot"
-RAW = ROOT / "raw"
-INPUT_RAW = INPUT / "raw"
 CLOCK_DATA = ROOT / "parameter_clocks" / "data"
-CLOCK_INPUT_DATA = INPUT / "parameter_clocks" / "data"
 CLOCK_FIGURES = ROOT / "parameter_clocks" / "figures"
 
 
 def ensure_output_dirs():
     """Create generated clock data/figure/cache subdirectories; configured input directories remain read-only."""
-    for directory in (DATA, FIGURES, PILOT, RAW, CLOCK_DATA, CLOCK_FIGURES):
+    for directory in (DATA, PILOT, CLOCK_DATA, CLOCK_FIGURES):
         directory.mkdir(parents=True, exist_ok=True)

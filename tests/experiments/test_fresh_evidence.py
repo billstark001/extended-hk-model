@@ -9,7 +9,7 @@ from theory.runtime.measure import measure_request
 
 
 def test_formal_design_predeclares_long_tail_scaling_and_population_controls():
-    plan = design("paper")
+    plan = design("main")
     tasks = plan["tasks"]
     assert len({t["id"] for t in tasks}) == len(tasks)
     assert {(t["parameters"]["recommender"], t["parameters"]["steepness"]) for t in tasks} == {
@@ -20,23 +20,23 @@ def test_formal_design_predeclares_long_tail_scaling_and_population_controls():
         ("structure_random_l0", 4.0),
     }
     scaling = [t for t in tasks if "scaling" in t["roles"]]
-    assert {t["parameters"]["alpha"] for t in scaling} == {0.0025, 0.005, 0.01, 0.02}
-    assert {t["parameters"]["horizon"] for t in tasks} == {480.0}
+    assert {t["parameters"]["alpha"] for t in scaling} == {0.0025, 0.005, 0.01, 0.02, 0.04}
+    assert {t["parameters"]["horizon"] for t in tasks} == {120.0, 480.0}
     population = [t for t in tasks if "population" in t["roles"]]
-    assert {t["parameters"]["population"] for t in population} == {500, 1000, 2000}
+    assert {t["parameters"]["population"] for t in population} == {250, 500, 1000, 2000}
     assert {(t["initial"], t["branch"]) for t in population} == {(i, b) for i in range(4) for b in range(4)}
     assert all(t["parameters"]["degree"] == 15 and t["parameters"]["recommendations"] == 10 for t in tasks)
 
 
 def test_smoke_exercises_all_study_paths_without_formal_horizon():
-    plan = design("smoke")
+    plan = design("main_smoke")
     assert {r for t in plan["tasks"] for r in t["roles"]} == {
         "effects",
         "scaling",
         "numerics",
         "closure",
         "population",
-        "micro_numerics",
+        "matched",
     }
     assert all(t["parameters"]["horizon"] <= 0.4 for t in plan["tasks"])
     assert plan["analysis_protocol"]["minimum_plateau_tau"] == 120

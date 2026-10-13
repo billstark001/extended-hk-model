@@ -1,6 +1,5 @@
 """Fresh or explicitly resumed Cache run, analysis, figures and export."""
 
-import argparse
 import json
 import os
 import shutil
@@ -13,51 +12,63 @@ from types import SimpleNamespace
 from .fresh_reads import FreshReadPolicy, dependency_roots
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--work-dir", required=True, type=Path)
-    parser.add_argument("--publish-dir", required=True, type=Path)
-    parser.add_argument("--model-root", required=True, type=Path)
-    parser.add_argument("--meso-root", required=True, type=Path)
-    parser.add_argument("--micro-root", required=True, type=Path)
-    parser.add_argument("--profile", choices=("paper", "smoke"))
-    parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--backend", choices=("accelerate", "purego"))
-    parser.add_argument("--horizon", type=float)
-    parser.add_argument(
-        "--resume", action="store_true", help="continue this exact run; do not change scientific settings"
-    )
-    args = parser.parse_args()
-    if args.workers < 1:
-        parser.error("workers must be positive")
+def launch(args):
+    """Launch a parsed main command with local control and exclusive run ownership."""
+    siblings = Path(__file__).resolve().parents[4]
+    args.meso_root = args.meso_root or siblings / "social-media-mesoscopic-models"
+    args.micro_root = args.micro_root or siblings / "social-media-models"
+    if not 1 <= args.workers <= 4 or args.spool_mib < 64:
+        raise ValueError("workers must be 1..4; spool-mib must be >=64")
     work, publish = args.work_dir.resolve(), args.publish_dir.resolve()
     if args.work_dir.is_symlink() or args.publish_dir.is_symlink() or work == publish:
-        parser.error("independent real work and publication directories required")
+        raise ValueError("independent real work and publication directories required")
     if args.resume and not work.is_dir():
-        parser.error("resume work-dir does not exist")
+        raise ValueError("resume work-dir does not exist")
+    if str(work).startswith("/Volumes/") and not Path(*work.parts[:3]).is_mount():
+        raise ValueError("bulk volume is not mounted")
     work.mkdir(parents=True, exist_ok=True)
     # Launch scripts may already have opened stdout.log. No scientific cache or
     # build is allowed to predate this process, even if it matches the same plan.
-    if not args.resume and any(p.name not in ("stdout.log", "._stdout.log") for p in work.iterdir()):
-        parser.error("work-dir must be fresh (only the current stdout.log may exist)")
+    if not args.resume:
+        profile = args.profile or "main"
+        allowed = {
+            "stdout.log",
+            f"evidence/{profile}/plan.json",
+            f"evidence/{profile}/measure/design.json",
+            f"evidence/{profile}/micro/design.json",
+        }
+        if any(
+            str(p.relative_to(work)) not in allowed
+            for p in work.rglob("*")
+            if p.is_file() and not p.name.startswith("._")
+        ):
+            raise ValueError("work-dir must be fresh or contain only its frozen plan; existing records require resume")
     if not args.resume and publish.exists():
-        parser.error("publish-dir must be new; existing results are never reused")
+        raise ValueError("publish-dir must be new; existing results are never reused")
+    from common.io.json import fingerprint
+
     from .resume import session_lock
 
-    with session_lock(work):
+    owner = work / "storage_owner.json"
+    if args.control_dir is None and args.resume and owner.exists():
+        args.control_dir = Path(json.loads(owner.read_text())["control"])
+    args.control_dir = (
+        args.control_dir or args.model_root / "outputs" / "runtime" / fingerprint({"work": str(work)})[:20]
+    ).resolve()
+    if args.control_dir.is_relative_to(work) or str(args.control_dir).startswith("/Volumes/"):
+        raise ValueError("control-dir must be on local APFS, outside the bulk run")
+    args.control_dir.mkdir(parents=True, exist_ok=True)
+    with session_lock(args.control_dir):
         return run(args, work, publish)
 
 
 def run(args, work, publish):
     from .resume import recover_task_lock, restore_binaries, settings
 
-    # Legacy exports have an ownership marker. Never overwrite another run.
+    # Exports authenticate their owning run, including partial exports.
     if args.resume and publish.exists() and any(publish.iterdir()):
         location = publish / "run_location.json"
-        manifest = work / "run_manifest.json"
         owned = location.exists() and json.loads(location.read_text())["bulk_root"] == str(work)
-        if not location.exists() and manifest.exists():
-            owned = json.loads(manifest.read_text())["publish_dir"] == str(publish)
         if not owned:
             # New runs create this marker before export, including partial exports.
             raise ValueError("publication directory is not owned by this run")
@@ -65,8 +76,8 @@ def run(args, work, publish):
     os.environ["PYTHON_DOTENV_DISABLED"] = "1"
     from common.runtime.environment import runtime_environment
 
-    os.environ.update(runtime_environment(work))
-    os.environ["GOMODCACHE"] = str(work / "cache" / "go-modules")
+    os.environ.update(runtime_environment(args.control_dir))
+    os.environ["GOMODCACHE"] = str(args.control_dir / "cache" / "go-modules")
     # Accelerate supplies the native BLAS used by mesoscopic matrix operations.
     sys.pycache_prefix = os.environ["PYTHONPYCACHEPREFIX"]
     for variable in (
@@ -87,14 +98,18 @@ def run(args, work, publish):
     os.environ["GOTMPDIR"] = str(stage / "tmp")
     os.environ["TMPDIR"] = str(stage / "tmp")
     policy = FreshReadPolicy(
-        work, publish, (args.model_root, args.meso_root, args.micro_root), dependency_roots(), generated=(stage,)
+        work,
+        publish,
+        (args.model_root, args.meso_root, args.micro_root),
+        dependency_roots(),
+        generated=(stage, args.control_dir),
     )
     policy.install()
     from common.io.json import atomic_json
 
     from .workflow import perform
 
-    attempt = Path(tempfile.mkdtemp(prefix="attempt-", dir=work))
+    attempt = Path(tempfile.mkdtemp(prefix="attempt-", dir=args.control_dir))
     status = {"resume": args.resume, "workers": args.workers, "state": "running", "action": "verify"}
     atomic_json(attempt / "status.json", status)
     previous_handler = signal.getsignal(signal.SIGTERM)
@@ -106,7 +121,7 @@ def run(args, work, publish):
     try:
         config = settings(work, publish, args)
         os.environ["CGO_ENABLED"] = "0" if args.backend == "purego" else "1"
-        profile = "main_smoke" if args.profile == "smoke" else "main"
+        profile = args.profile
         directory = work / "evidence" / profile
         options = SimpleNamespace(
             action="plan",
@@ -133,6 +148,11 @@ def run(args, work, publish):
         )
         if args.resume:
             recover_task_lock(directory)
+        from common.runtime.storage import RunStorage
+
+        store = RunStorage(work, args.control_dir, max_record_bytes=args.spool_mib * (1 << 20) // (2 * args.workers))
+        options.store = store
+        store.recover()
         restored = restore_binaries(work, stage, config) if args.resume else None
         if restored:
             options.engine, options.binary = restored
@@ -141,7 +161,9 @@ def run(args, work, publish):
             options.action = "build"
             status["action"] = "build"
             atomic_json(attempt / "status.json", status)
-            perform(options, work, work / "build", args.meso_root.resolve(), args.micro_root.resolve())
+            store.read(
+                lambda: perform(options, work, work / "build", args.meso_root.resolve(), args.micro_root.resolve())
+            )
         os.environ["TMPDIR"] = cache_tmp
         os.environ["GOTMPDIR"] = cache_go_tmp
         for action in ("run", "analyze", "plot"):
@@ -149,11 +171,32 @@ def run(args, work, publish):
             status["action"] = action
             atomic_json(attempt / "status.json", status)
             print(f"=== {action}: {profile} ===", flush=True)
-            perform(options, work, work / "build", args.meso_root.resolve(), args.micro_root.resolve())
+            try:
+                store.read(
+                    lambda: perform(options, work, work / "build", args.meso_root.resolve(), args.micro_root.resolve())
+                )
+            except Exception as error:
+                from common.runtime.failures import BatchTaskError
+
+                if action == "run" and isinstance(error, BatchTaskError):
+                    options.action = "analyze"
+                    try:
+                        store.read(
+                            lambda: perform(
+                                options, work, work / "build", args.meso_root.resolve(), args.micro_root.resolve()
+                            )
+                        )
+                    except Exception as diagnostic_error:
+                        store.event(None, "partial_analysis_failed", error=str(diagnostic_error))
+                raise
         for name in ("figures", "tables"):
-            shutil.copytree(directory / name, publish / name, dirs_exist_ok=True, ignore=shutil.ignore_patterns("._*"))
+            store.read(
+                lambda: shutil.copytree(
+                    directory / name, publish / name, dirs_exist_ok=True, ignore=shutil.ignore_patterns("._*")
+                )
+            )
         for name in ("plan.json", "report.json", "report.md", "figure_manifest.json"):
-            shutil.copyfile(directory / name, publish / name)
+            store.read(lambda: shutil.copyfile(directory / name, publish / name))
         status["state"] = "complete"
         print(f"Published figures and small tables to {publish}", flush=True)
     except BaseException as error:
@@ -163,12 +206,17 @@ def run(args, work, publish):
         report = policy.report()
         atomic_json(attempt / "fresh_read_audit.json", report)
         atomic_json(attempt / "status.json", status)
-        atomic_json(work / "fresh_read_audit.json", report)
+        # The local control journal remains usable while the bulk volume is absent.
+        atomic_json(args.control_dir / "fresh_read_audit.json", report)
+        try:
+            if "store" in locals():
+                store.check()
+            elif not work.is_dir():
+                raise OSError("bulk run unavailable during cleanup")
+            atomic_json(work / "fresh_read_audit.json", report)
+        except OSError:
+            pass
         atomic_json(publish / "fresh_read_audit.json", report)
         shutil.rmtree(stage)
         signal.signal(signal.SIGTERM, previous_handler)
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

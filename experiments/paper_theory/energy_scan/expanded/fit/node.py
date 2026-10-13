@@ -7,14 +7,12 @@ from typing import Any
 import numpy as np
 
 from experiments.paper_theory.energy_scan.expanded import config
+from theory.release.quantile_fits import fit_exponentiated_weibull, fit_gompertz, fit_rational_quadratic
 
 
 def quantile_times(row: dict[str, Any]) -> np.ndarray:
     """Read configured tau quantiles from one descriptor row in progress-level order."""
     return np.asarray([float(row[f"tau_{round(100 * level):02d}"]) for level in config.PROGRESS_LEVELS])
-
-
-from theory.release.quantile_fits import fit_exponentiated_weibull, fit_gompertz, fit_rational_quadratic
 
 
 def low_parameter_fits(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

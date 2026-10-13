@@ -64,25 +64,38 @@ def test_resume_cannot_overwrite_a_frozen_design(tmp_path):
     assert path.read_bytes() == original
 
 
-def test_selected_workflow_help_does_not_create_outputs(tmp_path, monkeypatch):
-    dispatched = []
-    monkeypatch.setattr(cli, "module_call", lambda module, args: dispatched.append((module, args)))
+def test_removed_cli_profiles_and_workflows_create_no_outputs(tmp_path):
     output = tmp_path / "absent"
-    cli.main(["scan", "--workflow", "baseline", "--output-root", str(output), "--help"])
-    assert dispatched[0][0].endswith("baseline.cli")
-    assert "--help" in dispatched[0][1]
+    for args in (["scan"], ["clocks"], ["plan", "--profile", "paper"], ["run", "--suite", "validation"]):
+        with pytest.raises(SystemExit) as error:
+            cli.main([*args, "--output-dir", str(output)])
+        assert error.value.code == 2
     assert not output.exists()
 
 
-@pytest.mark.parametrize("workflow", ["baseline", "expanded", "scaling"])
-def test_scan_dispatch_only_passes_supported_worker_option(tmp_path, monkeypatch, workflow):
-    dispatched = []
-    monkeypatch.setattr(cli, "module_call", lambda module, args: dispatched.append((module, args)))
-    cli.main(["scan", "--workflow", workflow, "--output-root", str(tmp_path), "--analysis-only"])
-    module, args = dispatched[0]
-    assert module == f"experiments.paper_theory.energy_scan.{workflow}.cli"
-    assert ("--workers" in args) == (workflow == "expanded")
-    assert "--analysis-only" in args
+def test_csv_plot_dispatch_never_imports_a_solver(tmp_path, monkeypatch):
+    from experiments.paper_theory.evidence import table_figures
+
+    (tmp_path / "plan.json").write_text("{}")
+    seen = []
+    monkeypatch.setattr(table_figures, "plot_tables", lambda directory, output: seen.append(directory))
+    cli.main(["plot", "--run-dir", str(tmp_path), "--tables-only"])
+    assert seen == [tmp_path]
+
+
+@pytest.mark.parametrize("action", ["run", "resume"])
+def test_generation_dispatch_uses_one_parser_and_structured_arguments(tmp_path, monkeypatch, action):
+    from experiments.paper_theory.evidence import run_main
+
+    seen = []
+    monkeypatch.setattr(run_main, "launch", lambda args: seen.append(args))
+    path_option = "--run-dir" if action == "resume" else "--work-dir"
+    cli.main([action, path_option, str(tmp_path / "bulk"), "--publish-dir", str(tmp_path / "export")])
+    assert len(seen) == 1
+    assert seen[0].work_dir == tmp_path / "bulk"
+    assert seen[0].publish_dir == tmp_path / "export"
+    assert seen[0].resume == (action == "resume")
+    assert not (tmp_path / "bulk").exists()
 
 
 def test_execute_resume_and_protocol_errors(tmp_path):
@@ -140,21 +153,3 @@ def test_bound_readers_reject_forged_job_and_corrupted_plan(tmp_path):
     atomic_json(root / "plan.json", {**plan, "jobs": [], "plan_fingerprint": plan_id})
     with pytest.raises(ValueError, match="content/hash mismatch"):
         validate(root)
-
-
-@pytest.mark.parametrize(
-    "exit_code, stages", [(1, ["build", "plan", "run", "analyze"]), (130, ["build", "plan", "run"])]
-)
-def test_pipeline_analyzes_failures_but_stops_on_interrupt(tmp_path, monkeypatch, exit_code, stages):
-    seen = []
-
-    def perform(args, extra):
-        seen.append(args.action)
-        if args.action == "run":
-            raise SystemExit(exit_code)
-
-    monkeypatch.setattr(cli, "perform", perform)
-    with pytest.raises(SystemExit) as error:
-        cli.main(["pipeline", "--suite", "validation", "--profile", "smoke", "--output-root", str(tmp_path)])
-    assert error.value.code == exit_code
-    assert seen == stages

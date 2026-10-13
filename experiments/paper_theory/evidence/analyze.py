@@ -6,9 +6,11 @@ from collections import defaultdict
 import numpy as np
 
 from common.io.json import atomic_json, fingerprint, sha
+from common.io.records import content_fingerprint, record_path
 from common.statistics import bootstrap_weights, clustered_interval, hierarchical_weights, paired_difference
 from theory.release import release_clock
 from theory.release.ensemble import clock_statistics, plateau_check
+from theory.runtime.records import read_micro
 from theory.scaling import curve_distance
 from theory.validation import compare_fields
 
@@ -42,7 +44,7 @@ def metadata(p):
 def compact_record(record):
     """Keep full fields only at snapshots/endpoints, not at every energy sample."""
     result = record["result"]
-    result["pair_frames_fingerprint"] = fingerprint(result["pair"]["frames"])
+    result["pair_frames_fingerprint"] = content_fingerprint(result["pair"]["frames"])
     for name, fields in (
         ("frames", ("exact_node_energy", "exact_edge_energy")),
         ("pair", ("node_energy", "edge_energy")),
@@ -300,7 +302,7 @@ def micro_tables(records, protocol):
             return (
                 result["pair_frames_fingerprint"]
                 if "pair_frames_fingerprint" in result
-                else fingerprint(result["pair"]["frames"])
+                else content_fingerprint(result["pair"]["frames"])
             )
 
         if any(pair_hash(r["result"]) != pair_hash(first) for r in members):
@@ -423,18 +425,27 @@ def analyze(directory):
     records = []
     coverage = []
     provenance = []
+    pair_provenance = {}
     for task in tasks.values():
-        suffix = ".npz" if task["kind"] == "measure" else ".json"
-        path = directory / task["kind"] / "raw" / (task["id"] + suffix)
+        suffix = ".npz" if task["kind"] == "measure" else ".msgpack.lz4"
+        raw = directory / task["kind"] / "raw"
+        path = raw / (task["id"] + suffix) if task["kind"] == "measure" else record_path(raw, task["id"])
         coverage.append(
             {"id": task["id"], "kind": task["kind"], "roles": ",".join(task["roles"]), "complete": path.is_file()}
         )
         if not path.is_file():
             continue
-        if suffix == ".json":
-            record = json.loads(path.read_text())
+        if task["kind"] == "micro":
+            record = read_micro(path)
             if record["task"] != task:
                 raise ValueError("raw micro task/plan mismatch")
+            reference = record["result"].get("pair_ref")
+            if reference:
+                pair_provenance[reference["key"]] = {
+                    "id": reference["key"],
+                    "sha256": reference["sha256"],
+                    "path": f"micro/pairs/{reference['key']}.msgpack.lz4",
+                }
             records.append(compact_record(record))
         else:
             with np.load(path, allow_pickle=False) as archive:
@@ -448,6 +459,7 @@ def analyze(directory):
     for name, rows in (
         ("coverage", coverage),
         ("provenance", provenance),
+        ("pair_provenance", list(pair_provenance.values())),
         ("mean_release", clocks),
         ("scaling", collapse),
         ("scaling_states", states),
@@ -459,7 +471,11 @@ def analyze(directory):
         ("micro_branches", branches),
         ("micro_states", micro_states),
     ):
-        write_csv(directory / "tables" / (name + ".csv"), rows)
+        path = directory / "tables" / (name + ".csv")
+        if rows:
+            write_csv(path, rows)
+        else:
+            path.unlink(missing_ok=True)  # No stale rows in a partial/legacy analysis.
     summary = {
         "schema": 1,
         "profile": plan["profile"],

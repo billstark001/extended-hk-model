@@ -9,8 +9,7 @@ import numpy as np
 from common.io.tables import table
 from common.numerics.distributions import rebin_matrix
 from common.statistics import bootstrap_weights
-from experiments.paper_theory.manuscript.reports.tables import number
-from experiments.paper_theory.manuscript.reports.tables import read_table as read_csv
+from experiments.paper_theory.manuscript.reports.tables import number, read_table
 from theory.release import batch_half_times
 from theory.validation import trajectory_gap
 
@@ -190,7 +189,7 @@ def population(micro, root, protocol, out):
             row[channel + "_pair_tau50"] = 0.02 * batch_half_times(times, pair, 0.1)[0]
         answer.append(row)
     table(out / "population_equal_repeats.csv", answer)
-    old = read_csv(root / "analysis" / "micro" / "population_four_processes.csv")
+    old = read_table(root / "analysis" / "micro" / "population_four_processes.csv")
     aggregates = []
     for n in (500, 1000, 2000):
         rs = [r for r in old if int(r["n"]) == n]

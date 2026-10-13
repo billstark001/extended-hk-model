@@ -1,4 +1,4 @@
-"""Baseline physical/numerical grids and output paths; the CLI may override paths."""
+"""Baseline physical/numerical grids and output paths."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from pathlib import Path
 import numpy as np
 
 from experiments.paper_theory.paths import KINETIC as BINARY_PATH
-from experiments.paper_theory.paths import MESO, SCAN_INPUT, output_root
+from experiments.paper_theory.paths import MESO, output_root
 from theory.runtime import kinetic
 from theory.runtime.kinetic import KineticResolution, KineticStopping
 
 HERE = output_root() / "energy_scan" / "baseline"
-INPUT = HERE if "baseline" == "baseline" else SCAN_INPUT.resolve()
+INPUT = HERE
 GO_ROOT = MESO.resolve()
 KINETIC = BINARY_PATH.resolve()
 ADAPTER = Path(kinetic.__file__)

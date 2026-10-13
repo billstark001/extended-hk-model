@@ -4,16 +4,16 @@ import json
 
 import numpy as np
 
-from experiments.paper_theory.release_clocks.analyze import config
+from experiments.paper_theory.release_clocks.artifact_paths import SOURCE
 from theory.release.curves import norm
 
 
 def cases(alpha_only=False):
     """Yield normalized node/edge curves from the ten archived raw shards; alpha_only restricts the alpha=.01 pilot."""
-    paths = sorted((config.SOURCE / "raw_shards").glob("*.npz"))
+    paths = sorted((SOURCE / "raw_shards").glob("*.npz"))
     if len(paths) != 10:
         raise FileNotFoundError(
-            f"Expected 10 original raw shards in {config.SOURCE / 'raw_shards'}; see the artifact README for regeneration instructions."
+            f"Expected 10 original raw shards in {SOURCE / 'raw_shards'}; see the artifact README for regeneration instructions."
         )
     for path in paths:
         if alpha_only and (not path.name.endswith("_0.01.npz")):

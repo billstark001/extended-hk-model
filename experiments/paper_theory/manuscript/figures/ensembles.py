@@ -6,8 +6,7 @@ import numpy as np
 
 from common.io.json import read_result
 from common.plotting.batch import plotting, savefig
-from experiments.paper_theory.manuscript.reports.tables import number
-from experiments.paper_theory.manuscript.reports.tables import read_table as read_csv
+from experiments.paper_theory.manuscript.reports.tables import number, read_table
 
 
 def plots(micro, clock, root, out, estimates, pop, ensemble_controls):
@@ -15,7 +14,7 @@ def plots(micro, clock, root, out, estimates, pop, ensemble_controls):
     plt = plotting()
     directory = out / "figures"
     fig, axes = plt.subplots(1, 2, figsize=(10, 3.7), layout="constrained")
-    grid = read_csv(root / "analysis" / "micro" / "trajectory_errors.csv")
+    grid = read_table(root / "analysis" / "micro" / "trajectory_errors.csv")
     for initial in range(4):
         for quad, style in ((9, "--"), (33, "-")):
             rows = sorted(

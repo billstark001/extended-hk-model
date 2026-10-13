@@ -3,6 +3,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+from experiments.paper_theory.release_clocks.artifact_paths import CLOCK_FIGURES
 from experiments.paper_theory.release_clocks.parameter_clocks import config
 
 
@@ -54,8 +55,8 @@ def save(fig, name, footer):
     """Save the parameter-clock PDF/PNG pair and its explanatory caption in the configured figure directory."""
     fig.tight_layout(rect=[0, 0.045, 1, 1])
     fig.text(0.5, 0.009, footer, ha="center", fontsize=8, color="#555555")
-    fig.savefig(config.CLOCK_FIGURES / (name + ".png"))
-    fig.savefig(config.CLOCK_FIGURES / (name + ".pdf"))
+    fig.savefig(CLOCK_FIGURES / (name + ".png"))
+    fig.savefig(CLOCK_FIGURES / (name + ".pdf"))
     plt.close(fig)
 
 

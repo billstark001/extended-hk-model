@@ -9,7 +9,6 @@ from typing import Any
 import numpy as np
 
 from experiments.paper_theory.energy_scan.expanded import config
-from theory.runtime.kinetic import run_kinetic_batch_parallel
 
 
 def case_from_responses(alpha: float, response: dict[str, Any], probe: dict[str, Any]) -> dict[str, np.ndarray]:
@@ -111,6 +110,8 @@ def assemble_cases(ratios: np.ndarray, cases: dict[tuple[int, int], dict[str, np
 
 def run_shard(dynamics: str, alpha: float, workers: int, chunk_size: int, *, rerun: bool) -> dict[str, np.ndarray]:
     """Execute unresolved cases for one dynamics/alpha cell group, checkpointing cases before assembling the final shard."""
+    from smp_meso_bindings import run_kinetic_batch_parallel
+
     from experiments.paper_theory.energy_scan.expanded.design import (
         case_request,
         feasible_ratios,

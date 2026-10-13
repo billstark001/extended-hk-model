@@ -7,6 +7,7 @@ from scipy.special import gamma
 
 from experiments.paper_theory.release_clocks.analyze.curves import cases, key
 from experiments.paper_theory.release_clocks.analyze.tables import write_csv
+from experiments.paper_theory.release_clocks.artifact_paths import CLOCK_DATA
 from experiments.paper_theory.release_clocks.parameter_clocks import config
 from theory.release.curves import log_rate_crossings
 from theory.release.fitting import errors
@@ -143,9 +144,9 @@ def generate():
                     fast_limit_T90=abs(times_full(0.9, h, g, 1.0, lam, b) - float((-np.log(0.1)) ** (1 / b) / lam)),
                 )
             )
-    write_csv(config.OUT / "parameter_metrics.csv", rows)
-    write_csv(config.OUT / "release_times.csv", qs)
-    write_csv(config.OUT / "tail_sensitivity.csv", sens)
+    write_csv(CLOCK_DATA / "parameter_metrics.csv", rows)
+    write_csv(CLOCK_DATA / "release_times.csv", qs)
+    write_csv(CLOCK_DATA / "tail_sensitivity.csv", sens)
     summary = {"formula_checks": tests, "quantile_errors": {}, "curve_errors": {}, "crossings": []}
     for name, condition in [
         ("converged_all", lambda r: r["converged"]),
@@ -200,5 +201,5 @@ def generate():
                 yy = np.array([np.median([r["observed_log_ratio"] for r in sub if r["r"] == x]) for x in rr])
                 roots = log_rate_crossings(np.log(rr), yy)
                 summary["crossings"].append(dict(dynamics=dyn, epsilon=eps, p=p, roots=roots))
-    (config.OUT / "summary.json").write_text(json.dumps(summary, indent=2))
+    (CLOCK_DATA / "summary.json").write_text(json.dumps(summary, indent=2))
     return (rows, qs)

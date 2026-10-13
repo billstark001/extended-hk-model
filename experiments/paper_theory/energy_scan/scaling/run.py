@@ -7,13 +7,15 @@ import json
 import numpy as np
 
 from experiments.paper_theory.energy_scan.scaling import config
-from theory.runtime.kinetic import KineticParameters, KineticResolution, kinetic_request, run_kinetic
+from theory.runtime.kinetic import KineticParameters, KineticResolution, kinetic_request
 
 
 def request_snapshots(
     request_id: str, parameters: KineticParameters, record_steps: np.ndarray, fields: tuple[str, ...]
 ) -> tuple[np.ndarray, dict[str, np.ndarray], dict[str, float]]:
     """Run a selected snapshot/observable request with the channel-scaling physical parameters."""
+    from smp_meso_bindings import run_kinetic
+
     request = kinetic_request(
         request_id, parameters, KineticResolution(), record_steps=record_steps, snapshot_fields=fields
     )

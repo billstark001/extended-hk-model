@@ -6,6 +6,7 @@ from collections import Counter
 from pathlib import Path
 
 from common.io.json import atomic_json, fingerprint, sha
+from common.runtime.failures import BatchTaskError
 from common.runtime.process import acquire_lock, release_lock
 from theory.runtime.store import write_design
 
@@ -67,7 +68,7 @@ def perform(a, root, build_dir, meso, micro):
             # match. Execute the small APFS binary; retain the Cache provenance copy.
             a.binary = target
         return
-    if a.action in ("plan", "run", "smoke"):
+    if a.action in ("plan", "run"):
         candidate = plan(directory, a.profile, a.horizon)
         if a.action == "plan":
             return
@@ -80,44 +81,47 @@ def perform(a, root, build_dir, meso, micro):
         if sha(engine) != manifest["binary_sha256"]:
             raise ValueError("engine binary differs from build manifest")
         lock = directory / "active.lock"
-        acquire_lock(lock)
+        store = getattr(a, "store", None)
+        store.read(lambda: acquire_lock(lock)) if store else acquire_lock(lock)
+        failures = []
+        interrupted = False
         try:
-            measure(
-                [t for t in candidate["tasks"] if t["kind"] == "measure"],
-                directory / "measure",
-                binary,
-                force=a.force,
-                limit=a.limit,
-                workers=a.workers,
-            )
-            population(
-                [t for t in candidate["tasks"] if t["kind"] == "micro"],
-                directory / "micro" / "raw",
-                engine,
-                force=a.force,
-                limit=a.limit,
-                workers=a.workers,
-            )
+            for runner, kind, target, executable in (
+                (measure, "measure", directory / "measure", binary),
+                (population, "micro", directory / "micro" / "raw", engine),
+            ):
+                try:
+                    runner(
+                        [t for t in candidate["tasks"] if t["kind"] == kind],
+                        target,
+                        executable,
+                        force=a.force,
+                        limit=a.limit,
+                        workers=a.workers,
+                        store=store,
+                    )
+                except BatchTaskError as error:
+                    failures.extend(error.failures)
+        except BaseException as error:
+            interrupted = not isinstance(error, Exception)
+            raise
         finally:
-            release_lock(lock)
+            if interrupted:
+                try:
+                    release_lock(lock)
+                except OSError:
+                    pass  # Resume recovers a stale PID lock after the process exits.
+            else:
+                store.read(lambda: release_lock(lock)) if store else release_lock(lock)
+        if failures:
+            raise BatchTaskError(failures)
         return
     if a.action == "analyze":
         from .analyze import analyze
 
         return analyze(directory)
     if a.action == "plot":
-        if a.profile.startswith("main"):
-            from .main_figures import plot
-        else:
-            from .plot import plot
+        from .main_figures import plot
 
         return plot(directory)
-    if a.action == "status":
-        candidate = json.loads((directory / "plan.json").read_text())
-        complete = sum(
-            (directory / t["kind"] / "raw" / (t["id"] + (".npz" if t["kind"] == "measure" else ".json"))).exists()
-            for t in candidate["tasks"]
-        )
-        print({"planned": len(candidate["tasks"]), "complete": complete})
-        return
     raise ValueError("action unavailable for evidence")

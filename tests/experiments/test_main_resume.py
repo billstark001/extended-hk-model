@@ -15,6 +15,8 @@ from experiments.paper_theory.evidence.resume import recover_task_lock, restore_
 from experiments.paper_theory.micro_validation.population import run as population
 from experiments.paper_theory.runtime import measure_runs
 from theory.parameters import Parameters
+from theory.runtime import measure
+from theory.runtime import population as population_contract
 
 
 def task(identifier):
@@ -45,11 +47,13 @@ def test_cancellable_kinetic_transport_preserves_binding_request_id_protocol(mon
         assert json.loads(line)["request_id"] == "one"
         return json.dumps({"request_id": "one", "result": measure_result()})
 
-    monkeypatch.setattr(measure_runs, "run_jsonl", transport)
-    assert measure_runs.simulate("kinetic", "one", Parameters())["diagnostics"] == diagnostics()
-    monkeypatch.setattr(measure_runs, "run_jsonl", lambda *a, **kw: json.dumps({"request_id": "other", "result": {}}))
+    monkeypatch.setattr("common.runtime.process.run_jsonl", transport)
+    assert measure.run_measure("kinetic", "one", Parameters())["diagnostics"] == diagnostics()
+    monkeypatch.setattr(
+        "common.runtime.process.run_jsonl", lambda *a, **kw: json.dumps({"request_id": "other", "result": {}})
+    )
     with pytest.raises(RuntimeError, match="invalid kinetic response"):
-        measure_runs.simulate("kinetic", "one", Parameters())
+        measure.run_measure("kinetic", "one", Parameters())
 
 
 def test_measure_interrupt_then_resume_skips_completed_tasks(tmp_path, monkeypatch):
@@ -64,7 +68,7 @@ def test_measure_interrupt_then_resume_skips_completed_tasks(tmp_path, monkeypat
             raise KeyboardInterrupt()
         return measure_result()
 
-    monkeypatch.setattr(measure_runs, "simulate", simulate)
+    monkeypatch.setattr(measure, "run_measure", simulate)
     output = tmp_path / "measure"
     with pytest.raises(KeyboardInterrupt):
         measure_runs.execute(tasks, output, binary)
@@ -75,7 +79,7 @@ def test_measure_interrupt_then_resume_skips_completed_tasks(tmp_path, monkeypat
     (output / "raw" / "1.npz").write_bytes(b"incomplete ZIP")
     (output / "raw" / "2.tmp").write_bytes(b"interrupted temporary record")
     seen.clear()
-    monkeypatch.setattr(measure_runs, "simulate", lambda b, i, p, **kw: seen.append(i) or measure_result())
+    monkeypatch.setattr(measure, "run_measure", lambda b, i, p, **kw: seen.append(i) or measure_result())
     measure_runs.execute(tasks, output, binary, workers=2)
     assert sorted(seen) == ["1", "2"]
     assert complete.read_bytes() == original and complete.stat().st_mtime_ns == modified
@@ -92,30 +96,42 @@ def test_population_resume_recomputes_truncated_result_but_rejects_other_protoco
     tasks = [task(str(i)) for i in range(2)]
     calls = []
 
-    def respond(binary, line):
-        identifier = json.loads(line)["id"]
-        calls.append(identifier)
+    def respond(binary, line, output, **options):
+        import msgpack
+
+        payload = json.loads(line)
+        identifier = payload["id"]
+        calls.append((payload["kind"], identifier))
         frames = [
             {"time": 0.0, "node_energy": 1.0, "edge_energy": 1.0},
             {"time": 1.0, "node_energy": 0.0, "edge_energy": 0.0},
         ]
-        return json.dumps(
-            {
-                "id": identifier,
-                "status": "ok",
-                "result": {"frames": frames, "pair": {"frames": frames, "diagnostics": diagnostics()}},
-            }
+        output.write_bytes(
+            msgpack.packb(
+                {
+                    "id": identifier,
+                    "status": "ok",
+                    "result": {
+                        "initial_hash": "same",
+                        "projection_l1": 0.0,
+                        "frames": frames,
+                        "pair": {"frames": frames, "diagnostics": diagnostics()},
+                    },
+                },
+                use_bin_type=True,
+            )
         )
 
-    monkeypatch.setattr(population, "run_jsonl", respond)
+    monkeypatch.setattr(population_contract, "run_binary", respond)
     raw = tmp_path / "micro" / "raw"
     population.execute(tasks, raw, binary)
-    first = raw / "0.json"
+    assert len([c for c in calls if c[0] == "pair_only"]) == 1
+    first = raw / "0.msgpack.lz4"
     original, modified = first.read_bytes(), first.stat().st_mtime_ns
-    (raw / "1.json").write_text('{"task":')
+    (raw / "1.msgpack.lz4").write_bytes(b"truncated record")
     calls.clear()
     population.execute(tasks, raw, binary)
-    assert calls == ["1"]
+    assert calls == [("micro_only", "1")]
     assert first.read_bytes() == original and first.stat().st_mtime_ns == modified
     changed = {**tasks[0], "process_seed": 999}
     with pytest.raises(ValueError, match="protocol differs"):
@@ -180,7 +196,7 @@ def config_fixture(tmp_path):
     work.mkdir()
     args = SimpleNamespace(
         resume=False,
-        profile="smoke",
+        profile="main_smoke",
         horizon=None,
         backend="purego",
         meso_root=tmp_path / "meso",
@@ -202,10 +218,28 @@ def test_resume_rejects_changed_scientific_inputs(tmp_path, changed):
         atomic_json(work / "run_manifest.json", config)
         original = (work / "run_manifest.json").read_bytes()
     else:
-        setattr(args, changed, {"profile": "paper", "backend": "accelerate", "horizon": 1.0}[changed])
+        setattr(args, changed, {"profile": "main", "backend": "accelerate", "horizon": 1.0}[changed])
     with pytest.raises(ValueError, match="changed|cannot change"):
         settings(work, tmp_path / "publish", args)
     assert (work / "run_manifest.json").read_bytes() == original
+
+
+@pytest.mark.parametrize("profile", ["paper", "smoke"])
+def test_resume_rejects_obsolete_profile_aliases(tmp_path, profile):
+    work, args, config = config_fixture(tmp_path)
+    atomic_json(work / "run_manifest.json", {**config, "profile": profile})
+    original = (work / "run_manifest.json").read_bytes()
+    with pytest.raises(ValueError, match="canonical"):
+        settings(work, tmp_path / "publish", args)
+    assert (work / "run_manifest.json").read_bytes() == original
+
+
+def test_resume_does_not_invent_a_missing_run_manifest(tmp_path):
+    work, args, config = config_fixture(tmp_path)
+    (work / "run_manifest.json").unlink()
+    with pytest.raises(FileNotFoundError):
+        settings(work, tmp_path / "publish", args)
+    assert not (work / "run_manifest.json").exists()
 
 
 def test_original_binaries_restored_without_rebuild_and_tampering_rejected(tmp_path):

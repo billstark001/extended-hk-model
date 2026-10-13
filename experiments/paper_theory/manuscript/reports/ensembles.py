@@ -7,8 +7,7 @@ from pathlib import Path
 
 from common.io.json import atomic_json, sha
 from common.io.tables import table
-from experiments.paper_theory.manuscript.reports.tables import number
-from experiments.paper_theory.manuscript.reports.tables import read_table as read_csv
+from experiments.paper_theory.manuscript.reports.tables import number, read_table
 
 from ...micro_validation.analyze.controls import ensemble_grid, mechanism_contrasts, population
 from ...release_clocks.analyze.review import clock_estimates, crossing_ranges
@@ -26,10 +25,10 @@ def review(output_root, label, baseline_label, out):
     contrast = mechanism_contrasts(micro, plan["analysis_protocol"], out)
     pop, pop_aggregate, selected = population(micro, root, plan["analysis_protocol"], out)
     crossings = crossing_ranges(root, out)
-    primary_micro = read_csv(root / "analysis" / "micro" / "trajectory_errors.csv")
+    primary_micro = read_table(root / "analysis" / "micro" / "trajectory_errors.csv")
     table(out / "basin_grid.csv", [r for r in primary_micro if r["role"] == "basin_grid"])
     table(out / "holdout_grid.csv", [r for r in primary_micro if r["role"] == "holdout_grid"])
-    ensemble = read_csv(root / "analysis" / "micro" / "ensemble_distribution_errors.csv")
+    ensemble = read_table(root / "analysis" / "micro" / "ensemble_distribution_errors.csv")
     basin_ensemble = [
         r
         for r in ensemble

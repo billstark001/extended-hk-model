@@ -8,13 +8,7 @@ from .adaptive import (  # noqa: F401
     merge_data_with_axes,
     moving_average,
 )
-from .arrays import (  # noqa: F401
-    area_under_curve,
-    first_index_above_min,
-    first_less_than,
-    first_more_or_equal_than,
-    last_less_than,
-)
+from .arrays import area_under_curve, first_index_above_min, first_less_than, first_more_or_equal_than, last_less_than  # noqa: F401
 from .kde import (  # noqa: F401
     LINSPACE_SMPL_COUNT,
     compute_kde_density,

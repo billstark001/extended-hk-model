@@ -11,8 +11,7 @@ import numpy as np
 
 from common.io.json import fingerprint, read_result, sha
 from common.io.tables import table
-from experiments.paper_theory.manuscript.reports.tables import number
-from experiments.paper_theory.manuscript.reports.tables import read_table as read_csv
+from experiments.paper_theory.manuscript.reports.tables import number, read_table
 from experiments.paper_theory.micro_validation.analyze.ensembles import finite_micro_row
 from experiments.paper_theory.release_clocks.analyze.ensembles import clock_row
 from experiments.paper_theory.runtime.comparison import assert_saved, physical_key
@@ -37,7 +36,7 @@ def gather(root, baseline, out):
     old_index = {(j["family"], physical_key(j)): j for j in previous["jobs"] if j["family"] in ("micro", "clocks")}
     prior_status = {r["id"]: r for r in json.loads((baseline / "status.json").read_text())["records"]}
     existing = {
-        f: {r["id"]: r for r in read_csv(root / "analysis" / f / name)}
+        f: {r["id"]: r for r in read_table(root / "analysis" / f / name)}
         for f, name in (("micro", "trajectory_errors.csv"), ("clocks", "direct_clocks.csv"))
     }
     micro, clock, overlap, hashes = [], [], [], {}

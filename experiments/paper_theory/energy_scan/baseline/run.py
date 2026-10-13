@@ -7,11 +7,13 @@ import json
 import numpy as np
 
 from experiments.paper_theory.energy_scan.baseline import config
-from theory.runtime.kinetic import KineticStopping, kinetic_request, run_kinetic_batch_parallel
+from theory.runtime.kinetic import KineticStopping, kinetic_request
 
 
 def run_scan() -> dict[str, np.ndarray]:
     """Execute the complete baseline grid and pack variable-length energy trajectories and final potentials."""
+    from smp_meso_bindings import run_kinetic_batch_parallel
+
     from experiments.paper_theory.energy_scan.baseline.design import scan_request
 
     requests = [scan_request(epsilon, ratio) for epsilon in config.EPSILONS for ratio in config.RATIOS]
@@ -81,6 +83,8 @@ def run_scan() -> dict[str, np.ndarray]:
 
 def run_first_step_audit(full: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     """Generate isolated first-step channel probes used to separate motion, rewiring and mixed effects."""
+    from smp_meso_bindings import run_kinetic_batch_parallel
+
     from experiments.paper_theory.energy_scan.baseline.design import parameters
 
     requests = []

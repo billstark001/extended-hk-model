@@ -1,4 +1,4 @@
-"""Channel-scaling probe grids, numerical constants and CLI-overridable paths."""
+"""Channel-scaling probe grids, numerical constants and input/output paths."""
 
 from __future__ import annotations
 

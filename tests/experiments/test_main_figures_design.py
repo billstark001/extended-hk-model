@@ -1,21 +1,20 @@
 """Coverage and isolation contracts for the remaining manuscript main figures."""
 
-from collections import Counter
 import json
-from pathlib import Path
+from collections import Counter
+from dataclasses import asdict, replace
 
 import numpy as np
 import pytest
 
-from experiments.paper_theory.evidence.analyze import clock_rows, key, pairing_excess
-from experiments.paper_theory.evidence.main_figures import read_table
-from experiments.paper_theory.evidence.design import design, paper_design
-from experiments.paper_theory.evidence.fresh_reads import FreshReadPolicy
-from theory.release import release_clock
 from common.runtime.go import source_manifest
+from experiments.paper_theory.evidence.analyze import clock_rows, key, pairing_excess
+from experiments.paper_theory.evidence.design import design
+from experiments.paper_theory.evidence.figure_style import read_table
+from experiments.paper_theory.evidence.fresh_reads import FreshReadPolicy
 from experiments.paper_theory.runtime.measure_analysis import cached_cases
 from theory.parameters import Parameters
-from dataclasses import asdict, replace
+from theory.release import release_clock
 
 
 def test_confidence_and_observation_windows_are_distinct_ensemble_groups():
@@ -63,9 +62,25 @@ def test_early_stopped_area_retains_observed_endpoint_without_fabricating_tail()
     assert all(r["horizon_tau"] <= time[-1] for r in rows)
 
 
-def test_facade_preserves_original_design():
-    assert design("paper") == paper_design("paper")
-    assert design("smoke") == paper_design("smoke")
+def test_main_plan_and_task_ids_match_original_frozen_fingerprints():
+    from common.io.json import fingerprint
+
+    assert fingerprint(design("main")) == "7601b36253f6510e794abd24bfdabee9f19af00b2ae08829f31e30efecaf2cef"
+    assert fingerprint(design("main_smoke")) == "b4c1f79d99304e4ce9889406744f20dc8efc222bdcab717a370cb6d29e2c20c6"
+    for profile in ("paper", "smoke"):
+        with pytest.raises(ValueError, match="main"):
+            design(profile)
+
+
+def test_shared_pair_dependencies_preserve_all_main_process_branches():
+    from common.io.json import fingerprint
+    from theory.runtime.population import pair_identity
+
+    tasks = [t for t in design("main")["tasks"] if t["kind"] == "micro"]
+    cohorts = Counter(fingerprint(pair_identity(t, {"source": "frozen"})) for t in tasks)
+    assert len(cohorts) == 228
+    assert sum(cohorts.values()) == 1056
+    assert set(cohorts.values()) == {4, 8}
 
 
 def test_main_coverage_matches_captions_and_two_independent_initial_graphs():

@@ -112,15 +112,20 @@ def measure_request(
     return request
 
 
-def simulate(binary, identifier, parameters, **options):
-    # Optional backend dependency; reading/analyzing cached data needs no runtime.
-    """Lazily import the mesoscopic binding, run one request and return its result dict; missing bindings/results raise RuntimeError."""
-    try:
-        from smp_meso_bindings import run_kinetic
-    except ImportError as error:
-        raise RuntimeError("install smp-meso-bindings from social-media-mesoscopic-models") from error
-    response = run_kinetic(binary, measure_request(identifier, parameters, **options))
-    result = response.get("result")
-    if not isinstance(result, dict):
-        raise RuntimeError(f"{identifier}: runtime returned no result: {response}")
-    return result
+def run_measure(binary, identifier, parameters, **options):
+    """Use the binding's exact codec with cancellable subprocess transport."""
+    import json
+
+    from smp_meso_bindings.kinetic_runner import decode_kinetic_response, prepare_kinetic_request
+
+    from common.runtime.process import run_jsonl
+
+    request = prepare_kinetic_request(measure_request(identifier, parameters, **options))
+    response = decode_kinetic_response(json.loads(run_jsonl(binary, json.dumps(request) + "\n", arguments=("batch",))))
+    if (
+        response.get("request_id") != identifier
+        or response.get("error")
+        or not isinstance(response.get("result"), dict)
+    ):
+        raise RuntimeError(f"{identifier}: invalid kinetic response: {response.get('error')}")
+    return response["result"]

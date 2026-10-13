@@ -2,7 +2,7 @@
 
 import csv
 
-from experiments.paper_theory.release_clocks.parameter_clocks import config
+from experiments.paper_theory.release_clocks.artifact_paths import SOURCE
 
 
 def load_fits():
@@ -10,7 +10,7 @@ def load_fits():
     n = {}
     e = {}
     for filename, dest in [("low_parameter_fits.csv", n), ("edge_timescale_fits.csv", e)]:
-        for r in csv.DictReader((config.SOURCE / filename).open()):
+        for r in csv.DictReader((SOURCE / filename).open()):
             if dest is n and (r["energy"] != "node_energy" or r["model"] != "gompertz_hazard_2"):
                 continue
             k = (r["dynamics"], round(float(r["alpha"]), 12), float(r["epsilon"]), round(float(r["q_over_alpha"]), 9))

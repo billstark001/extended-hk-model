@@ -1,4 +1,4 @@
-"""Expanded feasible-rate grids, scaled-time thresholds and CLI-overridable paths."""
+"""Expanded feasible-rate grids, scaled-time thresholds and input/output paths."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from theory.runtime import kinetic
 from theory.runtime.kinetic import KineticResolution
 
 HERE = output_root() / "energy_scan" / "expanded"
-INPUT = HERE if "expanded" == "baseline" else SCAN_INPUT.resolve()
+INPUT = SCAN_INPUT.resolve()
 GO_ROOT = MESO.resolve()
 KINETIC = BINARY_PATH.resolve()
 ADAPTER = Path(kinetic.__file__)
