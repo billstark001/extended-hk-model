@@ -68,13 +68,13 @@ def test_removed_cli_profiles_and_workflows_create_no_outputs(tmp_path):
 
 
 def test_csv_plot_dispatch_never_imports_a_solver(tmp_path, monkeypatch):
-    from experiments.paper_theory.evidence import table_figures
+    from experiments.paper_theory.evidence import figures
 
     (tmp_path / "plan.json").write_text("{}")
     seen = []
-    monkeypatch.setattr(table_figures, "plot_tables", lambda directory, output: seen.append(directory))
+    monkeypatch.setattr(figures, "plot", lambda directory, output: seen.append((directory, output)))
     cli.main(["plot", "--run-dir", str(tmp_path), "--tables-only"])
-    assert seen == [tmp_path]
+    assert seen == [(tmp_path, tmp_path / "figures_csv")]
 
 
 @pytest.mark.parametrize("action", ["run", "resume"])

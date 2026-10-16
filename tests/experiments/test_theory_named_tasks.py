@@ -105,7 +105,7 @@ def synthetic_records(directory, plan):
 
 
 @pytest.mark.parametrize("topic", TOPICS)
-def test_topic_works_without_other_topics_or_runtime(tmp_path, topic):
+def test_topic_works_without_other_topics_or_runtime(tmp_path, topic, monkeypatch):
     profile = f"smoke_{topic}"
     assert profile in PROFILES
     plan = cli.main(["plan", "--profile", profile, "--work-dir", str(tmp_path)])
@@ -113,18 +113,32 @@ def test_topic_works_without_other_topics_or_runtime(tmp_path, topic):
     assert len(list(directory.glob("*/design.json"))) == 1
     assert cli.main(["plan", "--profile", profile, "--work-dir", str(tmp_path)]) == plan
     synthetic_records(directory, plan)
-    report = cli.main(["analyze", "--run-dir", str(tmp_path)])
+    bundle = tmp_path / "local_analysis"
+    report = cli.main(["analyze", "--run-dir", str(directory), "--output-dir", str(bundle)])
     assert report["missing"] == []
     assert report["completed"] == len(plan["tasks"])
-    cli.main(["plot", "--run-dir", str(tmp_path), "--output-dir", str(tmp_path / "raw_figures")])
-    cli.main(["plot", "--run-dir", str(tmp_path), "--tables-only", "--output-dir", str(tmp_path / "csv_figures")])
-    assert list((tmp_path / "raw_figures").glob("*.pdf"))
-    assert list((tmp_path / "csv_figures").glob("*.pdf"))
-    manifest = json.loads((directory / "figure_manifest.json").read_text())
+    status = cli.main(["status", "--run-dir", str(directory)])
+    assert status["raw_available"] and status["valid_raw_records"] == len(plan["tasks"])
+    # Simulate an unavailable source volume without touching real external disks.
+    directory.rename(directory.with_name("disconnected"))
+    original_stat = type(directory).stat
+
+    def forbid_raw_lookup(path, *args, **kwargs):
+        if path.is_relative_to(tmp_path / "evidence"):
+            raise AssertionError("plot/reanalysis consulted the disconnected source directory")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(type(directory), "stat", forbid_raw_lookup)
+    flags = ["--tables-only"] if topic in ("scaling", "recommendation") else []
+    cli.main(["plot", "--run-dir", str(bundle), "--output-dir", str(tmp_path / "figures"), *flags])
+    assert list((tmp_path / "figures").rglob("*.pdf"))
+    manifest = json.loads((bundle / "figure_manifest.json").read_text())
     assert manifest["research_topics"] == [topic]
-    status = cli.main(["status", "--run-dir", str(tmp_path)])
-    assert status["raw_available"]
-    assert status["valid_raw_records"] == len(plan["tasks"])
+    assert "portable local CSV only" in manifest["input_scope"]
+    # Reanalysis uses the same observations and skips every unchanged computation.
+    cli.main(["analyze", "--run-dir", str(bundle)])
+    cache = json.loads((bundle / "analysis_manifest.json").read_text())["cache"]
+    assert cache["computed"] == 0 and cache["reused"] > 0
 
 
 @pytest.mark.parametrize("topic,kind", [("scaling", "measure"), ("matched", "micro")])

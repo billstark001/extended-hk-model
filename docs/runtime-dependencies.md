@@ -75,8 +75,10 @@ volumes are a data-availability issue, not a reason to place the records in Git.
 
 Theory offline commands take an explicit frozen dataset directory using
 `--run-dir`; it contains `plan.json`, bindings, `measure/raw`, and/or
-`micro/raw` plus shared `micro/pairs`. CSV-only exports need the frozen plan,
-report and tables. Historical audit libraries take explicit dataset roots.
+`micro/raw` plus shared `micro/pairs`. Portable plotting needs the frozen plan, `data_manifest.json`, `data/`,
+`analysis_manifest.json`, report and tables. Create these locally with
+`analyze --run-dir /external/dataset --output-dir /local/analysis`. Plotting and
+CSV reanalysis then work without either runtime binary or the raw volume. Historical audit libraries take explicit dataset roots.
 Energy-slot fitting/plotting takes an explicit baseline/expanded NPZ archive
 or shard directory through `--run-dir`, with `--dynamics`, `--epsilon`,
 `--alpha` and `--ratio`. The old scan/fit input settings and symlink layouts

@@ -122,11 +122,16 @@ def run(args, work, publish):
             build_stage=stage,
             resume=args.resume,
             binding_batch=getattr(args, "binding_batch", False),
+            analysis_dir=publish,
+            force_analysis=getattr(args, "force", False),
         )
         study = TheoryStudy(options, work, work / "build", args.meso_root.resolve(), args.micro_root.resolve())
         workflow = study.workflow(attempt / "status.json")
         status = workflow.status
-        workflow.dispatch("plan")
+        status.update(action="run", operation="plan")
+        atomic_json(attempt / "status.json", status)
+        study.plan()
+        shutil.copyfile(directory / "plan.json", publish / "plan.json")
         atomic_json(
             publish / "run_location.json",
             {
@@ -143,16 +148,25 @@ def run(args, work, publish):
         store = RunStorage(work, args.control_dir, max_record_bytes=args.spool_mib * (1 << 20) // (2 * args.workers))
         options.store = store
         store.recover()
-        restored = restore_binaries(work, stage, config) if args.resume else None
+        phases = tuple(
+            name
+            for name in ("run", "analyze", "plot")
+            if name in (getattr(args, "phase", None) or ("run", "analyze", "plot"))
+        )
+        restored = restore_binaries(work, stage, config) if args.resume and "run" in phases else None
         if restored:
             options.engine, options.binary = restored
             print("Restored original verified executables; completed tasks will be skipped", flush=True)
-        else:
-            workflow.guard = store.read
-            workflow.dispatch("build")
+        elif "run" in phases:
+            status.update(action="run", operation="build")
+            atomic_json(attempt / "status.json", status)
+            store.read(study.build)
         os.environ["TMPDIR"] = cache_tmp
         os.environ["GOTMPDIR"] = cache_go_tmp
-        workflow.guard = store.read
+        workflow.guard = lambda operation: operation()
+        status.pop("operation", None)
+        workflow.stages["run"] = lambda: store.read(study.run)
+        workflow.stages["analyze"] = lambda: store.read(study.analyze)
 
         def diagnostic(action, error):
             from common.runtime.failures import BatchTaskError
@@ -163,17 +177,9 @@ def run(args, work, publish):
                 except Exception as diagnostic_error:
                     store.event(None, "partial_analysis_failed", error=str(diagnostic_error))
 
-        workflow.sequence(("run", "analyze", "plot"), after_failure=diagnostic)
-        for name in ("figures", "tables"):
-            store.read(
-                lambda: shutil.copytree(
-                    directory / name, publish / name, dirs_exist_ok=True, ignore=shutil.ignore_patterns("._*")
-                )
-            )
-        for name in ("plan.json", "report.json", "report.md", "figure_manifest.json"):
-            store.read(lambda: shutil.copyfile(directory / name, publish / name))
+        workflow.sequence(phases, after_failure=diagnostic)
         status["state"] = "complete"
-        print(f"Published figures and small tables to {publish}", flush=True)
+        print(f"Completed {', '.join(phases)}; local analysis destination: {publish}", flush=True)
     except BaseException as error:
         status.update(state="interrupted" if isinstance(error, KeyboardInterrupt) else "failed", error=str(error))
         raise

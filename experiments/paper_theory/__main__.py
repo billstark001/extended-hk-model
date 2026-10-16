@@ -19,7 +19,7 @@ def parser():
     )
     p.add_argument("--work-dir", type=Path, help="new bulk run directory")
     p.add_argument("--publish-dir", type=Path)
-    p.add_argument("--output-dir", type=Path, help="derived figure destination")
+    p.add_argument("--output-dir", type=Path, help="local analysis bundle or figure destination")
     p.add_argument("--control-dir", type=Path, help="persistent local APFS control/spool directory")
     p.add_argument("--model-root", type=Path, default=Path(__file__).resolve().parents[2])
     p.add_argument("--micro-root", type=Path)
@@ -30,8 +30,21 @@ def parser():
     )
     p.add_argument("--backend", choices=("purego", "accelerate", "openblas"))
     p.add_argument("--horizon", type=float)
+    p.add_argument(
+        "--phase",
+        choices=("run", "analyze", "plot"),
+        action="append",
+        help="run/resume stages; repeat to select several (default: all three)",
+    )
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="recompute analysis exports and statistics; scientific raw records are unchanged",
+    )
     p.add_argument("--spool-mib", type=int, default=4096, help="aggregate binary/staged-record allowance")
-    p.add_argument("--tables-only", action="store_true", help="plot CSV exports without loading raw trajectories")
+    p.add_argument(
+        "--tables-only", action="store_true", help="compatibility flag; all figures now read the portable CSV bundle"
+    )
     p.add_argument("--dynamics", choices=("hk", "deffuant"), help="energy-slot update rule")
     p.add_argument("--epsilon", type=float, help="energy-slot confidence radius")
     p.add_argument("--alpha", type=float, help="energy-slot influence parameter")
@@ -77,17 +90,14 @@ def main(argv=None):
         )
     directory = dataset_directory(a.run_dir)
     if a.action == "plot":
-        if a.tables_only or not any((directory / kind / "raw").is_dir() for kind in ("measure", "micro")):
-            from .evidence.table_figures import plot_tables
+        from .evidence.figures import plot
 
-            return plot_tables(directory, a.output_dir)
-        from .evidence.main_figures import plot
-
-        return plot(directory, a.output_dir)
+        output = a.output_dir or (directory / "figures_csv" if a.tables_only else None)
+        return plot(directory, output)
     if a.action == "analyze":
         from .evidence.analyze import analyze
 
-        return Workflow({"analyze": lambda: analyze(directory)}).dispatch("analyze")
+        return Workflow({"analyze": lambda: analyze(directory, a.output_dir, force=a.force)}).dispatch("analyze")
     if a.action == "status":
         from common.io.records import record_path
         from theory.runtime.completed import cached
@@ -104,6 +114,7 @@ def main(argv=None):
             "planned": counts["planned"],
             "valid_raw_records": counts["completed"],
             "raw_available": any((directory / kind / "raw").is_dir() for kind in ("measure", "micro")),
+            "analysis_available": (directory / "analysis_manifest.json").is_file(),
             "export_report": json.loads((directory / "report.json").read_text())
             if (directory / "report.json").exists()
             else None,

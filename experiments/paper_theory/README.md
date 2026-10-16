@@ -26,8 +26,8 @@ Shared trajectories are deduplicated in the aggregate. The new `main` has
 62 measure and 80 micro**. Topic selection also controls analysis and plotting;
 a measure-only topic does not need micro data, and vice versa. Population
 records supply the snapshots and repeated processes needed by the proposed
-structure and W/I analyses; this change does not implement the manuscript's
-new figure layouts or move the paper repository's decomposition analysis here.
+structure and W/I analyses. The five revision figures now use these records through
+a portable CSV analysis bundle; the estimators belong to `src/theory/variation.py`.
 
 ```sh
 python -m experiments.paper_theory --help
@@ -157,8 +157,9 @@ types/tests. The archived script is a historical copy, dependent on the original
 package context; it is not a standalone supported command. No raw data was
 removed or reconverted.
 
-CSV-only plotting writes a separate `figures_csv/` directory with hashes and the
-frozen plan fingerprint. It cannot reconstruct raw energy bands or distributions.
+All publication plots read the portable CSV bundle and use one implementation in
+`evidence/figures.py`. The old `main_figures.py` / `table_figures.py` split is removed.
+`--tables-only` remains accepted and selects this same complete implementation.
 Areas retain rebounds/negative excursions, own endpoint references and observed
 horizons. Terminal stability alone does not establish an infinite mean.
 
@@ -205,3 +206,63 @@ per-request CPU time. Micro/shared-pair theory tasks retain their binary adapter
 No scientific protocol is merged merely because it has similar settings. Current
 bootstrap intervals, historical resampling protocols, original-paper observable
 selection and SQLite estimators stay with their studies.
+
+
+## Run, analyze, plot
+
+There are three computational stages. `run` owns simulation/binary execution;
+`analyze` owns extraction, comparisons, bootstrap, fitting and variance components;
+`plot` only renders local CSV observations and statistics. Plan/build/resume remain
+run lifecycle operations. Binary requests, source manifests and raw codecs are
+unchanged. Original run/resume CLI invocations still perform all three stages.
+Use repeated `--phase run|analyze|plot` options to select stages explicitly.
+
+```sh
+# Same full workflow as before; derived data and figures are placed locally.
+python -m experiments.paper_theory run --work-dir /Volumes/Cache/new-run --publish-dir /local/results
+# Run simulations only.
+python -m experiments.paper_theory run --work-dir /Volumes/Cache/new-run --publish-dir /local/results --phase run
+# Export existing frozen data while its disk is connected.
+python -m experiments.paper_theory analyze --run-dir /Volumes/Cache/dataset --output-dir /local/results
+# Recompute statistics from the local CSVs with the raw volume disconnected.
+python -m experiments.paper_theory analyze --run-dir /local/results
+python -m experiments.paper_theory analyze --run-dir /local/results --force
+# Full figures, including curves/bands and field snapshots, from local CSV only.
+python -m experiments.paper_theory plot --run-dir /local/results --output-dir /local/figures
+```
+
+A bundle contains `plan.json`, `data_manifest.json`, `data/`, `tables/`,
+`report.json`, and `analysis_manifest.json`. Keep this bundle on local storage.
+`data/grids.csv` describes each native bin's bounds and center.
+`data/tasks.csv` preserves parameters, initial/branch IDs, exact string seeds and
+shared-pair relationships. Per-record CSVs preserve every recorded scalar, the
+separate energy/observable timestamp grids and all native field arrays. Matrix
+columns are native grid coordinates; only exactly zero rows are omitted, with
+explicit shapes to restore them. CSV gzip compression is deterministic. No
+thresholding, extra interpolation or tail extension is introduced by extraction.
+
+Incremental extraction reuses unchanged record CSVs after checking raw and local
+CSV hashes. Derived blocks are cached by physical comparison group and artifact
+kind (measure summaries, micro summaries, conditional curves, representative fields,
+population variation). Keys include selected task identities, relevant CSV hashes,
+analysis settings, record metadata and estimator/reader/library source hashes. A changed figure style does
+not invalidate analysis; a changed estimator invalidates its affected blocks.
+`--force` recomputes extraction and derived blocks when raw data is present, or all
+derived blocks from CSV when the raw volume is absent. Complete cache blocks survive
+later analysis failures; partial blocks are never reused. Cache hit/compute counts
+are recorded in `analysis_manifest.json`. `analysis_cache/` is optional for plotting.
+
+The unified renderer writes the five proposed main figures at epsilon=.4 and the
+corresponding comparisons at the other confidence radii. Supplementary figures
+include absolute areas, numerical controls, matched representative distributions
+and all recorded population CDF decomposition times. Each figure has a PDF, PNG and
+plain-text scientific caption; the manifest records exactly the files used.
+
+Population CDF norms use dx for node CDF and dx² for the joint directed-edge CDF.
+W/I/B² use balanced initial/process groups; negative corrected I/B² estimates are
+retained, MSE=W+B² and I=V_P+H+2C are distinct identities. Their shaded ranges are
+leave-one-initial-out sensitivities, not 95% confidence intervals. Structure panels
+use exploratory bootstrap of whole initial groups, retaining every process branch.
+Only saved observations/times are available offline; new unrecorded observables
+require the source data. Old summary-only exports must be upgraded by `analyze`
+once while their raw volume is available; plot never falls back to reading raw.

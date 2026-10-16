@@ -40,7 +40,7 @@ Old suite/scan/clocks CLI routes and the superseded evidence paper/smoke generat
 
 The only Python `main()` in `paper_theory` is its canonical `__main__.py`. Launch orchestration receives parsed arguments directly; it does not maintain another CLI or translate arguments into command strings. Runtime calls use their owning module/function rather than old function names or forwarding wrappers. Resume requires the original authenticated run manifest and reads its saved plan, including the original topic metadata. CLI selections use canonical named profiles. Offline record readers preserve the original data formats independently of generation entry points.
 
-Figure assemblers share study colors/selection through `evidence/figure_style.py`; they do not import each other for helpers. Generic panel decoration/saving lives in `common.plotting`. CSV-only plotting reads frozen exports and writes a separate directory. The retired migration script is archived with the Cache original-data backup. Existing frozen datasets remain readable. The pruned 1794-task main design requires a new run directory; retained task IDs and scientific parameters are unchanged.
+Theory has one CSV renderer, `evidence/figures.py`. `analyze` exports complete portable observations and derived tables; plot never imports raw readers or computes statistical estimators. Study colors live in `evidence/figure_style.py`; fonts, panel decoration and saving reuse `common.plotting`. The retired migration script is archived with the Cache original-data backup. Existing frozen datasets remain readable. The pruned 1794-task main design requires a new run directory; retained task IDs and scientific parameters are unchanged.
 
 Dependency direction is `ehk → common`, `theory → common`, and `paper_theory → common/theory/public runtimes`. Neither source package imports experiments. Importing analysis creates no outputs and does not load a solver. CLI startup configures caches and subprocess limits explicitly. Builds bind actual source/toolchain/backend/binary hashes; plans and raw protocols reject incompatible resumes. Offline analysis needs frozen records, not a runtime executable.
 
@@ -85,3 +85,13 @@ Its eleven cases and `all` aggregate use the shared `TaskRegistry`; execution,
 frozen per-attempt plans, completion journals and timing also use the common
 lifecycle. The explicit module move replaces the old probe command path. Its
 record schema, probe options and existing environment setting names are retained.
+
+Theory analysis uses `common.experiments.artifacts.ArtifactCache` for immutable
+derived blocks, with scientific dependencies declared by the study. Raw extraction
+reuses unchanged CSV records. Summary blocks are scoped by physical comparison
+group; bootstrap curves, representative fields and CDF variation have independent
+keys. The source-free CSV bundle includes all recorded scalar series/native grids,
+analysis protocols, coverage and hashes. `--force` bypasses analysis caches.
+The legacy binary schemas, frozen identities and default CLI orchestration remain
+unchanged; `--phase` selects computational stages without introducing another
+executor. Original-paper/drift-probe stage boundaries are not changed here.

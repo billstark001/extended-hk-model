@@ -40,7 +40,7 @@ class TheoryStudy:
 
     def workflow(self, status_path=None):
         return Workflow(
-            {"plan": self.plan, "build": self.build, "run": self.run, "analyze": self.analyze, "plot": self.plot},
+            {"run": self.run, "analyze": self.analyze, "plot": self.plot},
             status_path,
             resume=getattr(self.args, "resume", False),
             workers=self.args.workers,
@@ -114,9 +114,11 @@ class TheoryStudy:
     def analyze(self):
         from .evidence.analyze import analyze
 
-        return analyze(self.directory)
+        return analyze(
+            self.directory, getattr(self.args, "analysis_dir", None), force=getattr(self.args, "force_analysis", False)
+        )
 
     def plot(self):
-        from .evidence.main_figures import plot
+        from .evidence.figures import plot
 
-        return plot(self.directory)
+        return plot(getattr(self.args, "analysis_dir", None) or self.directory)

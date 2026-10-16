@@ -1,27 +1,34 @@
 """Offline assembly from this design's frozen records, without historical inputs."""
 
+import csv
+import inspect
 import json
+import os
+import shutil
+import tempfile
 from collections import defaultdict
-from typing import cast
+from pathlib import Path
+from typing import Any, Callable, cast
 
 import numpy as np
 
+from common.experiments.artifacts import ArtifactCache
+from common.experiments.lifecycle import session_lock
 from common.experiments.plans import coverage as task_coverage
-from common.experiments.plans import read_plan
-from common.io.json import atomic_json, sha
-from common.io.records import content_fingerprint, record_path
+from common.io.json import atomic_json, fingerprint, sha
+from common.io.records import content_fingerprint
 from common.statistics import bootstrap_weights, clustered_interval, hierarchical_weights, paired_difference
 from theory.release import release_clock
 from theory.release.ensemble import clock_statistics, plateau_check
-from theory.runtime.records import read_micro
 from theory.scaling import curve_distance
 from theory.types import MicroFrame, PairFrame, ResolvedMicroRecord
 from theory.validation import compare_fields
 
 from ..data import write_csv
-from ..runtime.measure_analysis import cached_cases
 from ..scaling.analyze import scaling_rows
-from ..types import CoverageRow, EvidenceReport, FrozenMainPlan, ProvenanceRow
+from ..types import EvidenceReport
+from .bundle import Bundle, csv_rows, csv_stream, export_raw
+from .observations import Tables, matched_bands, population_variation, representative_fields
 
 KEYS = (
     "dynamics",
@@ -60,7 +67,8 @@ def retain_projection(frame: MicroFrame | PairFrame, endpoint: bool) -> bool:
 def compact_record(record: ResolvedMicroRecord) -> ResolvedMicroRecord:
     """Keep full fields only at snapshots/endpoints, not at every energy sample."""
     result = record["result"]
-    result["pair_frames_fingerprint"] = content_fingerprint(result["pair"]["frames"])
+    if "pair_frames_fingerprint" not in result:
+        result["pair_frames_fingerprint"] = content_fingerprint(result["pair"]["frames"])
     micro = result["frames"]
     for i, frame in enumerate(micro):
         if not retain_projection(frame, i == len(micro) - 1):
@@ -436,93 +444,365 @@ def micro_tables(records, protocol):
     return conditional, pooled, contrasts, branches, snapshots
 
 
-def analyze(directory):
-    """Validate coverage/provenance and write standalone tables and an evidence report."""
-    plan = cast(FrozenMainPlan, read_plan(directory / "plan.json"))
-    tasks = {t["id"]: t for t in plan["tasks"]}
-    protocol = plan["analysis_protocol"]
-    cases = list(cached_cases(directory / "measure"))
-    records: list[ResolvedMicroRecord] = []
-    coverage: list[CoverageRow] = []
-    provenance: list[ProvenanceRow] = []
-    pair_provenance = {}
-    for task in tasks.values():
-        suffix = ".npz" if task["kind"] == "measure" else ".msgpack.lz4"
-        raw = directory / task["kind"] / "raw"
-        path = raw / (task["id"] + suffix) if task["kind"] == "measure" else record_path(raw, task["id"])
-        coverage.append(
-            {"id": task["id"], "kind": task["kind"], "roles": ",".join(task["roles"]), "complete": path.is_file()}
-        )
-        if not path.is_file():
+def recommendation_rows(clocks):
+    endpoint = [r for r in clocks if "effects" in r["roles"].split(",") and r["is_observed_endpoint"]]
+    groups: dict[tuple, dict[str, Any]] = defaultdict(dict)
+    for r in endpoint:
+        groups[tuple((k, r[k]) for k in KEYS)][r["channel"]] = r
+    ratios = {}
+    for identity, channels in groups.items():
+        if {"node", "edge"} <= channels.keys():
+            node, edge = channels["node"], channels["edge"]
+            value = (
+                np.log(edge["mean_tau"] / node["mean_tau"]) if min(edge["mean_tau"], node["mean_tau"]) > 0 else np.nan
+            )
+            ratios[identity] = {
+                **dict(identity),
+                "delta": float(value),
+                "confirmed": bool(node["plateau_confirmed"] and edge["plateau_confirmed"]),
+                "observed_horizon_tau": node["reference_horizon_tau"],
+            }
+    for identity, row in ratios.items():
+        base = dict(identity)
+        base.update(recommender="random", steepness=1.0)
+        reference = ratios.get(tuple((k, base[k]) for k in KEYS))
+        row["shift"] = row["delta"] - reference["delta"] if reference else np.nan
+        row["shift_confirmed"] = bool(row["confirmed"] and reference and reference["confirmed"])
+    return list(ratios.values())
+
+
+def merge_tables(parts, destination):
+    files = defaultdict(list)
+    for part in parts:
+        for path in part.glob("*.csv*"):
+            files[path.name].append(path)
+    for name, paths in files.items():
+        columns: list[str] = []
+        for path in paths:
+            first = next(csv_rows(path), None)
+            if first:
+                columns.extend(k for k in first if k not in columns)
+        if not columns:
             continue
-        if task["kind"] == "micro":
-            record = read_micro(path)
-            if record["task"] != task:
-                raise ValueError("raw micro task/plan mismatch")
-            reference = record["result"].get("pair_ref")
-            if reference:
-                pair_provenance[reference["key"]] = {
-                    "id": reference["key"],
-                    "sha256": reference["sha256"],
-                    "path": f"micro/pairs/{reference['key']}.msgpack.lz4",
-                }
-            records.append(compact_record(record))
-        else:
-            with np.load(path, allow_pickle=False) as archive:
-                if json.loads(str(archive["metadata"])) != task:
-                    raise ValueError("raw measure task/plan mismatch")
-        provenance.append({"id": task["id"], "sha256": sha(path), "path": str(path.relative_to(directory))})
-    if not provenance:
-        raise FileNotFoundError("evidence requires results for at least one declared task")
-    clocks, collapse, states, numerics, closure = measure_tables(cases, tasks, protocol)
-    conditional, population, contrasts, branches, micro_states = micro_tables(records, protocol)
-    for name, rows in (
-        ("coverage", coverage),
-        ("provenance", provenance),
-        ("pair_provenance", list(pair_provenance.values())),
-        ("mean_release", clocks),
-        ("scaling", collapse),
-        ("scaling_states", states),
-        ("numerics", numerics),
-        ("nominal_population_closure", closure),
-        ("conditional_means", conditional),
-        ("population", population),
-        ("recommendation_contrasts", contrasts),
-        ("micro_branches", branches),
-        ("micro_states", micro_states),
-    ):
-        path = directory / "tables" / (name + ".csv")
-        if rows:
-            write_csv(path, rows)
-        else:
-            path.unlink(missing_ok=True)  # No stale rows in a partial/legacy analysis.
-    summary: EvidenceReport = {
-        "schema": 1,
-        "profile": plan["profile"],
-        "plan_fingerprint": plan["plan_fingerprint"],
-        **task_coverage(plan["tasks"], (r["id"] for r in provenance)),
-        "measure": len(cases),
-        "early_stopped_measure": sum(bool(c["diagnostics"].get("converged", False)) for c in cases),
-        "observed_measure_horizon_range": [
-            float(min(c["tau"][-1] for c in cases)),
-            float(max(c["tau"][-1] for c in cases)),
-        ]
-        if cases
-        else [],
-        "micro": len(records),
-        "conditional_cohorts": len(conditional) // 2,
-        "confirmed_measure_rows": sum(r["plateau_confirmed"] for r in clocks),
-        "analysis_protocol": protocol,
-        "bindings": {
-            k: json.loads((directory / k / "binding.json").read_text())
-            for k in sorted({t["kind"] for t in tasks.values()})
-            if (directory / k / "binding.json").is_file()
+        with csv_stream(destination / name, "wt") as handle:
+            writer = csv.DictWriter(handle, columns)
+            writer.writeheader()
+            for path in paths:
+                writer.writerows(csv_rows(path))
+
+
+def code_identity(functions):
+    from common.numerics.distributions import hellinger
+    from theory import variation
+
+    from .bundle import number
+
+    libraries = (
+        bootstrap_weights,
+        variation.with_loio,
+        clock_statistics,
+        release_clock,
+        curve_distance,
+        compare_fields,
+        hellinger,
+    )
+
+    return {
+        "functions": {f.__name__: fingerprint(inspect.getsource(f)) for f in functions},
+        "readers": {
+            f.__qualname__: fingerprint(inspect.getsource(f))
+            for f in (
+                Bundle.case,
+                Bundle.record,
+                Bundle.frames,
+                Bundle.matrices,
+                number,
+                compact_record,
+                retain_projection,
+            )
         },
-        "initial_and_process_controls": "passed",
-        "claim_scope": "observed restricted means and finite-N robustness; collapse is approximate small-update evidence",
+        "libraries": {f.__module__: sha(Path(inspect.getfile(f))) for f in libraries},
+        "parameter_columns": KEYS,
+        "numpy_version": np.__version__,
     }
-    atomic_json(directory / "report.json", summary)
-    text = f"""# Fresh evidence report\n\nProfile: {plan["profile"]}. Completed {len(provenance)}/{len(tasks)} tasks; missing {len(summary["missing"])}.\n\nThe clock is the area under normalized remaining energy in tau=alpha*t. T50 is retained as a diagnostic. Prefix areas use the same long-window endpoint reference. Endpoint estimates and their two-window stability checks are reported separately; unconfirmed curves do not establish infinite mean release times.\n\nConditional intervals resample process branches at a fixed initial state. Population intervals resample independent initial states and then their branches. Recommendation contrasts share initial states and process seed labels. Own endpoint and fixed pair endpoint references appear separately.\n\nScaling compares raw energies at fixed r=q/alpha and numerical resolution, plus selected rho/edge states. Grid, quadrature and dt checks are separate. These support a leading small-update law; they do not assert exact finite-step equivalence. Finite-N comparisons retain k=15, R=10 and the uniform initial law. Variance and discordant-edge fraction describe polarization and segregation; edge distributions do not measure graph modularity.\n\nAll raw inputs are listed in tables/provenance.csv with hashes. Coverage is in tables/coverage.csv. No historical run IDs, datasets or manuscript artifacts are required. CAS 2026 remains the external empirical motivation, not a dataset regenerated by this design.\n\nThe smoke profile checks software paths only. Formal evidence requires the corresponding main task and assessment of plateau, tail, discretization and finite-N diagnostics.\n\nFigures: mean_release, scaling_collapse, matched_micro_means, population_robustness, numerical_controls. Numerical controls and scaling state errors are candidates for supplementary material.\n"""
-    (directory / "report.md").write_text(text)
-    print({k: summary[k] for k in ("planned", "completed", "measure", "micro", "conditional_cohorts")}, flush=True)
-    return summary
+
+
+def scaling_display(rows):
+    grouped: dict[tuple, dict[str, Any]] = {}
+    keys = ("dynamics", "recommender", "steepness", "epsilon", "r", "alpha", "reference_alpha")
+    for row in rows:
+        identity = tuple(row[k] for k in keys)
+        point = grouped.setdefault(identity, {**{k: row[k] for k in keys}, "relative_max": 0.0})
+        point["relative_max"] = max(point["relative_max"], row["relative_max"])
+    return list(grouped.values())
+
+
+def analyze(directory, output=None, *, force=False):
+    """Incremental analysis from raw records or portable CSV; force recomputes all blocks."""
+    directory = Path(directory).resolve()
+    output = Path(output).resolve() if output else directory
+    with session_lock(output / ".analysis-control"):
+        return compute_analysis(directory, output, force=force)
+
+
+def compute_analysis(directory, output, *, force):
+    if any((directory / kind / "raw").is_dir() for kind in ("measure", "micro")):
+        export_raw(directory, output, force=force)
+    elif (directory / "data_manifest.json").is_file():
+        if output != directory:
+            for name in ("plan.json", "data_manifest.json"):
+                shutil.copy2(directory / name, output / name)
+            shutil.copytree(directory / "data", output / "data", dirs_exist_ok=True)
+            if (directory / "analysis_cache").is_dir():
+                shutil.copytree(directory / "analysis_cache", output / "analysis_cache", dirs_exist_ok=True)
+    else:
+        raise FileNotFoundError("analyze needs native records or a portable CSV observations bundle")
+    bundle = Bundle(output)
+    plan, tasks = bundle.plan, bundle.tasks
+    protocol = plan["analysis_protocol"]
+    cache = ArtifactCache(output / "analysis_cache", force=force)
+    stage = Path(tempfile.mkdtemp(prefix=".tables-", dir=output))
+    parts = []
+    horizons = []
+    early = 0
+    try:
+        measure_groups = defaultdict(list)
+        micro_groups = defaultdict(list)
+        for t in tasks.values():
+            if t["id"] not in bundle.manifest["records"]:
+                continue
+            p = t["parameters"]
+            if t["kind"] == "measure":
+                measure_groups[
+                    tuple(p[k] for k in ("dynamics", "recommender", "steepness", "epsilon", "ratio"))
+                ].append(t)
+            else:
+                micro_groups[tuple(p[k] for k in KEYS if k not in ("recommender", "steepness"))].append(t)
+        for members in measure_groups.values():
+
+            def produce(path):
+                cases = []
+                for t in members:
+                    fields: set[str] = set()
+                    if "scaling" in t["roles"]:
+                        fields.update(("snapshot_time", "snapshot_rho", "snapshot_edge"))
+                    if "numerics" in t["roles"]:
+                        fields.update(("final_rho", "final_edge"))
+                    cases.append(bundle.case(t, fields=fields))
+                rows = measure_tables(cases, tasks, protocol)
+                for name, values in zip(
+                    ("mean_release", "scaling", "scaling_states", "numerics", "nominal_population_closure"), rows
+                ):
+                    if values:
+                        write_csv(path / (name + ".csv"), values)
+                atomic_json(
+                    path / "summary.json",
+                    {
+                        "horizons": [float(c["tau"][-1]) for c in cases],
+                        "early": sum(bool(c["diagnostics"].get("converged", False)) for c in cases),
+                    },
+                )
+
+            part = cache.materialize(
+                "measure",
+                {
+                    "tasks": members,
+                    "files": bundle.dependencies(members),
+                    "protocol": protocol,
+                    "code": code_identity((measure_tables, clock_rows, check, scaling_rows)),
+                },
+                produce,
+            )
+            parts.append(part)
+            info = json.loads((part / "summary.json").read_text())
+            horizons.extend(info["horizons"])
+            early += info["early"]
+        for index, members in enumerate(micro_groups.values()):
+            loaded = {}
+
+            def get_records(fields=True):
+                if fields not in loaded:
+                    pair_cache: dict[str, Any] = {}
+                    loaded[fields] = [bundle.record(t, pair_cache=pair_cache, fields=fields) for t in members]
+                    if fields:
+                        loaded[fields] = [compact_record(r) for r in loaded[fields]]
+                return loaded[fields]
+
+            for name, function, fields, settings in (
+                ("micro_summaries", micro_tables, True, protocol),
+                (
+                    "matched_curves",
+                    matched_bands,
+                    False,
+                    {k: protocol[k] for k in ("bootstrap_seed", "bootstrap_samples", "confidence_level")},
+                ),
+                (
+                    "representative_fields",
+                    representative_fields,
+                    True,
+                    {k: protocol[k] for k in ("main_snapshot_tau", "matched_population")},
+                ),
+                ("population_variation", population_variation, True, {}),
+            ):
+                enabled = (
+                    name == "micro_summaries"
+                    or (name == "matched_curves" and any("matched" in t["roles"] for t in members))
+                    or (name == "population_variation" and any("population" in t["roles"] for t in members))
+                    or (
+                        name == "representative_fields"
+                        and any(
+                            "population" in t["roles"]
+                            and t["initial"] == 0
+                            and t["parameters"]["population"] == protocol["matched_population"]
+                            and t["parameters"]["dynamics"] == "hk"
+                            and t["parameters"]["recommender"] == "opinion_random"
+                            and t["parameters"]["steepness"] == 4
+                            for t in members
+                        )
+                    )
+                )
+                if not enabled:
+                    continue
+
+                def produce(path):
+                    records = get_records(fields)
+                    if name == "micro_summaries":
+                        for table, values in zip(
+                            (
+                                "conditional_means",
+                                "population",
+                                "recommendation_contrasts",
+                                "micro_branches",
+                                "micro_states",
+                            ),
+                            micro_tables(records, protocol),
+                        ):
+                            if values:
+                                write_csv(path / (table + ".csv"), values)
+                    else:
+                        with Tables(path) as tables:
+                            if name == "population_variation":
+                                cast(Callable[..., Any], function)(records, tables)
+                            else:
+                                cast(Callable[..., Any], function)(records, protocol, tables)
+
+                functions: tuple[Callable[..., Any], ...] = (function,)
+                if name == "micro_summaries":
+                    functions += (key, metadata, pairing_excess, check)
+                part = cache.materialize(
+                    name,
+                    {
+                        "tasks": members,
+                        "files": bundle.dependencies(members, fields=fields),
+                        "protocol": settings,
+                        "code": code_identity(functions),
+                    },
+                    produce,
+                )
+                parts.append(part)
+            print(
+                f"CSV analysis {index + 1}/{len(micro_groups)} configurations; cache {cache.hits} reused, {cache.computed} computed",
+                flush=True,
+            )
+        merge_tables(parts, stage)
+        from common.io.tables import numeric_rows
+
+        clocks = numeric_rows(stage / "mean_release.csv") if (stage / "mean_release.csv").is_file() else []
+        # CSV booleans retain their explicit strings; restore them before derivation.
+        for r in clocks:
+            for k in ("is_observed_endpoint", "plateau_confirmed"):
+                r[k] = r[k] == "True"
+        for name, values in (
+            ("recommendation", recommendation_rows(clocks)),
+            (
+                "scaling_display",
+                scaling_display(numeric_rows(stage / "scaling.csv")) if (stage / "scaling.csv").exists() else [],
+            ),
+        ):
+            if values:
+                write_csv(stage / (name + ".csv"), values)
+        provenance = [r for r in bundle.manifest["provenance"] if r["kind"] != "pair"]
+        pairs = [r for r in bundle.manifest["provenance"] if r["kind"] == "pair"]
+        coverage = [
+            {
+                "id": t["id"],
+                "kind": t["kind"],
+                "roles": ",".join(t["roles"]),
+                "complete": t["id"] in bundle.manifest["records"],
+            }
+            for t in tasks.values()
+        ]
+        for name, rows in (("coverage", coverage), ("provenance", provenance), ("pair_provenance", pairs)):
+            if rows:
+                write_csv(stage / (name + ".csv"), rows)
+        conditional_count = (
+            sum(1 for _ in csv_rows(stage / "conditional_means.csv"))
+            if (stage / "conditional_means.csv").is_file()
+            else 0
+        )
+        summary: EvidenceReport = {
+            "schema": 1,
+            "profile": plan["profile"],
+            "plan_fingerprint": plan["plan_fingerprint"],
+            **task_coverage(plan["tasks"], bundle.manifest["records"]),
+            "measure": sum(t["kind"] == "measure" and t["id"] in bundle.manifest["records"] for t in tasks.values()),
+            "micro": sum(t["kind"] == "micro" and t["id"] in bundle.manifest["records"] for t in tasks.values()),
+            "early_stopped_measure": early,
+            "observed_measure_horizon_range": [min(horizons), max(horizons)] if horizons else [],
+            "conditional_cohorts": conditional_count // 2,
+            "confirmed_measure_rows": sum(r["plateau_confirmed"] for r in clocks),
+            "analysis_protocol": protocol,
+            "bindings": bundle.manifest["bindings"],
+            "initial_and_process_controls": "passed",
+            "claim_scope": "finite-window response, conditional validation, finite-N structure and variability",
+        }
+        old = output / ".previous-tables"
+        if old.exists():
+            shutil.rmtree(old)
+        if (output / "tables").exists():
+            os.replace(output / "tables", old)
+        os.replace(stage, output / "tables")
+        if old.exists():
+            shutil.rmtree(old)
+        atomic_json(output / "report.json", summary)
+        (output / "report.md").write_text(
+            f"# Theory analysis\n\nProfile: {plan['profile']}; completed {summary['completed']}/{summary['planned']}.\n\n"
+            "data/ preserves all recorded scalar trajectories, actual time grids and native rho/edge fields as CSV. "
+            "tasks.csv retains initial/process identities and shared-pair references; provenance paths are never read by plot.\n\n"
+            "tables/ contains conditional bootstrap curves, finite-window own-reference areas, numerical comparisons, "
+            "population structure and weighted CDF variation components. W/I/B² intervals are LOIO ranges, not 95% CIs. "
+            "Negative corrections and near-consensus branches are retained. Structure intervals resample whole initial groups.\n\n"
+            f"Incremental cache: {cache.hits} reused, {cache.computed} computed blocks. "
+            "Input hashes, scientific code and analysis protocols determine reuse. --force recomputes all blocks.\n"
+        )
+        from theory import variation
+
+        from . import bundle as bundle_module
+        from . import observations
+
+        sources = [Path(__file__), Path(bundle_module.__file__), Path(observations.__file__), Path(variation.__file__)]
+        atomic_json(
+            output / "analysis_manifest.json",
+            {
+                "schema": 1,
+                "plan_fingerprint": plan["plan_fingerprint"],
+                "data_manifest_sha256": sha(output / "data_manifest.json"),
+                "report_sha256": sha(output / "report.json"),
+                "tables": {str(f.relative_to(output)): sha(f) for f in sorted((output / "tables").glob("*.csv*"))},
+                "sources": {str(p): sha(p) for p in sources},
+                "cache": {"reused": cache.hits, "computed": cache.computed, "forced": force},
+                "variation_protocol": {
+                    "norm": "dx sum(node CDF²); dx² sum(joint edge CDF²)",
+                    "components": "MSE=W+B²; I=V_P+H+2C",
+                    "uncertainty": "LOIO range; not a confidence interval",
+                    "negative_corrections": "retained",
+                    "structure_intervals": "95% whole-initial-group bootstrap; exploratory",
+                },
+                "portable": True,
+            },
+        )
+        print({k: summary[k] for k in ("planned", "completed", "measure", "micro")}, flush=True)
+        return summary
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)

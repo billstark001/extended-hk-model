@@ -7,12 +7,13 @@ from dataclasses import asdict, replace
 import numpy as np
 import pytest
 
+from common.experiments.plans import freeze_plan
 from common.runtime.go import source_manifest
 from experiments.paper_theory.evidence.analyze import clock_rows, key, pairing_excess
+from experiments.paper_theory.evidence.bundle import Bundle, export_raw
 from experiments.paper_theory.evidence.design import design
-from experiments.paper_theory.evidence.figure_style import read_table
+from experiments.paper_theory.evidence.figures import read_table
 from experiments.paper_theory.evidence.fresh_reads import FreshReadPolicy
-from experiments.paper_theory.runtime.measure_analysis import cached_cases
 from theory.parameters import Parameters
 from theory.release import release_clock
 
@@ -27,7 +28,7 @@ def test_figure_tables_never_pool_different_confidence_radii(tmp_path):
     tables = tmp_path / "tables"
     tables.mkdir()
     (tables / "population.csv").write_text("epsilon,population,node_mean\n0.2,500,1\n0.4,500,2\n0.8,500,3\n")
-    rows = read_table(tmp_path, "population", epsilon=0.4)
+    rows = read_table(tables / "population.csv", epsilon=0.4)
     assert len(rows) == 1 and rows[0]["node_mean"] == 2
 
 
@@ -161,16 +162,20 @@ def test_mean_integral_does_not_clip_negative_remaining_energy():
 
 
 def test_generated_appledouble_metadata_is_not_a_result_archive(tmp_path):
-    raw = tmp_path / "raw"
-    raw.mkdir()
+    task = design("smoke_scaling")["tasks"][0]
+    freeze_plan(tmp_path / "plan.json", {"tasks": [task]})
+    raw = tmp_path / "measure" / "raw"
+    raw.mkdir(parents=True)
     np.savez(
-        raw / "new.npz",
-        metadata=json.dumps({"parameters": {"ratio": 2}}),
+        raw / (task["id"] + ".npz"),
+        metadata=json.dumps(task),
         diagnostics=json.dumps({"converged": False}),
         tau=np.array([0.0, 1.0]),
     )
-    (raw / "._new.npz").write_bytes(b"AppleDouble metadata, not NumPy")
-    assert [c["source"] for c in cached_cases(tmp_path)] == ["new.npz"]
+    (raw / ("._" + task["id"] + ".npz")).write_bytes(b"AppleDouble metadata, not NumPy")
+    output = tmp_path / "local"
+    export_raw(tmp_path, output)
+    assert list(Bundle(output).manifest["records"]) == [task["id"]]
 
 
 def test_source_hashing_skips_historical_output_directories(tmp_path):
