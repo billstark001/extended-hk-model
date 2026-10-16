@@ -60,8 +60,22 @@ class PendingCommit(TypedDict):
     sha256: str | None
 
 
+class TaskCoverage(TypedDict):
+    planned: int
+    completed: int
+    missing: list[str]
+
+
 EventState: TypeAlias = Literal[
-    "running", "complete", "retrying", "failed", "waiting_for_storage", "record_committed", "partial_analysis_failed"
+    "running",
+    "complete",
+    "cached",
+    "deferred",
+    "retrying",
+    "failed",
+    "waiting_for_storage",
+    "record_committed",
+    "partial_analysis_failed",
 ]
 EventHook: TypeAlias = Callable[..., None]
 
