@@ -9,7 +9,6 @@ from common.io.tables import table
 from theory.runtime.dataset import key
 from theory.validation import compare_fields, trajectory_gap
 
-from ..plot import plot_operator
 from .parity import parity
 
 
@@ -86,5 +85,4 @@ def analyze_operator(items, out):
         "unpaired_cells": missing,
         "numerical_comparisons": len(mesh),
         "parity_checks": checks,
-        "figures": plot_operator(errors, mesh, out),
     }

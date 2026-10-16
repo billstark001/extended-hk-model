@@ -65,7 +65,7 @@ files = [
   "experiments/paper_theory/evidence/analyze.py",
   "experiments/paper_theory/evidence/main_figures.py",
   "experiments/paper_theory/evidence/table_figures.py",
-  "experiments/paper_theory/evidence/migrate.py",
+  "experiments/paper_theory/evidence/main_smoke_design.py",
   "experiments/paper_theory/runtime/measure_runs.py",
   "experiments/paper_theory/micro_validation/population/run.py",
   "tests/typing/contracts.py",

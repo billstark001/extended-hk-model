@@ -1,1 +1,1 @@
-"""Expanded energy/release, terminal-state and fit-quality descriptors."""
+"""Offline descriptors used by the retained energy-curve fits."""

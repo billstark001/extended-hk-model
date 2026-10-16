@@ -13,6 +13,7 @@ from common.runtime.go import engine_manifest, source_manifest
 from theory.runtime import measure as schema
 
 from ..types import RunManifest
+from .design import LEGACY_PROFILES, PROFILES, canonical_profile
 
 
 @contextmanager
@@ -45,12 +46,17 @@ def settings(work: Path, publish: Path, args) -> RunManifest:
     old = None
     if args.resume:
         old = cast(RunManifest, read_owned(manifest, work))
-        if old["profile"] not in ("main", "main_smoke"):
-            raise ValueError("resume requires a canonical main or main_smoke profile")
+        if old["profile"] not in (*PROFILES, *LEGACY_PROFILES):
+            raise ValueError("resume requires a canonical main task profile")
         for name in ("profile", "backend", "horizon"):
             explicit = getattr(args, name)
             saved = old[name]
-            if explicit is not None and explicit != saved:
+            agrees = (
+                canonical_profile(explicit) == canonical_profile(str(saved))
+                if name == "profile" and explicit is not None
+                else explicit == saved
+            )
+            if explicit is not None and not agrees:
                 raise ValueError(f"resume cannot change {name}; use a new run")
             setattr(args, name, saved)
     else:
@@ -76,7 +82,7 @@ def settings(work: Path, publish: Path, args) -> RunManifest:
             if candidate.get(key) != value:
                 raise ValueError(f"resume {key} changed; use a new run")
     # Binding files authenticate the request schema originally used.
-    for binding in (work / "evidence").glob("main*/*/binding.json"):
+    for binding in (work / "evidence").glob("*/*/binding.json"):
         if read_owned(binding, work)["request_schema_sha256"] != candidate["request_schema_sha256"]:
             raise ValueError("resume request schema changed; use a new run")
     if not manifest.exists():
@@ -91,10 +97,10 @@ def restore_binaries(work, stage, config):
         (work / "bin" / "kinetic_manifest.json", work / "bin" / "smp-kinetic"),
     ]
     if not all(manifest.exists() and binary.exists() for manifest, binary in paths):
-        bindings = list((work / "evidence").glob("main*/*/binding.json"))
+        bindings = list((work / "evidence").glob("*/*/binding.json"))
         raw = [
             p
-            for p in (work / "evidence").glob("main*/*/raw/*")
+            for p in (work / "evidence").glob("*/*/raw/*")
             if not p.name.startswith("._") and (p.suffix in (".npz", ".json") or p.name.endswith(".msgpack.lz4"))
         ]
         if bindings or raw:

@@ -1,33 +1,35 @@
-# Paper experiment migration and refactoring
+# Theory experiment migration and pruning
 
-The model repository owns the active experiment code. Original paper artifacts remain unchanged. Their paths and SHA256 values in `migration_sources.json` record provenance, not imported dependencies or required source locations. The implementation was then reorganized by scientific responsibility; its files are not expected to remain byte-identical to those historical scripts.
+The model repository owns active code; original paper artifacts remain
+unchanged. `migration_sources.json` records historical source paths and SHA256
+values, not a registry of supported modules. Some recorded destinations have
+since been retired. It must not be used to discover runnable designs.
 
-| Original artifact code                                         | Current implementation                                                                                                       |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `energy_curve_parameterization/generate.py`                    | Historical `energy_scan/baseline/{design,run,storage,analyze,plot}` libraries                                                |
-| `energy_curve_parameterization/extended_log_grid/generate.py`  | Historical `energy_scan/expanded/{design,run,storage,fit,analyze,plot}` libraries                                            |
-| `energy_parameter_scaling/generate.py`                         | Historical `energy_scan/scaling/{design,run,relations,analyze,plot}` libraries                                               |
-| `edge_energy_continuous_20260928/scripts/analyze.py`           | `release_clocks/analyze/{curves,fitting,tables,driver}`                                                                      |
-| Parameter-clock calculations and plots                         | `release_clocks/parameter_clocks/{data,models,analyze,plot}` libraries                                                       |
-| Core and followup parameter generators                         | Study-owned `design.py` modules selected by `designs.py` presets                                                             |
-| Both custom Go adapters                                        | One `runtime/engine`; shared initialization, projection and stepping adapter with explicit policies                          |
-| Revision build, execution, records and estimate                | Study build selection in `runtime/build`; reusable contracts/execution in `src/theory/runtime`; old suite dispatcher removed |
-| Generic revision/ehk tools                                     | `src/common`                                                                                                                 |
-| Distribution/energy comparisons, clocks, exposure convolutions | `src/common/numerics`, `src/theory/validation`, `src/theory/release`, `src/theory/kernels`                                   |
-| Core/followup analysis and scientific reviews                  | `micro_validation`, `release_clocks`, `operator_validation`, `kernel_validation` analysis packages                           |
-| Paper-specific review and figures                              | Reusable `manuscript/{reports,figures}` libraries; uncalled fixed figure/claim/budget script assemblers removed              |
-| Scientific verification assertions                             | `tests/theory`, `tests/experiments`                                                                                          |
-| `run_core.sh`, `run_followup_20261007.sh`                      | Retired; active generation uses `python -m experiments.paper_theory run` with main/main_smoke                                |
-| Before/after runtime-reuse verification and timing scripts     | Retired after solver reuse; no active historical comparison workflow                                                         |
+The 2026-10-17 cleanup follows the theory structure revision proposal. Current
+experiment names, coverage and the remaining infrastructure discussion are in
+[README.md](README.md).
 
-There is no `revision` package, dated followup executable or compatibility import/command entry. Historical batch names and the `revision` request-ID placeholder remain only where required to preserve frozen task identities and locate recorded evidence. The independent microscopic and mesoscopic runtimes remain separate repositories.
+| Historical implementation | Current disposition |
+| --- | --- |
+| Energy-scan generation, channel probes and whole-grid plot menus | Removed; the previous design cleanup still applies |
+| Energy-scan node/edge fits and single-slot figures | Retained as offline capabilities; old baseline/expanded NPZ readers, fit APIs, and `fit-slot` / `plot-slot` CLI actions |
+| Old `scaling`, `release`, `population_closure` sweeps | Generators/plots removed; current named evidence tasks own the relevant comparisons |
+| Duplicate `micro_validation/population` design/analysis/plot | Removed; its executor remains used by current evidence |
+| Historical validation/follow-up grids | Only the completed 762/346-job batches remain; smoke/minimum/extended and unrun variants removed |
+| Historical figure menus and parameter-clock fit scripts | Removed; table analyses needed by the supplement remain |
+| Current `main_design` | Five named research topics; formal and smoke entry modules separated |
+| Nominal-N analytic closure scan | Removed; 90 exclusive formal tasks and 20 exclusive smoke tasks omitted |
+| Storage converter `evidence/migrate.py` | Copied to Cache original-data backup, then removed with its CLI/types/tests |
+| Runtime adapter, codecs, frozen readers, scientific estimators | Retained; shared lifecycle consolidation is discussion only |
 
-Historical design/analysis functions preserve frozen identities, seeds, ordering and protocols for reading recorded evidence. They are no longer generation CLI routes. The current main and main_smoke plans retain their complete original contents and task IDs. Superseded evidence paper/smoke generators are removed. Transport/storage changes preserve initial RNG policies, clipping, projection, exact energy normalization, recording cadence and analysis definitions. Quantile-clock estimators remain available, and process branches are not reclassified as independent initial states.
+Retained current task IDs and physical requests are unchanged. The revised
+aggregate plan has 1794 tasks and a new fingerprint; old 1884-task data is still
+read using its own frozen plan. The two retained historical batches reproduce
+exactly their earlier generated jobs, including ordering and metadata. Their
+scientific protocols remain distinct from the current manuscript protocol.
 
-## Data and products
-
-Use the unified commands in [README.md](README.md). Original inputs may stay on external storage or be exposed through ignored links. Input roots and generated output roots are independent. The [installation/data-link guide](../../docs/runtime-dependencies.md) describes all three repositories and the expected input layouts.
-
-Cached analysis preserves recorded numerical protocols and original solver/adapter identities. It does not rewrite them using the current build. New generation records current source/binary identity and must use a separate run location when incompatible with old caches. Every generated build, plan, raw record, fit, report, plot, cache and link remains ignored.
-
-The frozen manuscript selection needs plans, binding/status files and per-task trajectories. Small review CSVs cannot replace that evidence. Historical data can still be read without retaining its code entry points. Pure forwarding wrappers, old function/profile aliases and redundant path re-exports are removed. The canonical CLI is the only Python `main()`; launch orchestration receives parsed arguments directly. Resume requires the original run manifest, while offline readers retain original JSON/NPZ formats. CAS 2026 is a literature citation, not a migrated dataset or rerun target. No bulk-data upload or production simulation is automatic.
+The Cache native dataset contains 828 measure NPZ, 1056 micro binary and 228
+shared pair records. Its completed migration/analysis/render receipts remain
+with the dataset. Original JSON files and the retired converter copy remain in
+`/Volumes/Cache/extended-hk-model-paper-original-data/`. No simulations, further
+migration, raw-data removal, or bulk publication was performed by this cleanup.

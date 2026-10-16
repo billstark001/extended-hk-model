@@ -21,7 +21,7 @@ class TestScientificChecks(unittest.TestCase):
         candidate = {
             "schema": 1,
             "profile": "core",
-            "jobs": [generate(preset="ensembles", smoke=True)[0]],
+            "jobs": [generate(preset="ensembles")[0]],
             "analysis_protocol": ANALYSIS,
             "definitions_sha256": {"parameters.py": "original-file-hash"},
         }
@@ -61,12 +61,11 @@ class TestScientificChecks(unittest.TestCase):
             resolve_frozen_plan(candidate, frozen)
 
     def test_design_and_conditional_repeats(self):
-        expected = {"minimum": (94, 62), "core": (236, 110), "extended": (240, 130)}
-        for profile, counts in expected.items():
-            jobs = generate(preset="ensembles", profile=profile)
+        for preset, counts in (("validation", (208, 202)), ("ensembles", (236, 110))):
+            jobs = generate(preset=preset)
             actual = collections.Counter(j["family"] for j in jobs)
             self.assertEqual((actual["micro"], actual["clocks"]), counts)
-            self.assertEqual(jobs, generate(preset="ensembles", profile=profile))
+            self.assertEqual(jobs, generate(preset=preset))
             self.assertEqual(len(jobs), len({j["id"] for j in jobs}))
             physical = []
             for job in jobs:
@@ -74,7 +73,8 @@ class TestScientificChecks(unittest.TestCase):
                 payload.pop("id")
                 payload["request"]["request_id"] = "revision"
                 physical.append(fingerprint(payload))
-            self.assertEqual(len(physical), len(set(physical)))
+            if preset == "ensembles":
+                self.assertEqual(len(physical), len(set(physical)))
         jobs = generate(preset="ensembles")
         for initial in definitions.INITIAL_REPLICATES:
             cohort = [

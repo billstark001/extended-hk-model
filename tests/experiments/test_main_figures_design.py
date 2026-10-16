@@ -62,11 +62,11 @@ def test_early_stopped_area_retains_observed_endpoint_without_fabricating_tail()
     assert all(r["horizon_tau"] <= time[-1] for r in rows)
 
 
-def test_main_plan_and_task_ids_match_original_frozen_fingerprints():
+def test_pruned_main_plans_have_fixed_fingerprints():
     from common.io.json import fingerprint
 
-    assert fingerprint(design("main")) == "7601b36253f6510e794abd24bfdabee9f19af00b2ae08829f31e30efecaf2cef"
-    assert fingerprint(design("main_smoke")) == "b4c1f79d99304e4ce9889406744f20dc8efc222bdcab717a370cb6d29e2c20c6"
+    assert fingerprint(design("main")) == "3843c2cade76e352caa58481a08c2f2f5f38f67eee3969096d06785f02af7015"
+    assert fingerprint(design("main_smoke")) == "70dca64c55bf181b708e61590479e279477a3320d0b4aa472fa279792d8603a2"
     for profile in ("paper", "smoke"):
         with pytest.raises(ValueError, match="main"):
             design(profile)
@@ -122,16 +122,9 @@ def test_main_coverage_matches_captions_and_two_independent_initial_graphs():
         design("main", horizon=30)
 
 
-def test_main_smoke_retains_all_three_figure_roles():
+def test_main_smoke_retains_all_five_research_topics():
     plan = design("main_smoke")
-    assert {r for t in plan["tasks"] for r in t["roles"]} == {
-        "effects",
-        "scaling",
-        "numerics",
-        "closure",
-        "population",
-        "matched",
-    }
+    assert {r for t in plan["tasks"] for r in t["roles"]} == {"effects", "scaling", "numerics", "population", "matched"}
     assert all(t["parameters"]["horizon"] == 0.4 for t in plan["tasks"])
     assert json.loads(json.dumps(plan)) == plan
 

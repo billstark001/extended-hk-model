@@ -1,143 +1,128 @@
-"""Atomic case/shard caches, protocol validation and descriptor exports."""
+"""Read existing baseline/expanded energy curves without a scan design or solver."""
 
-from __future__ import annotations
-
-import csv
-import hashlib
 import json
+import math
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
-from experiments.paper_theory.energy_scan.expanded import config
 
-
-def sha256(path: Path) -> str:
-    """Hash file contents in fixed-size chunks for binary/adapter provenance."""
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def shard_path(dynamics: str, alpha: float) -> Path:
-    """Return a shard path keyed by dynamics and alpha; create no directories."""
-    return config.RAW / f"{dynamics}_alpha_{alpha:.12g}.npz"
-
-
-def case_checkpoint_path(dynamics: str, alpha: float, epsilon: float, ratio: float) -> Path:
-    """Return a case path keyed by dynamics, alpha, confidence and ratio; create no directories."""
-    directory = config.CHECKPOINTS / shard_path(dynamics, alpha).stem
-    return directory / f"epsilon_{epsilon:g}_ratio_{ratio:.12g}.npz"
-
-
-def save_case_checkpoint(
-    path: Path, protocol: dict[str, Any], epsilon: float, ratio: float, data: dict[str, np.ndarray]
-) -> None:
-    """Atomically save one case with its complete protocol, epsilon and rate ratio."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.stem + ".temporary.npz")
-    np.savez_compressed(
-        temporary,
-        protocol=np.asarray(json.dumps(protocol, sort_keys=True)),
-        epsilon=np.asarray(epsilon),
-        q_over_alpha=np.asarray(ratio),
-        **data,
-    )
-    temporary.replace(path)
-
-
-def load_case_checkpoint(path: Path, protocol: dict[str, Any], epsilon: float, ratio: float) -> dict[str, np.ndarray]:
-    """Return cached case arrays only when protocol and physical keys match the requested case."""
-    expected = json.dumps(protocol, sort_keys=True) if protocol is not None else None
-    with np.load(path) as archive:
-        if str(archive["protocol"].item()) != expected:
-            raise ValueError(f"incompatible case checkpoint: {path}")
-        if not np.isclose(float(archive["epsilon"]), epsilon):
-            raise ValueError(f"epsilon mismatch in case checkpoint: {path}")
-        if not np.isclose(float(archive["q_over_alpha"]), ratio):
-            raise ValueError(f"ratio mismatch in case checkpoint: {path}")
-        ignored = {"protocol", "epsilon", "q_over_alpha"}
-        return {name: np.asarray(archive[name]) for name in archive.files if name not in ignored}
-
-
-def save_shard(path: Path, protocol: dict[str, Any], ratios: np.ndarray, data: dict[str, np.ndarray]) -> None:
-    """Atomically save a dynamics/alpha shard with its numerical protocol and coordinate arrays."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.stem + ".temporary.npz")
-    np.savez_compressed(
-        temporary,
-        protocol=np.asarray(json.dumps(protocol, sort_keys=True)),
-        epsilon=config.EPSILONS,
-        q_over_alpha=ratios,
-        **data,
-    )
-    temporary.replace(path)
-
-
-def load_shard(path: Path, protocol: dict[str, Any] | None = None) -> dict[str, np.ndarray]:
-    """Return stored shard arrays, optionally rejecting any mismatch with the supplied complete protocol."""
-    expected = json.dumps(protocol, sort_keys=True) if protocol is not None else None
-    with np.load(path) as archive:
-        actual = str(archive["protocol"].item())
-        if expected is not None and actual != expected:
+def load_shard(path, protocol=None):
+    """Read a saved shard, optionally checking its original complete protocol."""
+    with np.load(path, allow_pickle=False) as archive:
+        if protocol is not None and json.loads(str(archive["protocol"].item())) != protocol:
             raise ValueError(f"incompatible raw shard: {path}")
-        return {name: np.asarray(archive[name]) for name in archive.files}
+        return {name: archive[name] for name in archive.files}
 
 
-def save_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    """Export rows to path using their ordered union of fields; the parent directory must exist."""
-    fields = []
-    for row in rows:
-        for name in row:
-            if name not in fields:
-                fields.append(name)
-    with path.open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
+def curve_slots(shards):
+    """Yield available parameter slots, restoring a saved first physical update.
+
+    Shard keys are (dynamics, alpha). Axes and physical dt come from the saved
+    data. No complete historical grid or current executable is required.
+    """
+    for (dynamics, alpha), shard in shards.items():
+        protocol = json.loads(str(shard["protocol"].item())) if "protocol" in shard else {}
+        if protocol.get("dynamics", dynamics) != dynamics or not np.isclose(
+            protocol.get("alpha", alpha), alpha, rtol=1e-9, atol=1e-12
+        ):
+            raise ValueError("requested dynamics/alpha differ from the saved protocol")
+        first_tau = alpha * protocol.get("dt", 1.0)
+        if not np.isfinite(first_tau) or first_tau <= 0:
+            raise ValueError("saved alpha and physical dt must be positive and finite")
+        for i, epsilon in enumerate(shard["epsilon"]):
+            for j, ratio in enumerate(shard["q_over_alpha"]):
+                length = int(shard["lengths"][i, j])
+                time_key = "tau" if "tau" in shard else "time"
+                tau = np.asarray(shard[time_key][i, j, :length], dtype=float)
+                if time_key == "time":
+                    tau = alpha * tau
+                node = np.asarray(shard["node_energy"][i, j, :length], dtype=float)
+                edge = np.asarray(shard["edge_energy"][i, j, :length], dtype=float)
+                if length < 2 or any(len(a) != length or not np.all(np.isfinite(a)) for a in (tau, node, edge)):
+                    raise ValueError("invalid or missing saved energy curve")
+                if tau[0] != 0 or np.any(np.diff(tau) <= 0):
+                    raise ValueError("saved tau must start at zero and strictly increase")
+                if tau[1] > first_tau + 1e-12:
+                    if "first_step_delta" not in shard:
+                        raise ValueError("coarse curve lacks its saved first-step energy changes")
+                    delta = np.asarray(shard["first_step_delta"][i, j], dtype=float)
+                    tau = np.insert(tau, 1, first_tau)
+                    node = np.insert(node, 1, node[0] + delta[0])
+                    edge = np.insert(edge, 1, edge[0] + delta[1])
+                else:
+                    delta = (
+                        np.asarray(shard["first_step_delta"][i, j], dtype=float)
+                        if "first_step_delta" in shard
+                        else np.asarray((node[1] - node[0], edge[1] - edge[0]))
+                    )
+                if not np.all(np.isfinite(delta)):
+                    raise ValueError("invalid first-step energy changes")
+                q = alpha * float(ratio)
+                yield {
+                    "dynamics": dynamics,
+                    "alpha": float(alpha),
+                    "epsilon": float(epsilon),
+                    "q_over_alpha": float(ratio),
+                    "q": 1.0 if math.isclose(q, 1.0, abs_tol=1e-12, rel_tol=0) else q,
+                    "converged": bool(shard["converged"][i, j]),
+                    "tau": tau,
+                    "node_energy": node,
+                    "edge_energy": edge,
+                    "first_step_delta": delta,
+                }
 
 
-def save_descriptor_grid(rows: list[dict[str, Any]]) -> None:
-    """Export curve-descriptor grids for interpolation/analysis using the configured feasible-rate coordinates."""
-    names = (
-        "initial_energy",
-        "plateau",
-        "drop_amplitude",
-        "first_step_fraction",
-        "tau_10",
-        "tau_50",
-        "tau_90",
-        "tau_99",
-        "tail_slowdown",
-    )
-    shape = (
-        len(config.DYNAMICS),
-        config.EPSILONS.size,
-        config.ALPHAS.size,
-        config.RATIOS.size,
-        len(config.ENERGY_NAMES),
-    )
-    arrays = {name: np.full(shape, np.nan) for name in names}
-    dynamics_index = {name: index for index, name in enumerate(config.DYNAMICS)}
-    for row in rows:
-        index = (
-            dynamics_index[row["dynamics"]],
-            int(np.flatnonzero(config.EPSILONS == row["epsilon"])[0]),
-            int(np.flatnonzero(np.isclose(config.ALPHAS, row["alpha"]))[0]),
-            int(np.flatnonzero(np.isclose(config.RATIOS, row["q_over_alpha"]))[0]),
-            config.ENERGY_NAMES.index(row["energy"]),
+def load_slot(path, *, dynamics, alpha, epsilon, ratio):
+    """Select exactly one saved (dynamics, epsilon, alpha, q/alpha) slot."""
+    if (
+        dynamics not in ("hk", "deffuant")
+        or not np.isfinite([alpha, epsilon, ratio]).all()
+        or alpha <= 0
+        or epsilon <= 0
+        or ratio < 0
+    ):
+        raise ValueError("invalid energy-slot coordinates")
+    path = Path(path).expanduser().resolve()
+    if path.is_dir():
+        candidates = (
+            path / f"{dynamics}_alpha_{alpha:.12g}.npz",
+            path / "raw_shards" / f"{dynamics}_alpha_{alpha:.12g}.npz",
+            path / "energy_curve_parameterization.npz",
         )
-        for name in names:
-            arrays[name][index] = row[name]
-    np.savez_compressed(
-        config.HERE / "descriptor_grid.npz",
-        dynamics=np.asarray(config.DYNAMICS),
-        epsilon=config.EPSILONS,
-        alpha=config.ALPHAS,
-        q_over_alpha=config.RATIOS,
-        energy=np.asarray(config.ENERGY_NAMES),
-        **arrays,
+        present = [p for p in candidates if p.is_file()]
+        if len(present) != 1:
+            raise ValueError("expected one matching energy archive; specify its NPZ path directly")
+        path = present[0]
+    # Avoid decoding unrelated potential/terminal-state arrays in a large shard.
+    keys = (
+        "protocol",
+        "epsilon",
+        "q_over_alpha",
+        "lengths",
+        "tau",
+        "time",
+        "node_energy",
+        "edge_energy",
+        "first_step_delta",
+        "converged",
     )
+    with np.load(path, allow_pickle=False) as archive:
+        shard = {name: archive[name] for name in keys if name in archive.files}
+    if "protocol" not in shard:
+        raise ValueError("energy-slot selection requires the saved physical protocol")
+    protocol = json.loads(str(shard["protocol"].item()))
+    if "dynamics" not in protocol or "alpha" not in protocol:
+        raise ValueError("saved energy protocol lacks dynamics/alpha")
+    for name, value in (("epsilon", epsilon), ("q_over_alpha", ratio)):
+        hits = np.flatnonzero(np.isclose(shard[name], value, rtol=1e-9, atol=1e-12))
+        if len(hits) != 1:
+            raise ValueError(f"slot {name} must match exactly one saved coordinate")
+        index = int(hits[0])
+        axis = 0 if name == "epsilon" else 1
+        for field in ("lengths", "tau", "time", "node_energy", "edge_energy", "first_step_delta", "converged"):
+            if field in shard:
+                shard[field] = np.take(shard[field], [index], axis=axis)
+        shard[name] = shard[name][[index]]
+    slot = next(curve_slots({(dynamics, alpha): shard}))
+    return slot, path

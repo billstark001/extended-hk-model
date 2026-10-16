@@ -13,6 +13,7 @@ from common.io.json import atomic_json, fingerprint, sha
 from common.plotting.figures import decorate, numeric_log_ticks
 
 from ..types import FrozenMainPlan
+from .design import is_smoke, topics
 from .figure_style import COLORS, LABELS, RULES, matches, read_table, save
 from .protocol import KERNELS
 
@@ -358,7 +359,7 @@ def numerical_figure(directory, output, plan):
     rows = read_table(directory, "numerics", p["baseline_epsilon"])
     factors = [("bins", 81, "B=81"), ("bins", 241, "B=241"), ("quadrature", 9, "Q=9"), ("dt", 0.5, "dt=0.5")]
     # Smoke uses different mesh/quadrature controls; infer its factors from rows.
-    if plan["profile"] == "main_smoke":
+    if is_smoke(plan["profile"]):
         factors = [("bins", 31, "B=31"), ("quadrature", 5, "Q=5"), ("dt", 0.5, "dt=0.5")]
     columns = [(rec, z, channel) for rec, z in (KERNELS[2], KERNELS[4]) for channel in ("node", "edge")]
     fig, axes = plt.subplots(2, 2, figsize=(9.2, 6.5), layout="constrained")
@@ -433,12 +434,18 @@ def plot_tables(directory, output=None):
         view = dict(plan, analysis_protocol=dict(plan["analysis_protocol"], baseline_epsilon=epsilon))
         target = output if epsilon == plan["analysis_protocol"]["baseline_epsilon"] else output / f"epsilon_{epsilon:g}"
         target.mkdir(exist_ok=True)
-        recommendation_figure(directory, target, view)
-        absolute_figure(directory, target, view)
-        matched_areas(directory, target, view)
-        population_figures(directory, target, view)
-        scaling_errors(directory, target, view)
-        numerical_figure(directory, target, view)
+        selected_topics = topics(plan["profile"])
+        if "recommendation" in selected_topics:
+            recommendation_figure(directory, target, view)
+            absolute_figure(directory, target, view)
+        if "matched" in selected_topics:
+            matched_areas(directory, target, view)
+        if "population" in selected_topics:
+            population_figures(directory, target, view)
+        if "scaling" in selected_topics:
+            scaling_errors(directory, target, view)
+        if "numerics" in selected_topics:
+            numerical_figure(directory, target, view)
     atomic_json(
         output / "manifest.json",
         {

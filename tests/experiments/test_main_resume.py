@@ -11,6 +11,7 @@ import pytest
 
 from common.io.json import atomic_json, sha
 from common.runtime.process import run_jsonl, run_tasks
+from experiments.paper_theory.evidence.design import LEGACY_PROFILES, PROFILES, canonical_profile
 from experiments.paper_theory.evidence.resume import recover_task_lock, restore_binaries, session_lock, settings
 from experiments.paper_theory.micro_validation.population import run as population
 from experiments.paper_theory.runtime import measure_runs
@@ -185,7 +186,7 @@ def test_stale_task_lock_is_recovered_but_live_owner_is_preserved(tmp_path, monk
     assert not lock.exists()
 
 
-def config_fixture(tmp_path):
+def config_fixture(tmp_path, profile="main_smoke"):
     for name in ("meso", "micro"):
         root = tmp_path / name
         root.mkdir()
@@ -196,7 +197,7 @@ def config_fixture(tmp_path):
     work.mkdir()
     args = SimpleNamespace(
         resume=False,
-        profile="main_smoke",
+        profile=profile,
         horizon=None,
         backend="purego",
         meso_root=tmp_path / "meso",
@@ -205,6 +206,27 @@ def config_fixture(tmp_path):
     config = settings(work, tmp_path / "publish", args)
     args.resume = True
     return work, args, config
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_resume_restores_each_named_task_and_rejects_topic_changes(tmp_path, profile):
+    work, args, frozen = config_fixture(tmp_path, profile)
+    args.profile = None
+    assert settings(work, tmp_path / "publish", args) == frozen
+    assert args.profile == profile
+    args.profile = "main" if profile != "main" else "scaling"
+    with pytest.raises(ValueError, match="cannot change profile"):
+        settings(work, tmp_path / "publish", args)
+
+
+@pytest.mark.parametrize("profile", LEGACY_PROFILES)
+def test_renamed_tasks_resume_without_rewriting_the_frozen_profile(tmp_path, profile):
+    work, args, frozen = config_fixture(tmp_path, profile)
+    original = (work / "run_manifest.json").read_bytes()
+    args.profile = canonical_profile(profile)
+    assert settings(work, tmp_path / "publish", args) == frozen
+    assert args.profile == profile
+    assert (work / "run_manifest.json").read_bytes() == original
 
 
 @pytest.mark.parametrize("changed", ["profile", "horizon", "backend", "source", "schema"])

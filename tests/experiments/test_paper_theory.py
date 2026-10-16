@@ -4,16 +4,15 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from experiments.paper_theory.micro_validation.population.design import designs as population_designs
-from experiments.paper_theory.sweeps import designs
+from experiments.paper_theory.evidence.design import design
 from theory.parameters import Parameters
 from theory.runtime.archives import save_result
 from theory.runtime.measure import measure_request
 
 
 def test_scaling_design_keeps_q_over_alpha_and_scaled_horizon():
-    tasks = list(designs("scaling", "smoke"))
-    assert len(tasks) == 8
+    tasks = design("smoke_scaling")["tasks"]
+    assert len(tasks) == 20
     for task in tasks:
         p = Parameters(**task["parameters"])
         request = measure_request(task["id"], p)
@@ -25,12 +24,12 @@ def test_scaling_design_keeps_q_over_alpha_and_scaled_horizon():
 
 
 def test_population_design_separates_initials_from_process_branches():
-    tasks = list(population_designs("smoke"))
-    assert len(tasks) == 8
+    tasks = design("smoke_population")["tasks"]
+    assert len(tasks) == 80
     assert {t["parameters"]["degree"] for t in tasks} == {15}
     assert {t["parameters"]["recommendations"] for t in tasks} == {10}
-    assert len({t["initial_seed"] for t in tasks}) == 1
-    assert len({t["process_seed"] for t in tasks}) == 2
+    assert len({t["initial_seed"] for t in tasks}) == 2
+    assert len({t["process_seed"] for t in tasks}) == 4
 
 
 def test_first_step_is_saved_without_fabricating_other_observables(tmp_path):

@@ -10,7 +10,7 @@ def validation_cases():
     jobs = []
     # Equal fixed horizon and initial conditions within every measure/F-P pair.
     for eps, alpha, ratio, d, (rec, z), method in product(
-        (0.4, 0.2, 0.8), (0.01, 0.05, 0.2), (0.25, 2, 4), DYNAMICS, RECS, ("measure", "fokker_planck")
+        (0.4,), (0.01, 0.05, 0.2), (0.25, 2, 4), DYNAMICS, RECS, ("measure", "fokker_planck")
     ):
         jobs.append(
             task(

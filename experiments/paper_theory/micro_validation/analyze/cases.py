@@ -12,8 +12,6 @@ from common.statistics import bootstrap_mean
 from theory.runtime.dataset import key
 from theory.validation import compare_fields, trajectory_gap
 
-from ..plot import plot_micro
-
 
 def analyze_micro(items, out):
     """Write matched field/energy errors and conditional audit diagnostics from validated records; return the family summary."""
@@ -147,8 +145,4 @@ def analyze_micro(items, out):
                 }
             )
     table(out / "replicate_bootstrap.csv", uncertainty)
-    return {
-        "trajectories": len(rows),
-        "conditional_checkpoints": len(increments),
-        "figures": plot_micro(items, fields, out),
-    }
+    return {"trajectories": len(rows), "conditional_checkpoints": len(increments)}

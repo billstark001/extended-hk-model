@@ -24,7 +24,9 @@ def plan(directory: Path, profile: MainProfile, horizon: float | None = None) ->
     else:
         atomic_json(path, frozen)
     for kind in ("measure", "micro"):
-        write_design(directory / kind / "design.json", [t for t in frozen["tasks"] if t["kind"] == kind])
+        selected = [t for t in frozen["tasks"] if t["kind"] == kind]
+        if selected:
+            write_design(directory / kind / "design.json", selected)
     print(dict(Counter(t["kind"] for t in frozen["tasks"])), flush=True)
     return frozen
 
@@ -91,6 +93,9 @@ def perform(a, root, build_dir, meso, micro):
                 ("measure", directory / "measure", binary),
                 ("micro", directory / "micro" / "raw", engine),
             ):
+                selected = [t for t in candidate["tasks"] if t["kind"] == kind]
+                if not selected:
+                    continue
                 try:
                     if kind == "measure":
                         measure(

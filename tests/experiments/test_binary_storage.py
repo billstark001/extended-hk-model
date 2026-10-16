@@ -13,7 +13,6 @@ from common.io.records import equivalent, read_record, write_record
 from common.runtime.failures import BatchTaskError, ProtocolError
 from common.runtime.process import run_tasks
 from common.runtime.storage import RunStorage
-from experiments.paper_theory.evidence.migrate import migrate
 from theory.runtime import completed
 from theory.runtime.records import read_micro
 
@@ -157,60 +156,3 @@ def test_incomplete_pair_cannot_mask_a_different_cached_task(tmp_path):
     write_record(path, original, {"frames": [], "pair_ref": {"key": "a" * 64, "sha256": "missing"}})
     with pytest.raises(ProtocolError, match="protocol differs"):
         completed.cached(path, {**original, "parameters": {"epsilon": 0.2}}, "micro")
-
-
-def test_offline_migration_preserves_synthetic_plan_and_deduplicates_pair(tmp_path):
-    from common.io.json import fingerprint
-
-    source, destination = tmp_path / "old", tmp_path / "converted"
-    p = {"alpha": 0.02, "dt": 1.0, "horizon": 0.02}
-    tasks = [
-        {
-            "id": f"branch_{i}",
-            "kind": "micro",
-            "parameters": p,
-            "initial_seed": 1,
-            "process_seed": 20 + i,
-            "branch": i,
-            "selection": "weighted",
-        }
-        for i in range(2)
-    ]
-    plan = {"schema": 1, "profile": "main", "analysis_protocol": {}, "tasks": tasks}
-    atomic_json(source / "plan.json", {**plan, "plan_fingerprint": fingerprint(plan)})
-    binding = {"binary_sha256": "original binary", "request_schema_sha256": "original schema"}
-    for kind in ("measure", "micro"):
-        atomic_json(source / kind / "binding.json", binding)
-    diagnostics = {"max_node_mass_residual": 0, "max_fixed_degree_residual": 0}
-    frames = [
-        {"time": t, "node_energy": 1 - t, "edge_energy": 1 - t, "rho": [0.25, 0.75], "edge": [0.0, 0.0, 0.0, 1.0]}
-        for t in (0.0, 1.0)
-    ]
-    originals = {}
-    for task in tasks:
-        path = source / "micro" / "raw" / (task["id"] + ".json")
-        atomic_json(
-            path,
-            {
-                "task": task,
-                "result": {
-                    "initial_hash": "fixed",
-                    "projection_l1": 0.0,
-                    "frames": frames,
-                    "pair": {
-                        "frames": frames,
-                        "diagnostics": {**diagnostics, "elapsed_seconds": task["branch"] + 0.25},
-                    },
-                },
-            },
-        )
-        originals[path] = path.read_bytes()
-    manifest = migrate(source, destination)
-    assert manifest["state"] == "complete"
-    assert (source / "plan.json").read_bytes() == (destination / "plan.json").read_bytes()
-    assert len(list((destination / "micro" / "pairs").glob("*.msgpack.lz4"))) == 1
-    assert all(path.read_bytes() == data for path, data in originals.items())
-    assert [read_micro(destination / "micro" / "raw" / (t["id"] + ".msgpack.lz4"))["task"] for t in tasks] == tasks
-    modified = {path: path.stat().st_mtime_ns for path in (destination / "micro").rglob("*.msgpack.lz4")}
-    assert migrate(source, destination)["records"] == manifest["records"]
-    assert all(path.stat().st_mtime_ns == stamp for path, stamp in modified.items())

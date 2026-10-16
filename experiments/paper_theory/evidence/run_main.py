@@ -80,14 +80,6 @@ def run(args, work, publish):
     os.environ["GOMODCACHE"] = str(args.control_dir / "cache" / "go-modules")
     # Accelerate supplies the native BLAS used by mesoscopic matrix operations.
     sys.pycache_prefix = os.environ["PYTHONPYCACHEPREFIX"]
-    for variable in (
-        "EHK_RELEASE_SCAN_INPUT_DIR",
-        "EHK_RELEASE_CLOCK_INPUT_DIR",
-        "EHK_REVISION_INPUT_DIR",
-        "EHK_REVISION_REVIEW_INPUT_DIR",
-        "EHK_MANUSCRIPT_INPUT_DIR",
-    ):
-        os.environ[variable] = str(work / "forbidden_historical_inputs")
     # Link on APFS to avoid zero executable headers from macOS exFAT mmap.
     # Binaries are copied/verified into Cache; scientific records and dependency
     # and build caches remain in the Cache run directory.

@@ -5,10 +5,7 @@ from __future__ import annotations
 import collections
 import math
 
-import numpy as np
-
 from common.io.tables import table
-from common.plotting.batch import plotting, savefig
 from theory.release import clock_pair, confirmed_clocks
 
 MICRO_KEYS = (
@@ -116,41 +113,6 @@ def analyze_ensembles(items, jobs, protocol, out):
                         }
                     )
     table(out / "crossing_intervals.csv", crossings)
-    if any(r["energy_confirmed"] for r in rows):
-        plt = plotting()
-        fig, axes = plt.subplots(2, 3, figsize=(12, 6))
-        for i, d in enumerate(("hk", "deffuant")):
-            for z in (1, 4):
-                designed = sorted(
-                    [
-                        j
-                        for j in jobs
-                        if j["meta"]["role"] == "crossing"
-                        and j["meta"]["dynamics"] == d
-                        and j["meta"]["zeta"] == z
-                        and j["meta"]["b"] == 161
-                        and j["meta"]["quadrature"] == 33
-                    ],
-                    key=lambda j: j["meta"]["ratio"],
-                )
-                for j, metric in enumerate(("rho_tau50", "edge_tau50", "delta50")):
-                    x = [job["meta"]["ratio"] for job in designed]
-                    y = [
-                        by_id[job["id"]][metric]
-                        if job["id"] in by_id
-                        and by_id[job["id"]]["energy_confirmed"]
-                        and by_id[job["id"]][metric] is not None
-                        else np.nan
-                        for job in designed
-                    ]
-                    axes[i, j].plot(x, y, "o-", label=f"Opinion z={z}")
-            for j, metric in enumerate(("rho_tau50", "edge_tau50", "delta50")):
-                axes[i, j].set(xlabel=r"$q/\alpha$", ylabel=d + " " + metric)
-                if axes[i, j].get_legend_handles_labels()[0]:
-                    axes[i, j].legend(fontsize=7)
-            axes[i, 2].axhline(0, color="gray", lw=0.6)
-        fig.suptitle("Energy-confirmed clocks; B=161, quadrature=33; missing points break lines")
-        savefig(fig, out / "figures", "confirmed_crossing_clocks")
     return {
         "trajectories": len(rows),
         "joint_confirmed": sum(r["joint_confirmed"] for r in rows),

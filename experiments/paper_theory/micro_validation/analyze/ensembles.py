@@ -8,7 +8,6 @@ import numpy as np
 
 from common.io.json import save_result
 from common.io.tables import table
-from common.plotting.batch import plotting, savefig
 from common.statistics import bootstrap_weights, mean_interval
 from theory.release import clocks, curve_clock_interval, release_clock
 from theory.release.ensemble import clock_statistics
@@ -239,28 +238,6 @@ def analyze_ensembles(items, protocol, out):
                 raise ValueError("mesh/quadrature changed the underlying micro process")
     table(out / "trajectory_errors.csv", rows)
     curves, count = cohorts(items, rows, protocol, out)
-    plotted = [c for c in curves if c["initial_replicate"] == 0 and "clock_ensemble" in c["roles"]]
-    dynamics = [d for d in ("hk", "deffuant") if any(c["dynamics"] == d for c in plotted)]
-    if plotted:
-        plt = plotting()
-        fig, axes = plt.subplots(len(dynamics), 2, squeeze=False, figsize=(10, 3.25 * len(dynamics)))
-        for i, d in enumerate(dynamics):
-            for c in plotted:
-                if c["dynamics"] != d:
-                    continue
-                for j, ch in enumerate(("node", "edge")):
-                    x = np.asarray(c["times"]) * c["alpha"]
-                    (line,) = axes[i, j].plot(x, c[ch + "_mean"], label=c["recommender"] + " micro")
-                    axes[i, j].fill_between(x, c[ch + "_lower"], c[ch + "_upper"], color=line.get_color(), alpha=0.15)
-                    axes[i, j].plot(
-                        np.asarray(c[ch + "_pair_times"]) * c["alpha"], c[ch + "_pair"], "--", color=line.get_color()
-                    )
-            for j, ch in enumerate(("node", "edge")):
-                axes[i, j].set(xlabel=r"$\alpha t$", ylabel=d + " " + ch + " energy")
-                if axes[i, j].get_legend_handles_labels()[0]:
-                    axes[i, j].legend(fontsize=6)
-        fig.suptitle("One fixed initial state; process-bootstrap bands; dashed pair predictions")
-        savefig(fig, out / "figures", "conditional_micro_energy")
     return {
         "trajectories": len(rows),
         "fixed_initial_cohorts": count,

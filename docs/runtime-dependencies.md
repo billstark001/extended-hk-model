@@ -43,9 +43,6 @@ launching the microscopic CLI.
 For checkouts in other locations, edit the ignored `.env`:
 
 ```dotenv
-EHK_MICRO_SOURCE_DIR=/path/to/social-media-models
-EHK_MESO_SOURCE_DIR=/path/to/social-media-mesoscopic-models
-EHK_KINETIC_BINARY=/path/to/social-media-mesoscopic-models/bin/smp-kinetic
 SMP_BINARY_PATH=/path/to/social-media-models/smp
 SMP_PROBE_BINARY=/path/to/social-media-models/smp-probe
 EHK_PAPER_THEORY_OUTPUT_DIR=/path/to/generated/theory
@@ -53,7 +50,7 @@ EHK_PAPER_THEORY_OUTPUT_DIR=/path/to/generated/theory
 
 The main `run` command builds both the public mesoscopic executable and the
 small experiment adapter; `resume` restores the original verified executable
-copies. The active CLI uses `main`/`main_smoke`, without the old suite dispatcher.
+copies. The active CLI supports named research topics; `main`/`main_smoke` select all formal/software topics.
 
 ```sh
 python -m experiments.paper_theory plan --profile main --work-dir /path/to/new-run
@@ -76,34 +73,18 @@ The workspace JSON maps run groups to the actual mounted data directories.
 `SIMULATION_INSTANCE_NAME` must name a group present in that JSON. Missing
 volumes are a data-availability issue, not a reason to place the records in Git.
 
-For the theory workflows, configure these read-only input roots. The revision-named settings refer to historical dataset layouts; they do not select legacy code entry points:
+Theory offline commands take an explicit frozen dataset directory using
+`--run-dir`; it contains `plan.json`, bindings, `measure/raw`, and/or
+`micro/raw` plus shared `micro/pairs`. CSV-only exports need the frozen plan,
+report and tables. Historical audit libraries take explicit dataset roots.
+Energy-slot fitting/plotting takes an explicit baseline/expanded NPZ archive
+or shard directory through `--run-dir`, with `--dynamics`, `--epsilon`,
+`--alpha` and `--ratio`. The old scan/fit input settings and symlink layouts
+are retired; these offline commands do not need runtime executables.
 
-| Setting                         | Expected contents                                                                                                      |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `EHK_RELEASE_SCAN_INPUT_DIR`    | `raw_shards/*.npz`, `low_parameter_fits.csv`, `edge_timescale_fits.csv`                                                |
-| `EHK_RELEASE_CLOCK_INPUT_DIR`   | `parameter_clocks/data/*.csv`, optional `raw/*.npz` refinements                                                        |
-| `EHK_REVISION_INPUT_DIR`        | `revision_core_v3/`, `revision_followup_v1/`, with frozen plans, bindings, status, per-family raw results and analysis |
-| `EHK_REVISION_REVIEW_INPUT_DIR` | `review_20261007/`, `review_followup_20261007/` tables                                                                 |
-| `EHK_MANUSCRIPT_INPUT_DIR`      | Existing `provenance.json`, `rewiring_sign_audit.json`, `tables/` for the historical claim audit                       |
-
-Input defaults are under `outputs/inputs/paper_theory`, separate from generated
-`outputs/experiments/paper_theory`; no paper checkout is a runtime default. These inputs can remain on external storage, or be exposed
-through links within ignored `outputs/`. For example, with existing datasets
-at `/path/to/data/expanded` and `/path/to/data/clocks`:
-
-```sh
-mkdir -p outputs/inputs/paper_theory/energy_scan
-ln -s /path/to/data/expanded outputs/inputs/paper_theory/energy_scan/expanded
-ln -s /path/to/data/clocks outputs/inputs/paper_theory/release_clocks
-```
-
-Create links only where no directory/link already exists. A linked historical
-input is read-only by convention: use a separate `--output-root`
-for generation or reanalysis. Alternatively use the input settings directly;
-links are not required. Relative configured paths resolve against the model
-repository root. The local `.env`, workspace manifests, `outputs/` directories
-and links, builds, raw records, fit tables, reports and figures remain ignored.
-Only code, fixed experiment definitions and documentation are versioned.
+Generated outputs, local environment/workspace manifests, links, builds and
+raw records remain ignored. Only code, fixed study definitions and
+documentation are versioned.
 
 Publication is separate from Git. An optional data archive should include the
 selected files, recorded protocols, checksums, directory mapping and retrieval

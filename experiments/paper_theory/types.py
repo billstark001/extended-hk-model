@@ -11,7 +11,32 @@ from typing_extensions import NotRequired, TypedDict
 from common.types import Backend, RuntimeBinding, ScientificSources
 from theory.types import ReleaseProtocol, Task
 
-MainProfile: TypeAlias = Literal["main", "main_smoke"]
+MainTopic: TypeAlias = Literal["recommendation", "scaling", "numerics", "matched", "population"]
+MainProfile: TypeAlias = Literal[
+    "main",
+    "main_smoke",
+    "recommendation",
+    "scaling",
+    "numerics",
+    "matched",
+    "population",
+    "smoke_recommendation",
+    "smoke_scaling",
+    "smoke_numerics",
+    "smoke_matched",
+    "smoke_population",
+    # Frozen pre-rename profiles retain their original bytes and identities.
+    "main_recommendation",
+    "main_smoke_recommendation",
+    "main_scaling",
+    "main_smoke_scaling",
+    "main_numerics",
+    "main_smoke_numerics",
+    "main_matched",
+    "main_smoke_matched",
+    "main_population",
+    "main_smoke_population",
+]
 MainRole: TypeAlias = Literal["effects", "scaling", "numerics", "closure", "matched", "population"]
 
 
@@ -94,23 +119,3 @@ class EvidenceReport(TypedDict):
     initial_and_process_controls: str
     claim_scope: str
     source_scope: NotRequired[str]
-
-
-class MigrationIdentity(TypedDict):
-    source: str
-    plan_fingerprint: str
-
-
-class MigrationRecord(TypedDict):
-    source_path: str
-    source_sha256: str
-    path: str
-    sha256: str
-
-
-class MigrationManifest(TypedDict):
-    schema: Literal[1]
-    identity: MigrationIdentity
-    state: Literal["converting", "complete"]
-    records: dict[str, MigrationRecord]
-    scope: str

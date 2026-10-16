@@ -1,6 +1,6 @@
-"""Design for the three remaining main figures, independent of archived data."""
+"""Formal manuscript designs: recommendation, scaling, controls and two ensembles."""
 
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from itertools import product
 from math import ceil
 from typing import cast
@@ -19,8 +19,42 @@ from theory.types import (
     TaskSpecification,
 )
 
-from ..types import AnalysisProtocol, MainPlan, MainRole
+from ..types import AnalysisProtocol, MainPlan, MainProfile, MainRole, MainTopic
 from .protocol import KERNELS, PROTOCOL
+
+TOPICS: tuple[MainTopic, ...] = ("recommendation", "scaling", "numerics", "matched", "population")
+
+
+@dataclass(frozen=True)
+class StudySettings:
+    """Physical and sampling choices; the software exercise supplies its own settings."""
+
+    horizon: float = 480.0
+    bins: int = 161
+    quadrature: int = 33
+    record_tau: float = 0.1
+    epsilons: tuple[float, ...] = (0.2, 0.4, 0.8)
+    snapshot_taus: tuple[float, ...] = (4.0, 24.0, 30.0, 120.0, 240.0, 480.0)
+    rates: tuple[float, ...] = (0.0, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 10.0, 16.0, 32.0)
+    scaling_ratios: tuple[float, ...] = (0.25, 2.0, 10.0)
+    alphas: tuple[float, ...] = (0.04, 0.02, 0.01, 0.005, 0.0025)
+    controls: tuple[tuple[int, int, float], ...] = (
+        (161, 33, 1.0),
+        (81, 33, 1.0),
+        (161, 9, 1.0),
+        (161, 33, 0.5),
+        (241, 33, 1.0),
+    )
+    populations: tuple[int, ...] = (250, 500, 1000, 2000)
+    population_kernel_indices: tuple[int, ...] = (0, 2)
+    population_horizon: float = 120.0
+    population_initials: int = 4
+    population_branches: int = 4
+    matched_population: int = 500
+    matched_branches: int = 8
+    adaptive_stopping: bool = True
+    prefix_minimum: float = 30.0
+    main_snapshot_tau: float = 24.0
 
 
 def stopping_options(p: Parameters) -> StoppingOptions:
@@ -37,128 +71,138 @@ def stopping_options(p: Parameters) -> StoppingOptions:
     }
 
 
-def design(smoke: bool = False, horizon: float | None = None) -> MainPlan:
-    """Freeze physical settings, matched seeds, tails and numerical controls."""
-    horizon = (0.4 if smoke else 480.0) if horizon is None else horizon
-    if horizon <= 0 or (smoke and horizon > 1) or (not smoke and horizon < 480):
-        raise ValueError("main smoke horizon <=1; formal horizon >=480 required")
-    bins, quad = (21, 3) if smoke else (161, 33)
-    base = Parameters(
-        alpha=0.02, epsilon=0.4, bins=bins, quadrature=quad, horizon=horizon, record_tau=0.02 if smoke else 0.1
-    )
-    snapshots = sorted(
-        {min(t, horizon) for t in ([0.1, 0.2, horizon] if smoke else [4.0, 24.0, 30.0, 120.0, 240.0, 480.0, horizon])}
-    )
-    tasks: dict[str, Task] = {}
-    epsilons = (0.4,) if smoke else (0.2, 0.4, 0.8)
+class StudyDesign:
+    """Assemble the selected scientific topics and deduplicate shared trajectories."""
 
-    def add(kind: TaskKind, p: Parameters, role: MainRole, **extra: Unpack[MicroTaskFields]) -> None:
-        for epsilon in epsilons:
+    def __init__(self, settings: StudySettings):
+        self.settings = settings
+        self.base = Parameters(
+            alpha=0.02,
+            epsilon=0.4,
+            bins=settings.bins,
+            quadrature=settings.quadrature,
+            horizon=settings.horizon,
+            record_tau=settings.record_tau,
+        )
+        self.snapshots = sorted({min(t, settings.horizon) for t in (*settings.snapshot_taus, settings.horizon)})
+        self.tasks: dict[str, Task] = {}
+
+    def add(self, kind: TaskKind, p: Parameters, role: MainRole, **extra: Unpack[MicroTaskFields]) -> None:
+        for epsilon in self.settings.epsilons:
             setting = replace(p, epsilon=epsilon)
             setting.validate()
-            options: MeasureOptions = {"snapshot_taus": snapshots}
-            if kind == "measure" and not smoke:
+            options: MeasureOptions = {"snapshot_taus": self.snapshots}
+            if kind == "measure" and self.settings.adaptive_stopping:
                 options["stopping"] = stopping_options(setting)
             task: TaskSpecification = dict(
                 kind=kind, parameters=cast(ParametersData, asdict(setting)), request_options=options, **extra
             )
             identifier = kind + "_" + fingerprint(task)[:20]
-            if identifier not in tasks:
-                tasks[identifier] = cast(Task, dict(task, id=identifier, roles=[]))
-            if role not in tasks[identifier]["roles"]:
-                tasks[identifier]["roles"].append(role)
+            if identifier not in self.tasks:
+                self.tasks[identifier] = cast(Task, dict(task, id=identifier, roles=[]))
+            if role not in self.tasks[identifier]["roles"]:
+                self.tasks[identifier]["roles"].append(role)
 
-    rates = (0.0, 0.25, 2.0, 4.0) if smoke else (0.0, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 10.0, 16.0, 32.0)
-    for rule, (rec, z), ratio in product(("hk", "deffuant"), KERNELS, rates):
-        add("measure", replace(base, dynamics=rule, recommender=rec, steepness=z, ratio=ratio), "effects")
-    for rule, (rec, z), ratio, alpha in product(
-        ("hk", "deffuant"),
-        KERNELS,
-        (2.0,) if smoke else (0.25, 2.0, 10.0),
-        (0.01, 0.02) if smoke else (0.04, 0.02, 0.01, 0.005, 0.0025),
-    ):
-        add("measure", replace(base, dynamics=rule, recommender=rec, steepness=z, ratio=ratio, alpha=alpha), "scaling")
-    controls: tuple[tuple[int, int, float], ...] = (
-        (bins, quad, 1.0),
-        (31 if smoke else 81, quad, 1.0),
-        (bins, 5 if smoke else 9, 1.0),
-        (bins, quad, 0.5),
-    )
-    if not smoke:
-        controls += ((241, quad, 1.0),)
-    for rule, (rec, z), (b, q, dt) in product(("hk", "deffuant"), (KERNELS[2], KERNELS[4]), controls):
-        add(
-            "measure",
-            replace(base, dynamics=rule, recommender=rec, steepness=z, bins=b, quadrature=q, dt=dt),
-            "numerics",
-        )
-    populations = (40, 80) if smoke else (250, 500, 1000, 2000)
-    matched_population = 40 if smoke else 500
-    population_kernels = KERNELS if smoke else (KERNELS[0], KERNELS[2])
-    population_horizon = horizon if smoke else min(120.0, horizon)
-    for rule, (rec, z), n in product(("hk", "deffuant"), KERNELS, populations):
-        add("measure", replace(base, dynamics=rule, recommender=rec, steepness=z, population=n), "closure")
-    for rule, (rec, z), n, initial, branch in product(
-        ("hk", "deffuant"), population_kernels, populations, range(2 if smoke else 4), range(2 if smoke else 4)
-    ):
-        p = replace(
-            base,
-            dynamics=rule,
-            recommender=rec,
-            steepness=z,
-            population=n,
-            bins=bins,
-            quadrature=quad,
-            horizon=population_horizon,
-        )
-        add(
-            "micro",
-            p,
-            "population",
-            initial=initial,
-            branch=branch,
-            initial_seed=17000 + initial,
-            process_seed=24000 + initial * 100 + branch,
-            selection="weighted",
-        )
-    # Exactly two initial graphs and eight conditional processes for main validation.
-    for rule, (rec, z), initial, branch in product(
-        ("hk", "deffuant"), (KERNELS[0], KERNELS[2], KERNELS[4]), range(2), range(2 if smoke else 8)
-    ):
-        p = replace(base, dynamics=rule, recommender=rec, steepness=z, population=matched_population)
-        add(
-            "micro",
-            p,
-            "matched",
-            initial=initial,
-            branch=branch,
-            initial_seed=17000 + initial,
-            process_seed=24000 + initial * 100 + branch,
-            selection="weighted",
-        )
-    protocol: AnalysisProtocol = {
-        **PROTOCOL,
-        "prefix_taus": [t for t in snapshots if t >= (0.1 if smoke else 30)],
-        "numerical_baseline": {"bins": bins, "quadrature": quad, "dt": 1.0},
-        "main_population_bins": bins,
-        "main_population_quadrature": quad,
-        "population_horizon_tau": population_horizon,
-        "population_kernels": [list(k) for k in population_kernels],
-        "population_ratio": 2.0,
-        "population_claim": "finite-window structure robustness; structural-score size audit is separate",
-        "main_snapshot_tau": 0.2 if smoke else 24.0,
-        "baseline_alpha": 0.02,
-        "baseline_epsilon": 0.4,
-        "confidence_radii": list(epsilons),
-        "matched_population": matched_population,
-        "matched_bins": bins,
-        "matched_quadrature": quad,
-        "minimum_plateau_tau": 120.0,
-        "adaptive_measure_stopping": not smoke,
-        "maximum_horizon_tau": horizon,
-        "measure_stopping": "joint state/energy rates; tau>=120, stable for 40 tau; no extrapolated tail",
-        "primary_clock": "unclipped finite-window residual area; full means require tail confirmation",
-    }
-    return dict(
-        schema=1, profile="main_smoke" if smoke else "main", analysis_protocol=protocol, tasks=list(tasks.values())
-    )
+    def recommendation(self) -> None:
+        for rule, (rec, z), ratio in product(("hk", "deffuant"), KERNELS, self.settings.rates):
+            self.add("measure", replace(self.base, dynamics=rule, recommender=rec, steepness=z, ratio=ratio), "effects")
+
+    def scaling(self) -> None:
+        for rule, (rec, z), ratio, alpha in product(
+            ("hk", "deffuant"), KERNELS, self.settings.scaling_ratios, self.settings.alphas
+        ):
+            self.add(
+                "measure",
+                replace(self.base, dynamics=rule, recommender=rec, steepness=z, ratio=ratio, alpha=alpha),
+                "scaling",
+            )
+
+    def numerics(self) -> None:
+        for rule, (rec, z), (bins, quad, dt) in product(
+            ("hk", "deffuant"), (KERNELS[2], KERNELS[4]), self.settings.controls
+        ):
+            self.add(
+                "measure",
+                replace(self.base, dynamics=rule, recommender=rec, steepness=z, bins=bins, quadrature=quad, dt=dt),
+                "numerics",
+            )
+
+    def population(self) -> None:
+        s = self.settings
+        for rule, index, n, initial, branch in product(
+            ("hk", "deffuant"),
+            s.population_kernel_indices,
+            s.populations,
+            range(s.population_initials),
+            range(s.population_branches),
+        ):
+            rec, z = KERNELS[index]
+            self.add(
+                "micro",
+                replace(
+                    self.base, dynamics=rule, recommender=rec, steepness=z, population=n, horizon=s.population_horizon
+                ),
+                "population",
+                initial=initial,
+                branch=branch,
+                initial_seed=17000 + initial,
+                process_seed=24000 + initial * 100 + branch,
+                selection="weighted",
+            )
+
+    def matched(self) -> None:
+        for rule, (rec, z), initial, branch in product(
+            ("hk", "deffuant"), (KERNELS[0], KERNELS[2], KERNELS[4]), range(2), range(self.settings.matched_branches)
+        ):
+            self.add(
+                "micro",
+                replace(
+                    self.base, dynamics=rule, recommender=rec, steepness=z, population=self.settings.matched_population
+                ),
+                "matched",
+                initial=initial,
+                branch=branch,
+                initial_seed=17000 + initial,
+                process_seed=24000 + initial * 100 + branch,
+                selection="weighted",
+            )
+
+    def freeze(self, profile: MainProfile, topics: tuple[MainTopic, ...]) -> MainPlan:
+        # Preserve the original union's order, including overlapping smoke cohorts.
+        for topic in ("recommendation", "scaling", "numerics", "population", "matched"):
+            if topic in topics:
+                getattr(self, topic)()
+        s = self.settings
+        protocol: AnalysisProtocol = {
+            **PROTOCOL,
+            "prefix_taus": [t for t in self.snapshots if t >= s.prefix_minimum] or [s.horizon],
+            "numerical_baseline": {"bins": s.bins, "quadrature": s.quadrature, "dt": 1.0},
+            "main_population_bins": s.bins,
+            "main_population_quadrature": s.quadrature,
+            "population_horizon_tau": s.population_horizon,
+            "population_kernels": [list(KERNELS[i]) for i in s.population_kernel_indices],
+            "population_ratio": 2.0,
+            "population_claim": "finite-window structure robustness; structural-score size audit is separate",
+            "main_snapshot_tau": s.main_snapshot_tau,
+            "baseline_alpha": 0.02,
+            "baseline_epsilon": 0.4,
+            "confidence_radii": list(s.epsilons),
+            "matched_population": s.matched_population,
+            "matched_bins": s.bins,
+            "matched_quadrature": s.quadrature,
+            "minimum_plateau_tau": 120.0,
+            "adaptive_measure_stopping": s.adaptive_stopping,
+            "maximum_horizon_tau": s.horizon,
+            "measure_stopping": "joint state/energy rates; tau>=120, stable for 40 tau; no extrapolated tail",
+            "primary_clock": "unclipped finite-window residual area; full means require tail confirmation",
+        }
+        return dict(schema=1, profile=profile, analysis_protocol=protocol, tasks=list(self.tasks.values()))
+
+
+def design(
+    profile: MainProfile = "main", topics: tuple[MainTopic, ...] = TOPICS, horizon: float | None = None
+) -> MainPlan:
+    horizon = 480.0 if horizon is None else horizon
+    if not 480 <= horizon < float("inf"):
+        raise ValueError("formal main horizon must be finite and >=480")
+    return StudyDesign(StudySettings(horizon=horizon)).freeze(profile, topics)

@@ -4,10 +4,6 @@ from itertools import product
 
 from experiments.paper_theory.runtime import tasks as base
 
-FAMILIES = ("micro", "clocks")
-PROFILES = ("minimum", "core", "extended")
-TIERS = ("core", "heldout", "robustness", "grid", "confidence", "alpha", "numerical", "physical", "bridge")
-DEFAULT_PROFILE = "core"
 # Initial states are independent samples. Process replicates condition on each
 # initial state; pooling both levels would inflate the effective sample size.
 INITIAL_REPLICATES = (0, 1, 2, 3)

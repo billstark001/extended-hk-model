@@ -11,12 +11,11 @@ from experiments.paper_theory.manuscript.reports.tables import number, read_tabl
 
 from ...micro_validation.analyze.controls import ensemble_grid, mechanism_contrasts, population
 from ...release_clocks.analyze.review import clock_estimates, crossing_ranges
-from ..figures.ensembles import plots
 from .dataset import gather
 
 
 def review(output_root, label, baseline_label, out):
-    """Write secondary ensemble evidence and figures using the full production control cohorts plus a source-matched baseline."""
+    """Write supplementary ensemble tables using the completed cohorts and source-matched baseline."""
     out.mkdir(parents=True, exist_ok=True)
     root, baseline = (output_root / label, output_root / baseline_label)
     plan, micro, clock, audit = gather(root, baseline, out)
@@ -98,7 +97,6 @@ def review(output_root, label, baseline_label, out):
             "nonmonotone_release": sum((r[c + "_nonmonotone_release"] for r in clock_rows for c in ("rho", "edge"))),
         },
     }
-    plots(micro, clock, root, out, estimates, selected, ensemble_controls)
     atomic_json(out / "summary.json", summary)
     print(
         json.dumps(

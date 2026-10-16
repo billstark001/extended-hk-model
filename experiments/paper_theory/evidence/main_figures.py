@@ -2,13 +2,14 @@
 
 import json
 from collections import defaultdict
+from pathlib import Path
 from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
 
-from common.io.json import atomic_json
+from common.io.json import atomic_json, fingerprint
 from common.io.records import record_path
 from common.plotting.figures import decorate
 from common.statistics import bootstrap_weights
@@ -17,6 +18,7 @@ from theory.validation import fields_on
 
 from ..runtime.measure_analysis import cached_cases
 from ..types import FrozenMainPlan
+from .design import topics
 from .figure_style import COLORS, RULES, clock_label, color_legend, matches, read_table, save
 from .protocol import KERNELS
 
@@ -240,7 +242,7 @@ def population_figure(directory, output, plan):
     save(fig, output, "population_robustness", protocol["baseline_epsilon"])
 
 
-def supplementary_figures(directory, output, plan, cases):
+def scaling_figure(directory, output, plan, cases):
     tasks = {t["id"]: t for t in plan["tasks"]}
     selected = [
         c
@@ -265,32 +267,18 @@ def supplementary_figures(directory, output, plan, cases):
     decorate(axes)
     fig.suptitle("Fixed r=2, Opinion4; common window/grid, no fitted shifts or endpoint alignment")
     save(fig, output, "scaling_collapse", plan["analysis_protocol"]["baseline_epsilon"])
-    rows = read_table(directory, "numerics", plan["analysis_protocol"]["baseline_epsilon"])
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
-    for ax, metric, label in zip(
-        axes,
-        ("relative_max", "mean_relative_change"),
-        ("Maximum raw-energy gap / baseline amplitude", "Residual-area relative change"),
-    ):
-        labels = [
-            f"{r['dynamics'][:2]} {r['recommender'].split('_')[0]} {r['channel'][0]}\n"
-            f"B{r['bins']:g} Q{r['quadrature']:g} dt{r['dt']:g}"
-            for r in rows
-        ]
-        ax.scatter(range(len(rows)), [r[metric] for r in rows], s=12)
-        ax.set(xticks=range(len(rows)), xticklabels=labels, ylabel=label)
-        ax.tick_params(axis="x", labelrotation=90, labelsize=6)
-    decorate(axes)
-    save(fig, output, "numerical_controls", plan["analysis_protocol"]["baseline_epsilon"])
 
 
-def plot(directory):
+def plot(directory, output=None):
     """Refuse partial coverage; generate each main and supplemental figure anew."""
     plan = cast(FrozenMainPlan, json.loads((directory / "plan.json").read_text()))
+    if fingerprint({k: v for k, v in plan.items() if k != "plan_fingerprint"}) != plan["plan_fingerprint"]:
+        raise ValueError("frozen plan hash mismatch")
     report = json.loads((directory / "report.json").read_text())
     if report["missing"] or report["completed"] != report["planned"]:
         raise ValueError("main figures require the complete declared design")
-    output = directory / "figures"
+    output = Path(output) if output else directory / "figures"
+    selected_topics = topics(plan["profile"])
     output.mkdir(parents=True, exist_ok=True)
     plt.rcParams.update({"font.size": 9, "axes.titlesize": 10, "savefig.facecolor": "white"})
     cases = list(cached_cases(directory / "measure"))
@@ -310,22 +298,26 @@ def plot(directory):
         )
         destination.mkdir(exist_ok=True)
         selected = [c for c in cases if c["epsilon"] == epsilon]
-        mean_figure(directory, destination, view, selected)
-        micro_figure(directory, destination, view)
-        population_figure(directory, destination, view)
-        supplementary_figures(directory, destination, view, selected)
+        if "recommendation" in selected_topics:
+            mean_figure(directory, destination, view, selected)
+        if "matched" in selected_topics:
+            micro_figure(directory, destination, view)
+        if "population" in selected_topics:
+            population_figure(directory, destination, view)
+        if "scaling" in selected_topics:
+            scaling_figure(directory, destination, view, selected)
+        if "numerics" in selected_topics:
+            from .table_figures import numerical_figure
+
+            numerical_figure(directory, destination, view)
         views[str(epsilon)] = str(destination.relative_to(output))
     atomic_json(
         directory / "figure_manifest.json",
         {
             "plan_fingerprint": plan["plan_fingerprint"],
             "profile": plan["profile"],
-            "main_figures": {
-                "former_fig2_now_fig1": "mean_recommendation_clocks",
-                "former_fig3_now_fig2": "mean_micro_validation",
-                "former_fig4_now_fig3": "population_robustness",
-            },
-            "supplementary": ["absolute_release_areas", "scaling_collapse", "numerical_controls"],
+            "research_topics": list(selected_topics),
+            "figures": [str(p.relative_to(output)) for p in sorted(output.rglob("*.pdf"))],
             "baseline_epsilon": plan["analysis_protocol"]["baseline_epsilon"],
             "epsilon_directories": views,
             "clock_scope": "finite-window, own endpoint reference; tail confirmation is a separate diagnostic",
@@ -333,4 +325,4 @@ def plot(directory):
             "input_scope": "only this run's plan, records and tables",
         },
     )
-    print(f"generated {6 * len(confidence_radii)} PDF/PNG figure pairs in {output}", flush=True)
+    print(f"generated figures for {', '.join(selected_topics)} in {output}", flush=True)

@@ -1,4 +1,4 @@
-"""Micro/pair, conditional-process and nominal-population closure designs."""
+"""Completed micro/pair and conditional-process audits retained by the supplement."""
 
 from itertools import product
 
@@ -19,8 +19,6 @@ from experiments.paper_theory.protocols import (
 )
 from experiments.paper_theory.runtime import tasks as base
 from experiments.paper_theory.runtime.tasks import DYNAMICS, RECS, identify, request, task
-from experiments.paper_theory.sweeps import task as sweep_task
-from theory.parameters import Parameters
 
 
 def validation_cases():
@@ -40,21 +38,6 @@ def validation_cases():
                 replicate=rep + 20,
                 tier="heldout",
                 branches=32 if rep == 0 else 0,
-            )
-        )
-    for network, n, rep, d, (rec, z), ratio in product(
-        ("er", "fixed"), (500,), range(2), DYNAMICS, (RECS[0], RECS[2], RECS[4]), (0.25, 10)
-    ):
-        if network == "fixed":
-            n = 1000
-        jobs.append(
-            task(
-                "micro",
-                request(d, rec, z, ratio=ratio, n=n, horizon=30),
-                kind="micro",
-                network=network,
-                replicate=rep + 40,
-                tier="robustness",
             )
         )
     for b, d, (rec, z) in product((41, 161), DYNAMICS, (RECS[0], RECS[2], RECS[4])):
@@ -99,7 +82,6 @@ def ensemble_case(
     role="basin_ensemble",
     tier="core",
     horizon=MICRO_HORIZON,
-    smoke=False,
 ):
     """Construct one identified micro/pair process branch with explicit initial/process replicate metadata."""
     request = base.request(d, rec, z, alpha=alpha, ratio=ratio, n=n, b=b, quadrature=quadrature, horizon=horizon)
@@ -115,7 +97,7 @@ def ensemble_case(
             "initial_replicate": initial,
             "process_replicate": process,
             "quadrature": quadrature,
-            "smoke": smoke,
+            "smoke": False,
         },
     )
     # process=0 retains the original process RNG start exactly. Initial seed is
@@ -125,13 +107,13 @@ def ensemble_case(
     return identify(job)
 
 
-def ensemble_cases(profile):
-    """Return conditional process ensembles and resolution/population controls for the requested production profile."""
+def ensemble_cases():
+    """Return the completed 236 micro/pair follow-up jobs cited by the supplement."""
     jobs = []
-    grids = (81, 161) if profile == "minimum" else GRIDS
-    initials = (0, 2) if profile == "minimum" else INITIAL_REPLICATES
-    basin_processes = tuple(range(8)) if profile == "minimum" else BASIN_PROCESS_REPLICATES
-    clock_processes = tuple(range(4)) if profile == "minimum" else CLOCK_PROCESS_REPLICATES
+    grids = GRIDS
+    initials = INITIAL_REPLICATES
+    basin_processes = BASIN_PROCESS_REPLICATES
+    clock_processes = CLOCK_PROCESS_REPLICATES
     for initial, b, quad in product(initials, grids, QUADRATURES):
         jobs.append(ensemble_case(initial=initial, b=b, quadrature=quad, role="basin_grid", tier="grid"))
     for initial, process in product(initials, basin_processes):
@@ -142,9 +124,7 @@ def ensemble_cases(profile):
         base.DYNAMICS, (base.RECS[0], base.RECS[2], base.RECS[4]), CLOCK_INITIAL_REPLICATES, clock_processes
     ):
         jobs.append(ensemble_case(d, rec, z, ratio=2, initial=initial, process=process, role="clock_ensemble"))
-    for n, initial, process in product(
-        (1000,) if profile == "minimum" else POPULATIONS, initials, POPULATION_PROCESS_REPLICATES
-    ):
+    for n, initial, process in product(POPULATIONS, initials, POPULATION_PROCESS_REPLICATES):
         jobs.append(ensemble_case(n=n, initial=initial, process=process, role="population", tier="robustness"))
     for d, rec, z, ratio, initial in HOLDOUT_FAILURES:
         for b, quad in product(grids, QUADRATURES):
@@ -162,50 +142,4 @@ def ensemble_cases(profile):
                     tier="heldout",
                 )
             )
-    if profile == "extended":
-        for initial in INITIAL_REPLICATES:
-            jobs.append(ensemble_case(initial=initial, horizon=60, role="basin_long", tier="robustness"))
     return jobs
-
-
-def ensemble_smoke():
-    """Return short conditional-ensemble tasks exercising branch, mesh and quadrature handling."""
-    jobs = []
-    for initial, process in product((0, 1), (0, 1, 2)):
-        jobs.append(
-            ensemble_case(
-                initial=initial,
-                process=process,
-                n=80,
-                b=21,
-                quadrature=9,
-                horizon=0.4,
-                ratio=2,
-                role="clock_ensemble",
-                smoke=True,
-            )
-        )
-    for b, quad in ((21, 33), (31, 9), (31, 33)):
-        jobs.append(ensemble_case(n=80, b=b, quadrature=quad, horizon=0.4, role="basin_grid", smoke=True))
-    jobs.append(ensemble_case(n=120, b=21, quadrature=9, horizon=0.4, role="population", smoke=True))
-    return jobs
-
-
-def closure_designs(profile="paper"):
-    """Yield pair-closure tasks varying nominal N while retaining other physical parameters; this does not establish microscopic N convergence."""
-    _suite = "population_closure"
-    if profile not in ("smoke", "paper"):
-        raise ValueError("unknown profile")
-    small = profile == "smoke"
-    common = {
-        "bins": 21 if small else 161,
-        "quadrature": 3 if small else 9,
-        "horizon": 0.2 if small else 30.0,
-        "record_tau": 0.01 if small else 0.05,
-    }
-    rules = ("hk", "deffuant")
-    recommendations = ("random",) if small else ("random", "opinion_random", "structure_random_l0")
-    for rule, rec, ratio, n in product(rules, recommendations, (2.0,), (500, 1000, 2000)):
-        p = Parameters(**common, dynamics=rule, recommender=rec, ratio=ratio, population=n)
-        yield sweep_task(_suite, p)
-    return

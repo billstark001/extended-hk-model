@@ -9,8 +9,6 @@ from common.io.tables import table
 from theory.release import clock_pair
 from theory.runtime.dataset import key
 
-from ..plot import plot_clocks
-
 
 def analyze_clocks(items, out):
     """Write direct paired quantile clocks, budget/plateau diagnostics and sampled crossing intervals from validated records."""
@@ -114,5 +112,4 @@ def analyze_clocks(items, out):
         "curves": len(rows),
         "verified_plateaus": sum(r["rho_plateau_verified"] for r in rows),
         "unresolved_plateaus": sum(not r["rho_plateau_verified"] for r in rows),
-        "figures": plot_clocks(items, rows, out),
     }

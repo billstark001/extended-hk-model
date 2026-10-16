@@ -30,14 +30,7 @@ def test_formal_design_predeclares_long_tail_scaling_and_population_controls():
 
 def test_smoke_exercises_all_study_paths_without_formal_horizon():
     plan = design("main_smoke")
-    assert {r for t in plan["tasks"] for r in t["roles"]} == {
-        "effects",
-        "scaling",
-        "numerics",
-        "closure",
-        "population",
-        "matched",
-    }
+    assert {r for t in plan["tasks"] for r in t["roles"]} == {"effects", "scaling", "numerics", "population", "matched"}
     assert all(t["parameters"]["horizon"] <= 0.4 for t in plan["tasks"])
     assert plan["analysis_protocol"]["minimum_plateau_tau"] == 120
 

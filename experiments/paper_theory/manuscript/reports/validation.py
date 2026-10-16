@@ -12,11 +12,10 @@ from ...kernel_validation.analyze.review import review_kernel
 from ...micro_validation.analyze.review import review_micro
 from ...operator_validation.analyze.review import review_operator
 from ...release_clocks.analyze.review import review_clocks
-from ..figures.validation import plots
 
 
 def review(root, out):
-    """Write micro/clock/operator/kernel report tables and figures from a frozen validation run; unavailable selected examples stay absent."""
+    """Write the supplementary micro/clock/operator/kernel audit tables from a frozen run."""
     out.mkdir(parents=True, exist_ok=True)
     summary = {
         "root": str(root),
@@ -43,14 +42,13 @@ def review(root, out):
         [r for r in micro if r["tier"] == "heldout" and r.get("holdout") != "parameter"], ("law",), metrics
     )
     summary["heldout_parameter"] = summarize([r for r in micro if r.get("holdout") == "parameter"], (), metrics)
-    selected = review_micro(root, out, summary, micro)
+    review_micro(root, out, summary, micro)
     review_clocks(root, out, summary, clocks)
     review_operator(out, summary, operator, numerical, metrics)
     review_kernel(root, out, summary, kernel)
     with (out / "summary.json").open("w") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False, allow_nan=False)
         f.write("\n")
-    plots(out, micro, clocks, selected)
     print(
         json.dumps(
             {
