@@ -62,13 +62,13 @@ stopping. Process replicates remain conditional on their initial state.
 ## Retained and removed designs
 
 The proposal retains historical evidence in `revision_validation.tex` and
-`channel_diagnostics.tex`. `designs.generate(preset="validation")` reproduces
-exactly the completed 762-job batch (208 micro, 202 clocks, 320 operator,
-32 kernel). `preset="ensembles"` reproduces the completed 346-job follow-up
-(236 micro, 110 clocks). These library definitions and their table analyses
-retain their original IDs, seeds and protocols. `protocols.py` describes these
-historical batches; `evidence/protocol.py` describes the current manuscript
-study. They are distinct scientific protocols.
+`channel_diagnostics.tex`. The completed 762-job validation and 346-job follow-up
+batches are defined by their own authenticated frozen plans. Historical generation
+modules and their separate executor have been removed. `theory.runtime.historical`
+validates their saved job/build identities and reads gzip records without rewriting
+them; `paper_theory.historical` and the manuscript report modules assemble the
+retained supplementary tables. Their saved analysis protocols remain distinct from
+`evidence/protocol.py`, which defines the current manuscript study.
 
 Removed code includes `energy_scan` baseline/expanded/channel-scaling
 generation and whole-grid plot menus, the old alternative scaling/release/
@@ -166,44 +166,42 @@ See [installation](../../docs/runtime-dependencies.md) and
 [architecture](../../docs/architecture.md). The CAS study is literature
 motivation, not a required raw dataset for the theory workflow.
 
-## Infrastructure consolidation: discussion only
+## Shared experiment lifecycle
 
-There are still overlapping orchestration paths:
+Both `paper_theory` and `paper` now use `src/common/experiments` for named-task
+selection, immutable plans/manifests, coverage, exclusive sessions, recovery locks,
+stage dispatch and task completion journals. Execution reuses `common.runtime`
+for bounded threads/processes, cancellation, transport retries and storage staging.
+`common.pipeline.Context` continues to cache observable computations inside a
+process; it does not schedule durable experiment tasks.
 
-- Current theory: `evidence/{workflow,run_main,resume,analyze}.py`,
-  `runtime/measure_runs.py` and `micro_validation/population/run.py`.
-- Historical theory: `analysis.py`, `runtime/{tasks,paths,comparison}.py`,
-  and `theory.runtime/{executor,store,dataset,protocol}.py`, with job/payload
-  records distinct from the current kind/parameters records.
-- Original paper: `paper/run.py` calls `ehk.micro.runner`, while
-  `paper/analysis/{run,tasks,execution}.py` selects scenarios, dispatches a
-  process pool and writes SQLite statistics.
+The study modules register parameter designs and scientific analysis/figure stages.
+Model adapters own the request/result contracts and persistence: mesoscopic NPZ,
+microscopic binary/shared-pair records, original-paper SMP simulation directories
+and SQLite statistics. Historical audit data uses a read-only adapter. The old
+executors, workflow dispatchers, historical design generators and forwarding
+modules have been removed; there are no code aliases for those modules.
 
-`common.runtime.process` already handles subprocesses, bounded task execution,
-cancellation and retries; `common.runtime.storage` handles staging/recovery.
-`common.pipeline.Context` caches named observable computations within one
-process. That computation cache is useful, but is not a frozen experiment run
-manager and should not become a second durable scheduler.
+Existing CLI arguments, binary wire protocols, raw record layouts, SQLite columns,
+NumPy blob encodings, seeds and frozen task identities remain unchanged. Existing
+frozen plans are authenticated and read on resume rather than regenerated from
+current designs. Previously saved long topic names are interpreted only at this
+metadata boundary; new CLI task selections use the shorter names.
 
-A future consolidation should introduce one `src/common/experiments` lifecycle
-for named-task registration/selection, frozen plans, provenance, coverage,
-locks/resume and stage dispatch (`plan/run/analyze/plot/status`). Keep one task
-execution service using existing `common.runtime` components. Parameter grids,
-scientific analysis protocols, estimators, figure selections and model-specific
-request/result validation remain with their owning studies or model libraries.
-The two protocols above should not be merged merely because both contain
-bootstrap settings: 1000 and 4000 resamples belong to different frozen designs.
+Task completion displays the count, per-task elapsed time, total elapsed time and
+a throughput-based ETA. Cache hits are identified separately and do not provide
+computational timing samples. Failed/deferred tasks remain missing from coverage;
+partial statistics or simulation batches do not become complete status reports.
 
-Use model/study adapters for mesoscopic NPZ, micro binary/pair records, original
-paper runtime scenarios and SQLite statistics. The common runner should not
-know about HK energies, conditional replicate cohorts, or the SQLite schema.
-Only one orchestration implementation should remain; a frozen historical reader
-can adapt old records without retaining a separate executor/design dispatcher.
+`--binding-batch` lets the owning task adapter opt into its public runtime's native
+batch launcher: mesoscopic measure tasks in `paper_theory`, and SMP scenarios in
+`paper.run`. The default uses the common task scheduler. The shared experiments
+package knows only a generic batch callback, never either runtime API. Adapters
+validate the returned identities and completion markers, persist the same record
+formats, and isolate native launchers in cancellable process groups. Native batch
+completion timing includes the enclosing batch latency; it is not solver-only
+per-request CPU time. Micro/shared-pair theory tasks retain their binary adapter.
 
-Suggested order: inventory contracts and saved identities; extract the current
-lifecycle into common; connect current theory; replace the original paper's
-bespoke pool/cancellation/status code with adapters; reduce historical theory to
-read-only adapters; then delete replaced orchestration modules. Compare frozen
-identity, interruption/resume, partial coverage, source mismatch rejection and
-output tables at each transition. This shared-infrastructure work has **not**
-been started in this change.
+No scientific protocol is merged merely because it has similar settings. Current
+bootstrap intervals, historical resampling protocols, original-paper observable
+selection and SQLite estimators stay with their studies.

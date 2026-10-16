@@ -50,7 +50,7 @@ EHK_PAPER_THEORY_OUTPUT_DIR=/path/to/generated/theory
 
 The main `run` command builds both the public mesoscopic executable and the
 small experiment adapter; `resume` restores the original verified executable
-copies. The active CLI supports named research topics; `main`/`main_smoke` select all formal/software topics.
+copies. The active CLI supports named research topics; `main`/`main_smoke` select all formal/smoke topics.
 
 ```sh
 python -m experiments.paper_theory plan --profile main --work-dir /path/to/new-run
@@ -94,3 +94,10 @@ No upload, download of bulk data, or archival publication is automatic.
 The CAS 2026 study serves as a literature citation and motivates the question.
 It is not an input dataset or a rerun target of the theory workflow. Existing
 `experiments/paper` remains available for the original microscopic paper.
+
+Both paper studies share `common.experiments` for plans, provenance, execution,
+progress and recovery. Add `--binding-batch` to `experiments.paper.run` to use the
+SMP batch launcher, or to theory `run`/`resume` for mesoscopic measure batching.
+Tasks own these optional APIs; the common package does not import either binding.
+Native batch launchers run in isolated process groups for interruption cleanup.
+Existing command options, binary protocols and raw output layouts are preserved.
