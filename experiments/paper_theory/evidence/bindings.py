@@ -1,43 +1,17 @@
 """Resume one frozen run, retaining its exact scientific executables and plan."""
 
-import fcntl
-import json
 import os
 import shutil
-from contextlib import contextmanager
 from pathlib import Path
 from typing import cast
 
+from common.experiments.lifecycle import read_owned
 from common.io.json import atomic_json, sha
 from common.runtime.go import engine_manifest, source_manifest
 from theory.runtime import measure as schema
 
 from ..types import RunManifest
-from .design import LEGACY_PROFILES, PROFILES, canonical_profile
-
-
-@contextmanager
-def session_lock(work):
-    """OS releases this lock even on SIGKILL; never unlink a flock inode."""
-    with (work / "session.lock").open("a+") as handle:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise RuntimeError(f"run already active: {work}") from error
-        try:
-            handle.seek(0)
-            handle.truncate()
-            handle.write(str(os.getpid()))
-            handle.flush()
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
-
-
-def read_owned(path, work):
-    if not path.resolve().is_relative_to(work):
-        raise ValueError(f"run metadata links outside its directory: {path}")
-    return json.loads(path.read_text())
+from .design import PROFILES, canonical_profile
 
 
 def settings(work: Path, publish: Path, args) -> RunManifest:
@@ -46,7 +20,7 @@ def settings(work: Path, publish: Path, args) -> RunManifest:
     old = None
     if args.resume:
         old = cast(RunManifest, read_owned(manifest, work))
-        if old["profile"] not in (*PROFILES, *LEGACY_PROFILES):
+        if canonical_profile(old["profile"]) not in PROFILES:
             raise ValueError("resume requires a canonical main task profile")
         for name in ("profile", "backend", "horizon"):
             explicit = getattr(args, name)
@@ -126,19 +100,3 @@ def restore_binaries(work, stage, config):
             raise RuntimeError(f"restored executable hash differs: {target}")
         restored.append(target)
     return tuple(restored)
-
-
-def recover_task_lock(directory):
-    """Recover a task PID lock only when its owner has actually exited."""
-    path = directory / "active.lock"
-    if not path.exists():
-        return
-    pid = int(path.read_text())
-    if pid <= 0:
-        raise ValueError(f"invalid PID lock: {path}")
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        path.unlink()
-    else:
-        raise RuntimeError(f"run already active (PID {pid}): {directory}")

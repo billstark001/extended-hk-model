@@ -7,7 +7,7 @@ import math
 
 from common.io.tables import table
 from theory.release import clock_pair
-from theory.runtime.dataset import key
+from theory.runtime.historical import metadata_key
 
 
 def analyze_clocks(items, out):
@@ -59,7 +59,9 @@ def analyze_clocks(items, out):
     table(out / "clock_sensitivity.csv", sensitivity)
     groups = collections.defaultdict(list)
     for r in rows:
-        groups[key({k: r[k] for k in ("dynamics", "recommender", "zeta", "epsilon", "alpha", "b", "scan")})].append(r)
+        groups[
+            metadata_key({k: r[k] for k in ("dynamics", "recommender", "zeta", "epsilon", "alpha", "b", "scan")})
+        ].append(r)
     crossings = []
     for group in groups.values():
         for p in (10, 50, 90):

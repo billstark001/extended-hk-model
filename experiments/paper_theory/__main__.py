@@ -4,6 +4,9 @@ import argparse
 import json
 from pathlib import Path
 
+from common.experiments.lifecycle import Workflow
+from common.experiments.plans import coverage, dataset_directory, read_plan
+
 from .evidence.design import PROFILES
 
 
@@ -22,6 +25,9 @@ def parser():
     p.add_argument("--micro-root", type=Path)
     p.add_argument("--meso-root", type=Path)
     p.add_argument("--workers", type=int, default=4)
+    p.add_argument(
+        "--binding-batch", action="store_true", help="let measure tasks use the mesoscopic binding batch runner"
+    )
     p.add_argument("--backend", choices=("purego", "accelerate", "openblas"))
     p.add_argument("--horizon", type=float)
     p.add_argument("--spool-mib", type=int, default=4096, help="aggregate binary/staged-record allowance")
@@ -33,21 +39,11 @@ def parser():
     return p
 
 
-def dataset_directory(root):
-    root = Path(root).resolve()
-    if (root / "plan.json").is_file():
-        return root
-    candidates = [p.parent for p in (root / "evidence").glob("*/plan.json")]
-    if len(candidates) != 1:
-        raise ValueError("expected one frozen main dataset; specify its directory directly")
-    return candidates[0]
-
-
 def main(argv=None):
     p = parser()
     a = p.parse_args(argv)
     if a.action in ("run", "resume"):
-        from .evidence.run_main import launch
+        from .run import launch
 
         a.resume = a.action == "resume"
         a.work_dir = a.run_dir if a.resume else a.work_dir
@@ -57,7 +53,7 @@ def main(argv=None):
     if a.action == "plan":
         if a.work_dir is None:
             p.error("plan requires --work-dir")
-        from .evidence.workflow import plan
+        from .study import plan
 
         profile = a.profile or "main"
         return plan(a.work_dir / "evidence" / profile, profile, a.horizon)
@@ -91,21 +87,22 @@ def main(argv=None):
     if a.action == "analyze":
         from .evidence.analyze import analyze
 
-        return analyze(directory)
+        return Workflow({"analyze": lambda: analyze(directory)}).dispatch("analyze")
     if a.action == "status":
         from common.io.records import record_path
         from theory.runtime.completed import cached
 
-        plan = json.loads((directory / "plan.json").read_text())
-        available = 0
+        plan = read_plan(directory / "plan.json")
+        available = []
         for task in plan["tasks"]:
             raw = directory / task["kind"] / "raw"
             path = raw / (task["id"] + ".npz") if task["kind"] == "measure" else record_path(raw, task["id"])
             if path.exists() and cached(path, task, task["kind"]):
-                available += 1
+                available.append(task["id"])
+        counts = coverage(plan["tasks"], available)
         result = {
-            "planned": len(plan["tasks"]),
-            "valid_raw_records": available,
+            "planned": counts["planned"],
+            "valid_raw_records": counts["completed"],
             "raw_available": any((directory / kind / "raw").is_dir() for kind in ("measure", "micro")),
             "export_report": json.loads((directory / "report.json").read_text())
             if (directory / "report.json").exists()

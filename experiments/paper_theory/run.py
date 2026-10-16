@@ -3,18 +3,17 @@
 import json
 import os
 import shutil
-import signal
 import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
-from .fresh_reads import FreshReadPolicy, dependency_roots
+from .evidence.fresh_reads import FreshReadPolicy, dependency_roots
 
 
 def launch(args):
     """Launch a parsed main command with local control and exclusive run ownership."""
-    siblings = Path(__file__).resolve().parents[4]
+    siblings = Path(__file__).resolve().parents[3]
     args.meso_root = args.meso_root or siblings / "social-media-mesoscopic-models"
     args.micro_root = args.micro_root or siblings / "social-media-models"
     if not 1 <= args.workers <= 4 or args.spool_mib < 64:
@@ -45,9 +44,8 @@ def launch(args):
             raise ValueError("work-dir must be fresh or contain only its frozen plan; existing records require resume")
     if not args.resume and publish.exists():
         raise ValueError("publish-dir must be new; existing results are never reused")
+    from common.experiments.lifecycle import interruptible, session_lock
     from common.io.json import fingerprint
-
-    from .resume import session_lock
 
     owner = work / "storage_owner.json"
     if args.control_dir is None and args.resume and owner.exists():
@@ -58,12 +56,14 @@ def launch(args):
     if args.control_dir.is_relative_to(work) or str(args.control_dir).startswith("/Volumes/"):
         raise ValueError("control-dir must be on local APFS, outside the bulk run")
     args.control_dir.mkdir(parents=True, exist_ok=True)
-    with session_lock(args.control_dir):
+    with session_lock(args.control_dir), interruptible():
         return run(args, work, publish)
 
 
 def run(args, work, publish):
-    from .resume import recover_task_lock, restore_binaries, settings
+    from common.experiments.lifecycle import recover_task_lock
+
+    from .evidence.bindings import restore_binaries, settings
 
     # Exports authenticate their owning run, including partial exports.
     if args.resume and publish.exists() and any(publish.iterdir()):
@@ -99,17 +99,11 @@ def run(args, work, publish):
     policy.install()
     from common.io.json import atomic_json
 
-    from .workflow import perform
+    from .study import TheoryStudy
 
     attempt = Path(tempfile.mkdtemp(prefix="attempt-", dir=args.control_dir))
     status = {"resume": args.resume, "workers": args.workers, "state": "running", "action": "verify"}
     atomic_json(attempt / "status.json", status)
-    previous_handler = signal.getsignal(signal.SIGTERM)
-
-    def interrupted(signum, frame):
-        raise KeyboardInterrupt(f"signal {signum}")
-
-    signal.signal(signal.SIGTERM, interrupted)
     try:
         config = settings(work, publish, args)
         os.environ["CGO_ENABLED"] = "0" if args.backend == "purego" else "1"
@@ -126,9 +120,13 @@ def run(args, work, publish):
             limit=None,
             workers=args.workers,
             build_stage=stage,
+            resume=args.resume,
+            binding_batch=getattr(args, "binding_batch", False),
         )
-        # Verify/freeze the whole design before building or reusing any task.
-        perform(options, work, work / "build", args.meso_root.resolve(), args.micro_root.resolve())
+        study = TheoryStudy(options, work, work / "build", args.meso_root.resolve(), args.micro_root.resolve())
+        workflow = study.workflow(attempt / "status.json")
+        status = workflow.status
+        workflow.dispatch("plan")
         atomic_json(
             publish / "run_location.json",
             {
@@ -150,37 +148,22 @@ def run(args, work, publish):
             options.engine, options.binary = restored
             print("Restored original verified executables; completed tasks will be skipped", flush=True)
         else:
-            options.action = "build"
-            status["action"] = "build"
-            atomic_json(attempt / "status.json", status)
-            store.read(
-                lambda: perform(options, work, work / "build", args.meso_root.resolve(), args.micro_root.resolve())
-            )
+            workflow.guard = store.read
+            workflow.dispatch("build")
         os.environ["TMPDIR"] = cache_tmp
         os.environ["GOTMPDIR"] = cache_go_tmp
-        for action in ("run", "analyze", "plot"):
-            options.action = action
-            status["action"] = action
-            atomic_json(attempt / "status.json", status)
-            print(f"=== {action}: {profile} ===", flush=True)
-            try:
-                store.read(
-                    lambda: perform(options, work, work / "build", args.meso_root.resolve(), args.micro_root.resolve())
-                )
-            except Exception as error:
-                from common.runtime.failures import BatchTaskError
+        workflow.guard = store.read
 
-                if action == "run" and isinstance(error, BatchTaskError):
-                    options.action = "analyze"
-                    try:
-                        store.read(
-                            lambda: perform(
-                                options, work, work / "build", args.meso_root.resolve(), args.micro_root.resolve()
-                            )
-                        )
-                    except Exception as diagnostic_error:
-                        store.event(None, "partial_analysis_failed", error=str(diagnostic_error))
-                raise
+        def diagnostic(action, error):
+            from common.runtime.failures import BatchTaskError
+
+            if action == "run" and isinstance(error, BatchTaskError):
+                try:
+                    workflow.dispatch("analyze")
+                except Exception as diagnostic_error:
+                    store.event(None, "partial_analysis_failed", error=str(diagnostic_error))
+
+        workflow.sequence(("run", "analyze", "plot"), after_failure=diagnostic)
         for name in ("figures", "tables"):
             store.read(
                 lambda: shutil.copytree(
@@ -210,5 +193,4 @@ def run(args, work, publish):
             pass
         atomic_json(publish / "fresh_read_audit.json", report)
         shutil.rmtree(stage)
-        signal.signal(signal.SIGTERM, previous_handler)
     return 0

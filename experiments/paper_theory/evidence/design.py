@@ -1,38 +1,37 @@
-"""Named manuscript tasks and their separate software exercises."""
+"""Scientific topic selection through the shared named-task registry."""
 
 from typing import cast
+
+from common.experiments.registry import TaskRegistry
 
 from ..types import MainPlan, MainProfile, MainTopic
 from . import main_design, main_smoke_design
 
-PROFILES = ("main", "main_smoke", *main_design.TOPICS, *(f"smoke_{t}" for t in main_design.TOPICS))
-
-
-LEGACY_PROFILES = tuple(f"main_{t}" for t in main_design.TOPICS) + tuple(f"main_smoke_{t}" for t in main_design.TOPICS)
+REGISTRY = TaskRegistry(
+    {**{t: (t, False) for t in main_design.TOPICS}, **{f"smoke_{t}": (t, True) for t in main_design.TOPICS}},
+    {"main": main_design.TOPICS, "main_smoke": tuple(f"smoke_{t}" for t in main_design.TOPICS)},
+)
+PROFILES = REGISTRY.names
 
 
 def canonical_profile(profile: str) -> MainProfile:
-    if profile in LEGACY_PROFILES:
-        return cast(MainProfile, profile.removeprefix("main_"))
-    return cast(MainProfile, profile)
+    """Interpret saved pre-rename metadata without registering CLI/code aliases."""
+    legacy = {f"main_{t}" for t in main_design.TOPICS} | {f"main_smoke_{t}" for t in main_design.TOPICS}
+    return cast(MainProfile, profile.removeprefix("main_") if profile in legacy else profile)
 
 
-def topics(profile: MainProfile) -> tuple[MainTopic, ...]:
-    profile = canonical_profile(profile)
-    if profile not in PROFILES:
-        raise ValueError(f"unknown main task: {profile}; choose from {', '.join(PROFILES)}")
-    if profile in ("main", "main_smoke"):
-        return main_design.TOPICS
-    return (cast(MainTopic, profile.removeprefix("smoke_")),)
+def topics(profile: str) -> tuple[MainTopic, ...]:
+    return tuple(t for t, _ in REGISTRY.select(canonical_profile(profile)))
 
 
-def is_smoke(profile: MainProfile) -> bool:
-    topics(profile)
-    return profile == "main_smoke" or canonical_profile(profile).startswith("smoke_")
+def is_smoke(profile: str) -> bool:
+    return all(smoke for _, smoke in REGISTRY.select(canonical_profile(profile)))
 
 
 def design(profile: MainProfile = "main", horizon: float | None = None) -> MainPlan:
-    selected = topics(profile)
-    if is_smoke(profile):
-        return main_smoke_design.design(profile, selected, horizon)
-    return main_design.design(profile, selected, horizon)
+    selected = REGISTRY.select(profile)
+    module = main_smoke_design if all(smoke for _, smoke in selected) else main_design
+    # The two modules are independently typed; avoid losing their callable type.
+    if module is main_smoke_design:
+        return main_smoke_design.design(profile, tuple(t for t, _ in selected), horizon)
+    return main_design.design(profile, tuple(t for t, _ in selected), horizon)

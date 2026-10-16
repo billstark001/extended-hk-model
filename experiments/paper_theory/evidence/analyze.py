@@ -6,7 +6,9 @@ from typing import cast
 
 import numpy as np
 
-from common.io.json import atomic_json, fingerprint, sha
+from common.experiments.plans import coverage as task_coverage
+from common.experiments.plans import read_plan
+from common.io.json import atomic_json, sha
 from common.io.records import content_fingerprint, record_path
 from common.statistics import bootstrap_weights, clustered_interval, hierarchical_weights, paired_difference
 from theory.release import release_clock
@@ -436,9 +438,7 @@ def micro_tables(records, protocol):
 
 def analyze(directory):
     """Validate coverage/provenance and write standalone tables and an evidence report."""
-    plan = cast(FrozenMainPlan, json.loads((directory / "plan.json").read_text()))
-    if fingerprint({k: v for k, v in plan.items() if k != "plan_fingerprint"}) != plan["plan_fingerprint"]:
-        raise ValueError("evidence plan hash mismatch")
+    plan = cast(FrozenMainPlan, read_plan(directory / "plan.json"))
     tasks = {t["id"]: t for t in plan["tasks"]}
     protocol = plan["analysis_protocol"]
     cases = list(cached_cases(directory / "measure"))
@@ -500,9 +500,7 @@ def analyze(directory):
         "schema": 1,
         "profile": plan["profile"],
         "plan_fingerprint": plan["plan_fingerprint"],
-        "planned": len(tasks),
-        "completed": len(provenance),
-        "missing": [r["id"] for r in coverage if not r["complete"]],
+        **task_coverage(plan["tasks"], (r["id"] for r in provenance)),
         "measure": len(cases),
         "early_stopped_measure": sum(bool(c["diagnostics"].get("converged", False)) for c in cases),
         "observed_measure_horizon_range": [

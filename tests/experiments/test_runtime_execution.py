@@ -1,21 +1,15 @@
 """Execution contracts that protect resumable scientific runs."""
 
 import json
-import math
 import sys
-import time
 from pathlib import Path
 
 import pytest
 
-from common.io.json import atomic_json, fingerprint, read_result
+from common.experiments.plans import write_design
 from common.runtime.environment import runtime_environment
 from experiments.paper_theory import __main__ as cli
-from experiments.paper_theory.runtime.paths import OutputPaths
-from theory.runtime.dataset import checked_records, validate
-from theory.runtime.executor import STOP, execute
 from theory.runtime.protocol import prepare_task, task_line
-from theory.runtime.store import write_design
 
 
 def executable(tmp_path, body):
@@ -85,7 +79,7 @@ def test_csv_plot_dispatch_never_imports_a_solver(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("action", ["run", "resume"])
 def test_generation_dispatch_uses_one_parser_and_structured_arguments(tmp_path, monkeypatch, action):
-    from experiments.paper_theory.evidence import run_main
+    from experiments.paper_theory import run as run_main
 
     seen = []
     monkeypatch.setattr(run_main, "launch", lambda args: seen.append(args))
@@ -96,60 +90,3 @@ def test_generation_dispatch_uses_one_parser_and_structured_arguments(tmp_path, 
     assert seen[0].publish_dir == tmp_path / "export"
     assert seen[0].resume == (action == "resume")
     assert not (tmp_path / "bulk").exists()
-
-
-def test_execute_resume_and_protocol_errors(tmp_path):
-    STOP.clear()
-    outputs = OutputPaths(tmp_path / "outputs")
-    binary = executable(
-        tmp_path,
-        "task=json.loads(sys.stdin.readline())\nprint(json.dumps({'id':task['id'],'status':'ok','result':{'value':3}}))\n",
-    )
-    current = job()
-    result = execute(current, binary, "source", "smoke_test", math.inf, 0, outputs)
-    assert result["status"] == "complete"
-    saved = read_result(Path(result["path"]))
-    assert saved["result"] == {"value": 3}
-    assert saved["job"] == current
-    assert execute(current, binary, "source", "smoke_test", math.inf, 0, outputs)["status"] == "cached"
-    with pytest.raises(RuntimeError, match="incompatible result"):
-        execute(current, binary, "changed-source", "smoke_test", math.inf, 0, outputs)
-    binary = executable(
-        tmp_path,
-        "task=json.loads(sys.stdin.readline())\nprint(json.dumps({'id':task['id'],'status':'error','error':'bad request'}))\n",
-    )
-    failed = execute(current, binary, "source", "smoke_error", math.inf, 0, outputs)
-    assert failed["status"] == "failed" and "bad request" in failed["stderr"]
-    assert not (outputs.family("micro", "smoke_error") / "raw" / "test.json.gz").exists()
-
-
-def test_deadlines_are_distinct_from_task_timeouts(tmp_path):
-    STOP.clear()
-    outputs = OutputPaths(tmp_path / "outputs")
-    binary = executable(tmp_path, "time.sleep(10)\n")
-    assert (
-        execute(job(), binary, "source", "smoke_deadline", time.monotonic() - 1, 0, outputs)["status"]
-        == "budget_unstarted"
-    )
-    assert execute(job(), binary, "source", "smoke_timeout", math.inf, 0.05, outputs)["status"] == "job_timeout"
-
-
-def test_bound_readers_reject_forged_job_and_corrupted_plan(tmp_path):
-    STOP.clear()
-    outputs = OutputPaths(tmp_path / "outputs")
-    root = outputs.control("smoke_test")
-    current = job()
-    plan = {"schema": 2, "jobs": [current]}
-    plan_id = fingerprint(plan)
-    atomic_json(root / "plan.json", {**plan, "plan_fingerprint": plan_id})
-    atomic_json(root / "binding.json", {"plan_fingerprint": plan_id, "source_fingerprint": "source"})
-    _, binding, expected = validate(root)
-    binary = executable(
-        tmp_path,
-        "task=json.loads(sys.stdin.readline())\nprint(json.dumps({'id':task['id'],'status':'ok','result':{}}))\n",
-    )
-    execute(current, binary, "source", "smoke_test", math.inf, 0, outputs)
-    assert len(checked_records(outputs, "smoke_test", "micro", binding, expected)) == 1
-    atomic_json(root / "plan.json", {**plan, "jobs": [], "plan_fingerprint": plan_id})
-    with pytest.raises(ValueError, match="content/hash mismatch"):
-        validate(root)

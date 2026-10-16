@@ -9,7 +9,7 @@ import numpy as np
 
 from common.io.tables import table
 from common.statistics import bootstrap_mean
-from theory.runtime.dataset import key
+from theory.runtime.historical import metadata_key
 from theory.validation import compare_fields, trajectory_gap
 
 
@@ -95,7 +95,7 @@ def analyze_micro(items, out):
     groups = collections.defaultdict(list)
     for r in rows:
         groups[
-            key(
+            metadata_key(
                 r,
                 exclude=(
                     "replicate",

@@ -6,7 +6,7 @@ import collections
 import math
 
 from common.io.tables import table
-from theory.runtime.dataset import key
+from theory.runtime.historical import metadata_key
 from theory.validation import compare_fields, trajectory_gap
 
 from .parity import parity
@@ -34,9 +34,9 @@ def analyze_operator(items, out):
             checks.append({"id": rec["job"]["id"], "max_gap": parity(rec["result"])})
             continue
         if md["scan"] in ("validity", "physical_limit"):
-            pairs[key(md, ("method",))][md["method"]] = rec
+            pairs[metadata_key(md, ("method",))][md["method"]] = rec
         if md["scan"] == "fixed_coefficients":
-            convergence[key(md, ("h", "b"))].append(rec)
+            convergence[metadata_key(md, ("h", "b"))].append(rec)
     errors = []
     missing = 0
     for pair in pairs.values():

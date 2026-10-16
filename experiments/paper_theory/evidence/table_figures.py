@@ -9,7 +9,8 @@ import numpy as np
 from matplotlib.colors import LogNorm
 from matplotlib.lines import Line2D
 
-from common.io.json import atomic_json, fingerprint, sha
+from common.experiments.plans import read_plan
+from common.io.json import atomic_json, sha
 from common.plotting.figures import decorate, numeric_log_ticks
 
 from ..types import FrozenMainPlan
@@ -411,9 +412,7 @@ def numerical_figure(directory, output, plan):
 
 def plot_tables(directory, output=None):
     directory = Path(directory)
-    plan = cast(FrozenMainPlan, json.loads((directory / "plan.json").read_text()))
-    if fingerprint({k: v for k, v in plan.items() if k != "plan_fingerprint"}) != plan["plan_fingerprint"]:
-        raise ValueError("frozen plan hash mismatch")
+    plan = cast(FrozenMainPlan, read_plan(directory / "plan.json"))
     report = json.loads((directory / "report.json").read_text())
     if report["missing"] or report["completed"] != report["planned"]:
         raise ValueError("publication plots require complete declared coverage")

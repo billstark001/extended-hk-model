@@ -10,7 +10,7 @@ import pytest
 from common.io.json import atomic_json, sha
 from common.io.records import write_record
 from experiments.paper_theory import __main__ as cli
-from experiments.paper_theory.evidence.design import LEGACY_PROFILES, PROFILES, canonical_profile, design
+from experiments.paper_theory.evidence.design import PROFILES, canonical_profile, design
 from experiments.paper_theory.evidence.main_design import TOPICS
 from theory.runtime.archives import save_result
 
@@ -29,6 +29,9 @@ def test_aggregate_is_the_deduplicated_union_of_named_topics(prefix):
     assert "closure" not in {r for t in aggregate["tasks"] for r in t["roles"]}
     if prefix == "main":
         assert Counter(t["kind"] for t in aggregate["tasks"]) == {"measure": 738, "micro": 1056}
+
+
+LEGACY_PROFILES = tuple(f"main_{t}" for t in TOPICS) + tuple(f"main_smoke_{t}" for t in TOPICS)
 
 
 def synthetic_records(directory, plan):
@@ -126,9 +129,8 @@ def test_topic_works_without_other_topics_or_runtime(tmp_path, topic):
 
 @pytest.mark.parametrize("topic,kind", [("scaling", "measure"), ("matched", "micro")])
 def test_run_dispatch_calls_only_the_selected_model(tmp_path, monkeypatch, topic, kind):
-    from experiments.paper_theory.evidence.workflow import perform
-    from experiments.paper_theory.micro_validation.population import run as population
-    from experiments.paper_theory.runtime import measure_runs
+    from experiments.paper_theory import study
+    from experiments.paper_theory.study import TheoryStudy
 
     binary = tmp_path / "fixture-binary"
     binary.write_text("not executed")
@@ -143,8 +145,9 @@ def test_run_dispatch_calls_only_the_selected_model(tmp_path, monkeypatch, topic
     def forbidden(*args, **kwargs):
         raise AssertionError("the other model must not execute or bind an empty design")
 
-    monkeypatch.setattr(measure_runs, "execute", execute if kind == "measure" else forbidden)
-    monkeypatch.setattr(population, "execute", execute if kind == "micro" else forbidden)
+    monkeypatch.setattr(study, "execute_tasks", execute)
+    monkeypatch.setattr(study, "MeasureAdapter", (lambda *a, **kw: object()) if kind == "measure" else forbidden)
+    monkeypatch.setattr(study, "PopulationAdapter", (lambda *a, **kw: object()) if kind == "micro" else forbidden)
     args = SimpleNamespace(
         action="run",
         profile=f"smoke_{topic}",
@@ -155,7 +158,7 @@ def test_run_dispatch_calls_only_the_selected_model(tmp_path, monkeypatch, topic
         limit=None,
         workers=1,
     )
-    perform(args, tmp_path, build, None, None)
+    TheoryStudy(args, tmp_path, build, None, None).workflow().dispatch("run")
     assert seen == [t["id"] for t in design(args.profile)["tasks"]]
 
 
@@ -167,7 +170,10 @@ def test_retired_migration_command_is_unavailable(tmp_path):
 @pytest.mark.parametrize("legacy", LEGACY_PROFILES)
 def test_legacy_names_read_frozen_designs_but_are_not_new_cli_choices(legacy):
     current = design(canonical_profile(legacy))
-    old = design(legacy)
-    assert old == {**current, "profile": legacy}
+    from experiments.paper_theory.evidence.design import topics
+
+    assert topics(legacy) == topics(current["profile"])
+    with pytest.raises(ValueError):
+        design(legacy)
     with pytest.raises(SystemExit):
         cli.parser().parse_args(["plan", "--profile", legacy])

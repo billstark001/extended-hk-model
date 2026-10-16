@@ -5,16 +5,16 @@ from pathlib import Path
 
 from common.io.json import atomic_json, sha
 from common.io.tables import table
-from theory.runtime.dataset import checked_records, validate
+from theory.runtime.historical import FrozenAuditDataset
 
 from .kernel_validation.analyze.cases import analyze as analyze_kernel
 from .micro_validation.analyze.cases import analyze_micro
 from .micro_validation.analyze.ensembles import analyze_ensembles as micro_ensembles
 from .operator_validation.analyze.cases import analyze_operator
+from .paths import output_root
 from .release_clocks.analyze.cases import analyze_clocks
 from .release_clocks.analyze.ensembles import analyze_ensembles as clock_ensembles
 from .runtime.comparison import baseline_prefixes
-from .runtime.paths import OutputPaths
 
 
 def analyze_run(output=None, label="validation", families=None, baseline_label=None):
@@ -25,9 +25,9 @@ def analyze_run(output=None, label="validation", families=None, baseline_label=N
     matching prefixes. Return the summary including completed and missing counts.
     No solver is imported or run.
     """
-    outputs = OutputPaths(output)
-    root = outputs.control(label)
-    plan, binding, expected = validate(root)
+    root = (Path(output).resolve() if output else output_root() / "validation") / label
+    dataset = FrozenAuditDataset(root)
+    plan, binding, expected = dataset.plan, dataset.binding, dataset.expected
     families = list(dict.fromkeys(j["family"] for j in plan["jobs"])) if families is None else families
     if any(f not in ("micro", "clocks", "operator", "kernel") for f in families):
         raise ValueError("unknown analysis family")
@@ -43,9 +43,9 @@ def analyze_run(output=None, label="validation", families=None, baseline_label=N
     }
     completed = 0
     for family in families:
-        items = checked_records(outputs, label, family, binding, expected)
+        items = dataset.records(family)
         completed += len(items)
-        destination = out / family if protocol else outputs.family(family, label) / "analysis"
+        destination = out / family if protocol else root / family / "analysis"
         destination.mkdir(parents=True, exist_ok=True)
         if family == "kernel":
             rows, curves = [], []
@@ -67,7 +67,7 @@ def analyze_run(output=None, label="validation", families=None, baseline_label=N
                 else analyze_clocks(items, destination)
             )
             if protocol and baseline_label:
-                summary["baseline"] = baseline_prefixes(items, outputs.control(baseline_label), binding, out)
+                summary["baseline"] = baseline_prefixes(items, root.parent / baseline_label, binding, out)
         else:
             result = analyze_operator(items, destination)
         summary["families"][family] = result

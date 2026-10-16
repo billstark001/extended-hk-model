@@ -1,98 +1,20 @@
-import collections
-import json
 import math
 import unittest
-from copy import deepcopy
 
 import numpy as np
 
-from common.io.json import fingerprint
 from common.statistics import bootstrap_weights, mean_interval
-from experiments.paper_theory import protocols as definitions
-from experiments.paper_theory.designs import generate
-from experiments.paper_theory.protocols import ANALYSIS
-from experiments.paper_theory.runtime.tasks import request, task
 from theory.release import batch_half_times, clocks, confirmed_clocks, curve_clock_interval, energy_tail_check
-from theory.runtime.store import resolve_frozen_plan
+
+ANALYSIS = {
+    "bootstrap_samples": 4000,
+    "bootstrap_seed": 2026100701,
+    "confidence_level": 0.95,
+    "tail_fractions": (0.1, 0.2),
+}
 
 
 class TestScientificChecks(unittest.TestCase):
-    def frozen_plan_fixture(self):
-        candidate = {
-            "schema": 1,
-            "profile": "core",
-            "jobs": [generate(preset="ensembles")[0]],
-            "analysis_protocol": ANALYSIS,
-            "definitions_sha256": {"parameters.py": "original-file-hash"},
-        }
-        frozen = json.loads(json.dumps({**candidate, "plan_fingerprint": fingerprint(candidate)}))
-        return candidate, frozen
-
-    def test_definition_byte_change_keeps_frozen_identity(self):
-        candidate, frozen = self.frozen_plan_fixture()
-        candidate["definitions_sha256"]["parameters.py"] = "formatted-file-hash"
-        snapshot = deepcopy(frozen)
-        selected, identity, changed = resolve_frozen_plan(candidate, frozen)
-        self.assertTrue(changed)
-        self.assertEqual(identity, frozen["plan_fingerprint"])
-        self.assertEqual(selected["definitions_sha256"], frozen["definitions_sha256"])
-        self.assertEqual(frozen, snapshot)
-        self.assertEqual(fingerprint(selected), identity)
-
-    def test_real_design_or_analysis_changes_still_rejected(self):
-        for field in ("seed", "request", "profile", "analysis"):
-            candidate, frozen = self.frozen_plan_fixture()
-            candidate["definitions_sha256"]["parameters.py"] = "new-file-hash"
-            if field == "seed":
-                candidate["jobs"][0]["payload"]["process_seed"] += 1
-            elif field == "request":
-                candidate["jobs"][0]["payload"]["request"]["population"] += 1
-            elif field == "profile":
-                candidate["profile"] = "minimum"
-            else:
-                candidate["analysis_protocol"] = {**ANALYSIS, "confidence_level": 0.9}
-            with self.subTest(field=field), self.assertRaisesRegex(RuntimeError, "plan changed"):
-                resolve_frozen_plan(candidate, frozen)
-
-    def test_corrupted_frozen_plan_rejected(self):
-        candidate, frozen = self.frozen_plan_fixture()
-        frozen["jobs"][0]["payload"]["process_seed"] += 1
-        with self.assertRaisesRegex(RuntimeError, "content/hash mismatch"):
-            resolve_frozen_plan(candidate, frozen)
-
-    def test_design_and_conditional_repeats(self):
-        for preset, counts in (("validation", (208, 202)), ("ensembles", (236, 110))):
-            jobs = generate(preset=preset)
-            actual = collections.Counter(j["family"] for j in jobs)
-            self.assertEqual((actual["micro"], actual["clocks"]), counts)
-            self.assertEqual(jobs, generate(preset=preset))
-            self.assertEqual(len(jobs), len({j["id"] for j in jobs}))
-            physical = []
-            for job in jobs:
-                payload = deepcopy(job["payload"])
-                payload.pop("id")
-                payload["request"]["request_id"] = "revision"
-                physical.append(fingerprint(payload))
-            if preset == "ensembles":
-                self.assertEqual(len(physical), len(set(physical)))
-        jobs = generate(preset="ensembles")
-        for initial in definitions.INITIAL_REPLICATES:
-            cohort = [
-                j
-                for j in jobs
-                if j["family"] == "micro"
-                and j["meta"]["role"] in ("basin_grid", "basin_ensemble")
-                and j["meta"]["b"] == 161
-                and j["meta"]["quadrature"] == 33
-                and j["meta"]["initial_replicate"] == initial
-            ]
-            self.assertEqual(len(cohort), 16)
-            self.assertEqual(len({j["payload"]["init_seed"] for j in cohort}), 1)
-            self.assertEqual(len({j["payload"]["process_seed"] for j in cohort}), 16)
-            original = task("micro", request(horizon=30), kind="micro", replicate=initial)
-            first = next(j for j in cohort if j["meta"]["process_replicate"] == 0)
-            self.assertEqual(first["payload"]["process_seed"], original["payload"]["process_seed"])
-
     def test_plateau_requires_both_channels_and_patience(self):
         stopping = {
             "check_every": 2,

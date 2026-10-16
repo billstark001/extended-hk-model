@@ -9,7 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
 
-from common.io.json import atomic_json, fingerprint
+from common.experiments.plans import read_plan
+from common.io.json import atomic_json
 from common.io.records import record_path
 from common.plotting.figures import decorate
 from common.statistics import bootstrap_weights
@@ -271,9 +272,7 @@ def scaling_figure(directory, output, plan, cases):
 
 def plot(directory, output=None):
     """Refuse partial coverage; generate each main and supplemental figure anew."""
-    plan = cast(FrozenMainPlan, json.loads((directory / "plan.json").read_text()))
-    if fingerprint({k: v for k, v in plan.items() if k != "plan_fingerprint"}) != plan["plan_fingerprint"]:
-        raise ValueError("frozen plan hash mismatch")
+    plan = cast(FrozenMainPlan, read_plan(directory / "plan.json"))
     report = json.loads((directory / "report.json").read_text())
     if report["missing"] or report["completed"] != report["planned"]:
         raise ValueError("main figures require the complete declared design")

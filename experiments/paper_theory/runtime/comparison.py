@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
-
-from common.io.json import fingerprint, read_result
 from common.io.tables import table
+from theory.runtime.historical import FrozenAuditDataset
 
 
 def physical_key(job):
@@ -35,20 +33,13 @@ def physical_key(job):
     )
 
 
-def assert_saved(record, job, binding):
-    """Reject a record whose complete job, source binding or task/build identity differs from frozen expectations."""
-    assert record["job"] == job, "raw job/plan mismatch"
-    assert record["build_fingerprint"] == binding["source_fingerprint"]
-    assert record["identity"] == fingerprint({"task": job, "build": binding["source_fingerprint"]})
-
-
 def baseline_prefixes(items, baseline, binding, out):
     """Write checks comparing matching extended-run prefixes with completed baseline trajectories under the same build binding."""
     path = baseline / "plan.json"
     if not path.exists():
         return {"available": False}
-    previous = json.loads(path.read_text())
-    previous_binding = json.loads((baseline / "binding.json").read_text())
+    dataset = FrozenAuditDataset(baseline)
+    previous, previous_binding = dataset.plan, dataset.binding
     if previous_binding["source_fingerprint"] != binding["source_fingerprint"]:
         return {"available": True, "same_solver_source": False, "comparison": "skipped: changed solver source"}
 
@@ -67,11 +58,7 @@ def baseline_prefixes(items, baseline, binding, out):
         p = baseline / "clocks" / "raw" / (old["id"] + ".json.gz")
         if not p.exists():
             continue
-        saved = read_result(p)
-        if saved["job"] != old or saved["identity"] != fingerprint(
-            {"task": old, "build": previous_binding["source_fingerprint"]}
-        ):
-            raise ValueError("baseline result binding mismatch")
+        saved = dataset.read(old)
         frames = {f["step"]: f for f in record["result"]["frames"]}
         gaps = [
             abs(f[k] - frames[f["step"]][k])

@@ -9,13 +9,13 @@ from pathlib import Path
 
 import numpy as np
 
-from common.io.json import fingerprint, read_result, sha
+from common.io.json import fingerprint, sha
 from common.io.tables import table
 from experiments.paper_theory.manuscript.reports.tables import number, read_table
 from experiments.paper_theory.micro_validation.analyze.ensembles import finite_micro_row
 from experiments.paper_theory.release_clocks.analyze.ensembles import clock_row
-from experiments.paper_theory.runtime.comparison import assert_saved, physical_key
-from theory.runtime.dataset import validate
+from experiments.paper_theory.runtime.comparison import physical_key
+from theory.runtime.historical import FrozenAuditDataset
 
 
 def gather(root, baseline, out):
@@ -25,13 +25,14 @@ def gather(root, baseline, out):
     and compare overlapping physical prefixes. Write audit tables and return
     (plan, reduced_micro_records, reduced_clock_records, audit_summary).
     """
-    plan, binding, expected = validate(root)
+    dataset = FrozenAuditDataset(root)
+    plan, binding, expected = dataset.plan, dataset.binding, dataset.expected
     status = json.loads((root / "status.json").read_text())
     assert status["binding"] == binding
     assert len(status["records"]) == len(expected)
     assert len({r["id"] for r in status["records"]}) == len(expected)
-    previous = json.loads((baseline / "plan.json").read_text())
-    previous_binding = json.loads((baseline / "binding.json").read_text())
+    previous_dataset = FrozenAuditDataset(baseline)
+    previous, previous_binding = previous_dataset.plan, previous_dataset.binding
     assert previous_binding["source_fingerprint"] == binding["source_fingerprint"]
     old_index = {(j["family"], physical_key(j)): j for j in previous["jobs"] if j["family"] in ("micro", "clocks")}
     prior_status = {r["id"]: r for r in json.loads((baseline / "status.json").read_text())["records"]}
@@ -51,8 +52,7 @@ def gather(root, baseline, out):
             assert digest == state["sha256"], "raw SHA256 mismatch"
         hashes[job["id"]] = digest
         bytes_total += path.stat().st_size
-        record = read_result(path)
-        assert_saved(record, job, binding)
+        record = dataset.read(job)
         m, v = job["meta"], record["result"]
         if job["family"] == "micro":
             row = finite_micro_row(record, plan["analysis_protocol"])
@@ -113,8 +113,7 @@ def gather(root, baseline, out):
             job["family"] == "clocks" or old_job["payload"]["request"]["steps"] == job["payload"]["request"]["steps"]
         ):
             old_path = baseline / job["family"] / "raw" / (old_job["id"] + ".json.gz")
-            old = read_result(old_path)
-            assert_saved(old, old_job, previous_binding)
+            old = previous_dataset.read(old_job)
             if "sha256" in prior_status.get(old_job["id"], {}):
                 assert sha(old_path) == prior_status[old_job["id"]]["sha256"]
             frames = {f["step"]: f for f in v["frames"]}

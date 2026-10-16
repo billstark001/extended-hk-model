@@ -9,15 +9,19 @@ from types import SimpleNamespace
 
 import pytest
 
+from common.experiments.execution import execute_tasks
+from common.experiments.lifecycle import recover_task_lock, session_lock
 from common.io.json import atomic_json, sha
 from common.runtime.process import run_jsonl, run_tasks
-from experiments.paper_theory.evidence.design import LEGACY_PROFILES, PROFILES, canonical_profile
-from experiments.paper_theory.evidence.resume import recover_task_lock, restore_binaries, session_lock, settings
-from experiments.paper_theory.micro_validation.population import run as population
-from experiments.paper_theory.runtime import measure_runs
+from experiments.paper_theory.evidence.bindings import restore_binaries, settings
+from experiments.paper_theory.evidence.design import PROFILES, canonical_profile
+from experiments.paper_theory.evidence.main_design import TOPICS
 from theory.parameters import Parameters
 from theory.runtime import measure
 from theory.runtime import population as population_contract
+from theory.runtime.task_adapters import MeasureAdapter, PopulationAdapter
+
+LEGACY_PROFILES = tuple(f"main_{t}" for t in TOPICS) + tuple(f"main_smoke_{t}" for t in TOPICS)
 
 
 def task(identifier):
@@ -72,7 +76,7 @@ def test_measure_interrupt_then_resume_skips_completed_tasks(tmp_path, monkeypat
     monkeypatch.setattr(measure, "run_measure", simulate)
     output = tmp_path / "measure"
     with pytest.raises(KeyboardInterrupt):
-        measure_runs.execute(tasks, output, binary)
+        execute_tasks(tasks, MeasureAdapter(output, binary))
     assert seen == ["0", "1"]
     complete = output / "raw" / "0.npz"
     original, modified = complete.read_bytes(), complete.stat().st_mtime_ns
@@ -81,14 +85,14 @@ def test_measure_interrupt_then_resume_skips_completed_tasks(tmp_path, monkeypat
     (output / "raw" / "2.tmp").write_bytes(b"interrupted temporary record")
     seen.clear()
     monkeypatch.setattr(measure, "run_measure", lambda b, i, p, **kw: seen.append(i) or measure_result())
-    measure_runs.execute(tasks, output, binary, workers=2)
+    execute_tasks(tasks, MeasureAdapter(output, binary), workers=2)
     assert sorted(seen) == ["1", "2"]
     assert complete.read_bytes() == original and complete.stat().st_mtime_ns == modified
     assert len(list((output / "raw").glob("*.npz"))) == 3
     # Different binaries must fail before any result can be reused or overwritten.
     binary.write_bytes(b"changed")
-    with pytest.raises(ValueError, match="binary changed"):
-        measure_runs.execute(tasks, output, binary)
+    with pytest.raises(ValueError, match="binding.*changed"):
+        execute_tasks(tasks, MeasureAdapter(output, binary))
 
 
 def test_population_resume_recomputes_truncated_result_but_rejects_other_protocol(tmp_path, monkeypatch):
@@ -125,18 +129,18 @@ def test_population_resume_recomputes_truncated_result_but_rejects_other_protoco
 
     monkeypatch.setattr(population_contract, "run_binary", respond)
     raw = tmp_path / "micro" / "raw"
-    population.execute(tasks, raw, binary)
+    execute_tasks(tasks, PopulationAdapter(raw, binary))
     assert len([c for c in calls if c[0] == "pair_only"]) == 1
     first = raw / "0.msgpack.lz4"
     original, modified = first.read_bytes(), first.stat().st_mtime_ns
     (raw / "1.msgpack.lz4").write_bytes(b"truncated record")
     calls.clear()
-    population.execute(tasks, raw, binary)
+    execute_tasks(tasks, PopulationAdapter(raw, binary))
     assert calls == [("micro_only", "1")]
     assert first.read_bytes() == original and first.stat().st_mtime_ns == modified
     changed = {**tasks[0], "process_seed": 999}
     with pytest.raises(ValueError, match="protocol differs"):
-        population.execute([changed], raw, binary)
+        execute_tasks([changed], PopulationAdapter(raw, binary))
     assert first.read_bytes() == original
 
 
