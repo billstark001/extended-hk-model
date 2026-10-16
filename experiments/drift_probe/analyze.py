@@ -10,9 +10,8 @@ from typing import Literal, get_args
 import numpy as np
 from matplotlib.axes import Axes
 
-from experiments.paper.mechanism_cases.social_force_probe.scenarios import OUTPUT_DIR, SCENARIOS
 from ehk.plotting.landscape import plot_potential_curves, potential_from_force
-
+from experiments.drift_probe.scenarios import OUTPUT_DIR, SCENARIOS
 
 LandscapeKind = Literal["observational", "probe"]
 LANDSCAPE_CHOICES = get_args(LandscapeKind)
@@ -43,7 +42,7 @@ def load_probe_landscape(scenario_key: str, result_dir: str | Path | None = None
     if not path.is_file():
         raise FileNotFoundError(
             f"probe landscape not found: {path}; run "
-            f"`python -m experiments.paper.mechanism_cases.social_force_probe.run "
+            f"`python -m experiments.drift_probe.run "
             f"--scenario {scenario_key} --no-plot` first"
         )
 

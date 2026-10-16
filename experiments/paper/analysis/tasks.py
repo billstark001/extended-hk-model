@@ -6,13 +6,14 @@ from typing import Callable
 import numpy as np
 
 import experiments.paper.scenarios as cfg
+from common.experiments.registry import TaskRegistry
+from common.pipeline import Context
+from ehk.micro.observables import c
+from experiments.paper.analysis.records import ScenarioStatistics
+from experiments.paper.analysis.statistics import analyze_statistics
 from experiments.paper.paths import STAT_INPUT
 from experiments.workspaces import instance_name as resolve_instance_name
 from experiments.workspaces import workspace_dir
-from common.pipeline import Context
-from ehk.micro.observables import c
-from experiments.paper.analysis.execution import generate_stats
-from experiments.paper.analysis.records import ScenarioStatistics
 
 
 def merge_stats_to_context(
@@ -151,7 +152,7 @@ COMMON_STAT_BUILDERS: dict[str, Callable[[], object]] = {
 @dataclass(frozen=True)
 class ModeConfig:
     name: str
-    scenarios: list[cfg.ScenarioMetadata]
+    scenarios: Callable[[], list[cfg.ScenarioMetadata]]
     common_stats: list[str]
     opinion_peak_distance: int
     skip_exist: Callable[[ScenarioStatistics | None], bool]
@@ -161,7 +162,7 @@ class ModeConfig:
 MODE_CONFIGS: dict[str, ModeConfig] = {
     "epsilon": ModeConfig(
         name="epsilon",
-        scenarios=cfg.all_scenarios_eps,
+        scenarios=cfg.epsilon_tasks,
         common_stats=EPS_COMMON_STATS,
         opinion_peak_distance=20,
         skip_exist=_skip_if_peak_exists,
@@ -169,7 +170,7 @@ MODE_CONFIGS: dict[str, ModeConfig] = {
     ),
     "gradation": ModeConfig(
         name="gradation",
-        scenarios=cfg.all_scenarios_grad,
+        scenarios=cfg.gradation_tasks,
         common_stats=GRAD_COMMON_STATS,
         opinion_peak_distance=50,
         skip_exist=_skip_gradation,
@@ -177,7 +178,7 @@ MODE_CONFIGS: dict[str, ModeConfig] = {
     ),
     "replicate": ModeConfig(
         name="replicate",
-        scenarios=cfg.all_scenarios_rep,
+        scenarios=cfg.replicate_tasks,
         common_stats=REP_COMMON_STATS,
         opinion_peak_distance=50,
         skip_exist=_skip_if_peak_exists,
@@ -253,8 +254,11 @@ def get_statistics_for_mode(
         )
 
 
+STATISTICS = TaskRegistry(MODE_CONFIGS)
+
+
 def get_mode_names() -> list[str]:
-    return sorted(MODE_CONFIGS.keys())
+    return sorted(STATISTICS.names)
 
 
 def run_mode(mode: str, instance_name: str, concurrency: int):
@@ -271,15 +275,25 @@ def run_mode(mode: str, instance_name: str, concurrency: int):
 
     c.set_state(active_threshold=0.98, min_inactive_value=0.75)
 
-    mode_config = MODE_CONFIGS[mode]
+    mode_config = STATISTICS.select(mode)[0]
     get_statistics = partial(get_statistics_for_mode, mode=mode)
 
-    generate_stats(
+    analyze_statistics(
         get_statistics,
         scenario_base_path,
         stats_db_path,
         resolve_instance_name(instance_name),
-        mode_config.scenarios,
+        mode_config.scenarios(),
+        mode=mode,
+        protocol={
+            "common_statistics": mode_config.common_stats,
+            "opinion_peak_distance": mode_config.opinion_peak_distance,
+            "active_threshold": 0.98,
+            "min_inactive_value": 0.75,
+            "extra_statistics": mode_config.extra_stats_builder.__name__,
+            "skip_existing": mode_config.skip_exist.__name__,
+        },
         ignore_exist=False,
+        is_complete=mode_config.skip_exist,
         concurrency=concurrency,
     )

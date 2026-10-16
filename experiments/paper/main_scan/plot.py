@@ -1,20 +1,18 @@
-from typing import Dict, List, Iterable, Callable, Sequence, TypeVar, Tuple
-from matplotlib.axes import Axes
-from numpy.typing import NDArray
-
-import os
 import copy
+import os
+from typing import Callable, Dict, Iterable, List, Sequence, Tuple, TypeVar
 
 import numpy as np
+from matplotlib.axes import Axes
+from numpy.typing import NDArray
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
+import experiments.paper.scenarios as cfg
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
 from common.storage.sqlite import create_db_engine_and_session
-import experiments.paper.scenarios as cfg
-from experiments.paper.paths import STAT_INPUT, MAIN_SCAN_OUTPUT
 from experiments.paper.analysis.records import ScenarioStatistics
-
+from experiments.paper.paths import MAIN_SCAN_OUTPUT, STAT_INPUT
 
 T = TypeVar("T")
 T1 = TypeVar("T1")
@@ -25,8 +23,8 @@ T2 = TypeVar("T2")
 plot_path = str(STAT_INPUT.resolve())
 stats_db_path = os.path.join(plot_path, "stats.db")
 
-rs_keys = list(cfg.rs_names)
-tw_keys = cfg.retweet_rate_array.tolist()
+rs_keys = list(cfg.GRADATION_RECOMMENDATIONS)
+tw_keys = list(cfg.REPOST_AXIS)
 
 
 setup_paper_params()
@@ -40,10 +38,10 @@ short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 bc_inst_orig: List[List[List[ScenarioStatistics]]] = []
 rw_rev_dict: Dict[float, int] = {}
 dc_rev_dict: Dict[float, int] = {}
-for i, rw in enumerate(cfg.rewiring_rate_array):
+for i, rw in enumerate(cfg.REWIRING_AXIS):
     rw_rev_dict[rw] = i
     lst = []
-    for j, dc in enumerate(cfg.decay_rate_array):
+    for j, dc in enumerate(cfg.INFLUENCE_AXIS):
         dc_rev_dict[dc] = j
         lst.append([])
     bc_inst_orig.append(lst)
@@ -132,8 +130,8 @@ def _setup_heatmap_axes(axes: Sequence[Axes], layout="1row"):
     """
     for i, ax in enumerate(axes):
         ax.invert_yaxis()
-        ax.set_xticks(np.arange(cfg.decay_rate_array.size))
-        ax.set_yticks(np.arange(cfg.rewiring_rate_array.size))
+        ax.set_xticks(np.arange(len(cfg.INFLUENCE_AXIS)))
+        ax.set_yticks(np.arange(len(cfg.REWIRING_AXIS)))
 
         # For 2x3 layout, show y-axis labels on leftmost columns (indices 0 and 3)
         # For 1-row layout, show y-axis labels only on the first axis
@@ -146,14 +144,14 @@ def _setup_heatmap_axes(axes: Sequence[Axes], layout="1row"):
 
         if show_xlabel:
             ax.set_xlabel(r"influence ($\alpha$)")
-            ax.set_xticklabels(cfg.decay_rate_array, rotation=90)
+            ax.set_xticklabels(cfg.INFLUENCE_AXIS, rotation=90)
         else:
             ax.set_xlabel("")
             ax.set_xticklabels([])
 
         if show_ylabel:
             ax.set_ylabel(r"rewiring ($q$)")
-            ax.set_yticklabels(cfg.rewiring_rate_array)
+            ax.set_yticklabels(cfg.REWIRING_AXIS)
         else:
             ax.set_ylabel("")
             ax.set_yticklabels([])
@@ -286,15 +284,15 @@ def plot_heatmap_by_retweet(
 
     for i, ax in enumerate(axes):
         ax.invert_yaxis()
-        ax.set_xticks(np.arange(cfg.decay_rate_array.size))
-        ax.set_yticks(np.arange(cfg.rewiring_rate_array.size))
+        ax.set_xticks(np.arange(len(cfg.INFLUENCE_AXIS)))
+        ax.set_yticks(np.arange(len(cfg.REWIRING_AXIS)))
 
         ax.set_xlabel(r"influence ($\alpha$)")
-        ax.set_xticklabels(cfg.decay_rate_array, rotation=90)
+        ax.set_xticklabels(cfg.INFLUENCE_AXIS, rotation=90)
 
         if i == 0:
             ax.set_ylabel(r"rewiring ($q$)")
-            ax.set_yticklabels(cfg.rewiring_rate_array)
+            ax.set_yticklabels(cfg.REWIRING_AXIS)
         else:
             ax.set_ylabel("")
             ax.set_yticklabels([])

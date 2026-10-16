@@ -1,6 +1,6 @@
-# Counterfactual potential landscape
+# Temporary drift probe
 
-This directory replaces the observational, time-window force proxy with the frozen-state counterfactual probe implemented by `social-media-models`.
+This standalone temporary study uses the frozen-state counterfactual probe implemented by `social-media-models`. It is separate from the original-paper experiment designs. Tasks use the shared `TaskRegistry`, frozen plans, execution and timing journals; `--scenario all` selects the eleven saved-record cases.
 
 See [`RESULTS.md`](RESULTS.md) for the completed run's numerical summary.
 
@@ -20,10 +20,10 @@ make build-probe
 pip install -e .
 
 cd ../extended-hk-model
-python -m experiments.paper.mechanism_cases.social_force_probe.run
+python -m experiments.drift_probe.run
 ```
 
-The default input directory is `outputs/experiments/paper/mechanism_cases/raw`. Set `EHK_SOCIAL_FORCE_INPUT_DIR` in `.env` or use `--workspace` when the records live elsewhere.
+Existing `EHK_SOCIAL_FORCE_INPUT_DIR` and `EHK_SOCIAL_FORCE_OUTPUT_DIR` settings remain supported. The default input directory is `outputs/experiments/paper/mechanism_cases/raw`. Set `EHK_SOCIAL_FORCE_INPUT_DIR` in `.env` or use `--workspace` when the records live elsewhere.
 
 Defaults:
 
@@ -37,7 +37,7 @@ The fixed common RNG makes the run reproducible and reduces Monte Carlo noise in
 Useful overrides:
 
 ``` bash
-python -m experiments.paper.mechanism_cases.social_force_probe.run \
+python -m experiments.drift_probe.run \
   --scenario pbs \
   --replicates 40 \
   --grid-step 0.01 \
@@ -46,10 +46,11 @@ python -m experiments.paper.mechanism_cases.social_force_probe.run \
 
 ## Outputs
 
-`outputs/experiments/paper/mechanism_cases/social_force_probe/` contains:
+`outputs/experiments/drift_probe/` contains:
 
 - `counterfactual_probe_<scenario>.npz` for all 11 mechanism records;
 - `manifest.json`;
+- `runtime/attempt-*/plan.json`, completion events and status;
 - `figures/counterfactual_probe_landscape.png`;
 - `figures/counterfactual_probe_landscape.pdf`.
 
@@ -85,9 +86,9 @@ The outputs replace the corresponding PDF/PNG pairs under `outputs/experiments/p
 To draw a standalone comparison from saved NPZ files without rerunning the probe:
 
 ``` bash
-python -m experiments.paper.mechanism_cases.social_force_probe.plot \
-  outputs/experiments/paper/mechanism_cases/social_force_probe/counterfactual_probe_pbs.npz \
-  outputs/experiments/paper/mechanism_cases/social_force_probe/counterfactual_probe_sbp.npz
+python -m experiments.drift_probe.plot \
+  outputs/experiments/drift_probe/counterfactual_probe_pbs.npz \
+  outputs/experiments/drift_probe/counterfactual_probe_sbp.npz
 ```
 
 The landscape programs are separated by scientific role:

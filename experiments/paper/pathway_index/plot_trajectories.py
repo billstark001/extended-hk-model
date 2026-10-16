@@ -1,26 +1,23 @@
-from typing import Dict, Iterable, List, Tuple
-
 import os
+from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
 from matplotlib import cm
 from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
-
-from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
-from common.storage.sqlite import create_db_engine_and_session
-import experiments.paper.scenarios as cfg
-from experiments.paper.paths import STAT_INPUT, PATHWAY_OUTPUT
-from experiments.paper.analysis.records import ScenarioStatistics
-
 from sklearn.cluster import KMeans
 
+import experiments.paper.scenarios as cfg
+from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
+from common.storage.sqlite import create_db_engine_and_session
+from experiments.paper.analysis.records import ScenarioStatistics
+from experiments.paper.paths import PATHWAY_OUTPUT, STAT_INPUT
 
 plot_path = str(STAT_INPUT.resolve())
 stats_db_path = os.path.join(plot_path, "stats.db")
 
-retweet_groups: List[float] = cfg.retweet_rate_array.tolist()
-rs_groups: List[Tuple[str, int]] = [(rs, int(retain)) for rs, retain in cfg.rs_names.values()]
+retweet_groups: List[float] = list(cfg.REPOST_AXIS)
+rs_groups: List[Tuple[str, int]] = [(rs, int(retain)) for rs, retain in cfg.GRADATION_RECOMMENDATIONS.values()]
 
 HEATMAP_BINS = 128
 SUMMARY_CURVE_SAMPLES = 256

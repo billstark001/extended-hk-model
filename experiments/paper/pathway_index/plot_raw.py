@@ -1,19 +1,17 @@
-from typing import Dict, List, Iterable, Callable, TypeVar, Tuple
-
 import os
+from typing import Callable, Dict, Iterable, List, Tuple, TypeVar
 
 import numpy as np
+from matplotlib.axes import Axes
 from sqlalchemy import ColumnExpressionArgument
 from sqlalchemy.orm import Session
-from matplotlib.axes import Axes
 
+import experiments.paper.scenarios as cfg
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
 from common.storage.sqlite import create_db_engine_and_session
-import experiments.paper.scenarios as cfg
-from experiments.paper.paths import STAT_INPUT, PATHWAY_OUTPUT
-from experiments.paper.pathway_index.data_utils import piecewise_linear_integral_trapz
 from experiments.paper.analysis.records import ScenarioStatistics
-
+from experiments.paper.paths import PATHWAY_OUTPUT, STAT_INPUT
+from experiments.paper.pathway_index.data_utils import piecewise_linear_integral_trapz
 
 T = TypeVar("T")
 T1 = TypeVar("T1")
@@ -24,8 +22,8 @@ T2 = TypeVar("T2")
 plot_path = str(STAT_INPUT.resolve())
 stats_db_path = os.path.join(plot_path, "stats.db")
 
-rs_keys = list(cfg.rs_names)
-tw_keys = cfg.retweet_rate_array.tolist()
+rs_keys = list(cfg.GRADATION_RECOMMENDATIONS)
+tw_keys = list(cfg.REPOST_AXIS)
 
 
 setup_paper_params()
@@ -39,10 +37,10 @@ short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 bc_inst_orig: List[List[List[ScenarioStatistics]]] = []
 rw_rev_dict: Dict[float, int] = {}
 dc_rev_dict: Dict[float, int] = {}
-for i, rw in enumerate(cfg.rewiring_rate_array):
+for i, rw in enumerate(cfg.REWIRING_AXIS):
     rw_rev_dict[rw] = i
     lst = []
-    for j, dc in enumerate(cfg.decay_rate_array):
+    for j, dc in enumerate(cfg.INFLUENCE_AXIS):
         dc_rev_dict[dc] = j
         lst.append([])
     bc_inst_orig.append(lst)

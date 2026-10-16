@@ -1,38 +1,30 @@
+"""Original-paper simulation CLI; runtime wire arguments and output layouts are unchanged."""
+
 import argparse
 
 from common.io.logging import init_logger
-from ehk.micro.runner import run_scenarios
-import experiments.paper.scenarios as cfg
 from experiments.paths import SMP_BINARY
 from experiments.workspaces import workspace_dir
 
-scenarios = {
-    "epsilon": cfg.all_scenarios_eps,
-    "gradation": cfg.all_scenarios_grad,
-    "mech": cfg.all_scenarios_mech,
-    "replicate": cfg.all_scenarios_rep,
-}
+from .scenarios import TASKS
+from .study import run_simulations
 
-if __name__ == "__main__":
+
+def main(argv=None):
     parser = argparse.ArgumentParser(description="Run simulations for a given scenario.")
-    parser.add_argument("scenario", choices=scenarios.keys(), help="The scenario to run simulations for.")
+    parser.add_argument("scenario", choices=TASKS.names, help="The scenario to run simulations for.")
     parser.add_argument("--workspace", help="The workspace name to store simulation results.")
     parser.add_argument("--concurrency", type=int, default=4, help="Number of concurrent simulations to run.")
+    parser.add_argument("--binding-batch", action="store_true", help="let this task use the SMP binding batch runner")
+    args = parser.parse_args(argv)
+    directory = workspace_dir(args.workspace, args.scenario)
+    directory.mkdir(parents=True, exist_ok=True)
+    init_logger(None, str(directory / "logfile.log"))
+    print(f"Result Directory: {directory}")
+    return run_simulations(
+        args.scenario, directory, SMP_BINARY.resolve(), args.concurrency, binding_batch=args.binding_batch
+    )
 
-    args = parser.parse_args()
 
-    if not args.scenario:
-        print("Please specify a scenario to run simulations for.")
-        exit(1)
-    if args.scenario not in scenarios:
-        print(f"Invalid scenario specified. Available scenarios: {', '.join(scenarios.keys())}")
-        exit(1)
-
-    simulation_result_dir = workspace_dir(args.workspace, args.scenario)
-
-    simulation_result_dir.mkdir(parents=True, exist_ok=True)
-    init_logger(None, str(simulation_result_dir / "logfile.log"))
-
-    print(f"Result Directory: {simulation_result_dir}")
-
-    run_scenarios(SMP_BINARY.resolve(), simulation_result_dir, scenarios[args.scenario], concurrency=args.concurrency)
+if __name__ == "__main__":
+    main()

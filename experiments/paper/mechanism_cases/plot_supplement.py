@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Tuple, List, Dict
 import argparse
 import pickle
-import numpy as np
+from dataclasses import asdict, dataclass
+from typing import TYPE_CHECKING, Dict, List, Tuple
+
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from scipy.interpolate import interp1d
-from dataclasses import dataclass, asdict
 
-from common.plotting import plt_figure, setup_paper_params
-from common.numerics import estimate_force_field_kde
 import experiments.paper.scenarios as cfg
-from experiments.paper.paths import MECHANISM_OUTPUT
-from experiments.workspaces import workspace_dir
+from common.numerics import estimate_force_field_kde
+from common.plotting import plt_figure, setup_paper_params
+from ehk.micro.observables import c
 from ehk.plotting.landscape import (
     CMAP_NAME,
     format_landscape_axis,
@@ -23,12 +23,9 @@ from ehk.plotting.landscape import (
     potential_from_force,
     save_landscape_figure,
 )
-from experiments.paper.mechanism_cases.social_force_probe.analyze import (
-    LANDSCAPE_CHOICES,
-    LandscapeKind,
-    plot_probe_potential,
-)
-from ehk.micro.observables import c
+from experiments.drift_probe.analyze import LANDSCAPE_CHOICES, LandscapeKind, plot_probe_potential
+from experiments.paper.paths import MECHANISM_OUTPUT
+from experiments.workspaces import workspace_dir
 
 if TYPE_CHECKING:
     from smp_bindings import RawSimulationRecord
@@ -368,7 +365,7 @@ if __name__ == "__main__":
     args = parse_args()
     setup_paper_params()
 
-    recs = [RawSimulationRecord(str(workspace_dir("local_mech")), d) for d in cfg.all_scenarios_mech]
+    recs = [RawSimulationRecord(str(workspace_dir("local_mech")), d) for d in cfg.mechanism_tasks()]
 
     plot_group(
         recs[:1] + recs[3:6],

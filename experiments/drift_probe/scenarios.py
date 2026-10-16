@@ -1,12 +1,12 @@
-"""Configuration for the paper's counterfactual landscape comparison."""
+"""Temporary drift-probe tasks, using archived mechanism records as inputs."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
+from common.experiments.registry import TaskRegistry
 from common.settings import register_path
-
 
 NORMALIZED_TIMES = tuple(i / 10 for i in range(11))
 
@@ -17,9 +17,7 @@ PROBE_RNG = {"Algorithm": "pcg64-dxsm-v1", "Seed1": "0x4c414e4453434150", "Seed2
 
 INPUT_DIR = register_path("EHK_SOCIAL_FORCE_INPUT_DIR", "outputs/experiments/paper/mechanism_cases/raw")
 PROBE_BINARY = register_path("SMP_PROBE_BINARY", "../social-media-models/smp-probe")
-OUTPUT_DIR = register_path(
-    "EHK_SOCIAL_FORCE_OUTPUT_DIR", "outputs/experiments/paper/mechanism_cases/social_force_probe"
-)
+OUTPUT_DIR = register_path("EHK_SOCIAL_FORCE_OUTPUT_DIR", "outputs/experiments/drift_probe")
 
 
 @dataclass(frozen=True)
@@ -164,3 +162,4 @@ SCENARIOS: dict[str, LandscapeScenario] = {
 }
 
 SCENARIO_ORDER = tuple(SCENARIOS)
+TASKS = TaskRegistry(SCENARIOS, {"all": SCENARIO_ORDER})

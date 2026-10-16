@@ -9,7 +9,6 @@ from typing import Sequence
 import numpy as np
 
 from common.plotting import plt_figure, setup_paper_params
-from experiments.paper.mechanism_cases.social_force_probe.scenarios import OUTPUT_DIR, SCENARIOS
 from ehk.plotting.landscape import (
     format_landscape_axis,
     plot_normalized_time_colorbar,
@@ -18,6 +17,7 @@ from ehk.plotting.landscape import (
     save_landscape_figure,
     set_shared_y_limits,
 )
+from experiments.drift_probe.scenarios import OUTPUT_DIR, SCENARIOS
 
 
 def plot_results(result_paths: Sequence[Path], output_stem: Path) -> tuple[Path, Path]:

@@ -1,17 +1,14 @@
+import os
 from typing import Iterable, TypeVar
 
-import os
-
 import numpy as np
-
 from sqlalchemy.orm import Session
 
+import experiments.paper.scenarios as cfg
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
 from common.storage.sqlite import create_db_session
-import experiments.paper.scenarios as cfg
-from experiments.paper.paths import STAT_INPUT, REPLICATE_OUTPUT
 from experiments.paper.analysis.records import ScenarioStatistics
-
+from experiments.paper.paths import REPLICATE_OUTPUT, STAT_INPUT
 
 T = TypeVar("T")
 T1 = TypeVar("T1")
@@ -22,8 +19,8 @@ T2 = TypeVar("T2")
 plot_path = str(STAT_INPUT.resolve())
 stats_db_path = os.path.join(plot_path, "stats.eps.db")
 
-rs_keys = list(cfg.rs_names)
-tw_keys = cfg.retweet_rate_array.tolist()
+rs_keys = list(cfg.GRADATION_RECOMMENDATIONS)
+tw_keys = list(cfg.REPOST_AXIS)
 
 
 setup_paper_params()

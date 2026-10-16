@@ -1,24 +1,21 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Sequence
 import argparse
-import networkx as nx
+from typing import TYPE_CHECKING, List, Sequence
+
 import matplotlib.pyplot as plt
+import networkx as nx
 from matplotlib.axes import Axes
 from matplotlib.gridspec import GridSpec
 
+import experiments.paper.scenarios as cfg
 from common.plotting import plt_figure, setup_paper_params
 from ehk.plotting import plot_network_snapshot, plot_opinion_colorbar
-import experiments.paper.scenarios as cfg
+from ehk.plotting.landscape import save_landscape_figure
+from experiments.drift_probe.analyze import LANDSCAPE_CHOICES, LandscapeKind, plot_probe_potential
+from experiments.drift_probe.scenarios import SCENARIOS
 from experiments.paper.paths import MECHANISM_OUTPUT
 from experiments.workspaces import workspace_dir
-from experiments.paper.mechanism_cases.social_force_probe.scenarios import SCENARIOS
-from ehk.plotting.landscape import save_landscape_figure
-from experiments.paper.mechanism_cases.social_force_probe.analyze import (
-    LANDSCAPE_CHOICES,
-    LandscapeKind,
-    plot_probe_potential,
-)
 
 if TYPE_CHECKING:
     from smp_bindings import RawSimulationRecord
@@ -26,13 +23,13 @@ if TYPE_CHECKING:
 # Import reusable functions from f_supp_mech_map
 from experiments.paper.mechanism_cases.plot_supplement import (
     ParsedRecord,
-    get_basic_data,
     compute_segmented_potentials,
-    eval_rec_dx_r_map,
     eval_rec_dx_n_map,
+    eval_rec_dx_r_map,
+    get_basic_data,
+    plot_colorbar,
     plot_potential_segments,
     set_ax_format,
-    plot_colorbar,
 )
 
 
@@ -172,7 +169,7 @@ if __name__ == "__main__":
         axes_r1, axes_r2 = axes
         ax_x, ax_v_x, ax_dx, ax_v_dx = axes_r2
 
-        rec_baseline = RawSimulationRecord(str(workspace_dir("local_mech")), cfg.all_scenarios_mech[0])
+        rec_baseline = RawSimulationRecord(str(workspace_dir("local_mech")), cfg.mechanism_tasks()[0])
         with rec_baseline:
             rec_parsed = get_basic_data(rec_baseline)
             plot_network_snapshots(
@@ -192,8 +189,8 @@ if __name__ == "__main__":
         exit(0)
 
     # Load baseline scenario (first record)
-    rec_baseline_pbs = RawSimulationRecord(str(workspace_dir("local_mech")), cfg.all_scenarios_mech[1])
-    rec_baseline_sbp = RawSimulationRecord(str(workspace_dir("local_mech")), cfg.all_scenarios_mech[2])
+    rec_baseline_pbs = RawSimulationRecord(str(workspace_dir("local_mech")), cfg.mechanism_tasks()[1])
+    rec_baseline_sbp = RawSimulationRecord(str(workspace_dir("local_mech")), cfg.mechanism_tasks()[2])
 
     # Create figure and axes
     fig, axes = create_subplot_layout(total_width=16, height_scale=0.85)
