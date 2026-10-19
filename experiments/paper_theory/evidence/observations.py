@@ -79,7 +79,7 @@ def representative_fields(records, protocol, tables):
     for record in records:
         t, p = record["task"], record["task"]["parameters"]
         if (
-            "population" in t["roles"]
+            ("population" in t["roles"] or "network_snapshot" in t["roles"])
             and p["dynamics"] == "hk"
             and p["recommender"] == "opinion_random"
             and p["steepness"] == 4

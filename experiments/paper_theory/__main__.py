@@ -20,6 +20,12 @@ def parser():
     p.add_argument("--work-dir", type=Path, help="new bulk run directory")
     p.add_argument("--publish-dir", type=Path)
     p.add_argument("--output-dir", type=Path, help="local analysis bundle or figure destination")
+    p.add_argument("--network-dir", type=Path, help="portable network_snapshot analysis export for Figure 1(a)")
+    p.add_argument(
+        "--intuition-graph",
+        choices=("restructured", "event"),
+        help="network panel; defaults to restructured when --network-dir is supplied",
+    )
     p.add_argument("--control-dir", type=Path, help="persistent local APFS control/spool directory")
     p.add_argument("--model-root", type=Path, default=Path(__file__).resolve().parents[2])
     p.add_argument("--micro-root", type=Path)
@@ -55,6 +61,13 @@ def parser():
 def main(argv=None):
     p = parser()
     a = p.parse_args(argv)
+    saved_profile = None
+    if a.run_dir and (a.run_dir / "plan.json").is_file():
+        saved_profile = json.loads((a.run_dir / "plan.json").read_text()).get("profile")
+    if a.profile == "network_snapshot" or saved_profile == "network_snapshot":
+        from .evidence.network_snapshot import dispatch
+
+        return dispatch(a)
     if a.action in ("run", "resume"):
         from .run import launch
 
@@ -93,6 +106,8 @@ def main(argv=None):
         from .evidence.figures import plot
 
         output = a.output_dir or (directory / "figures_csv" if a.tables_only else None)
+        if a.network_dir or a.intuition_graph:
+            return plot(directory, output, network_dir=a.network_dir, intuition_graph=a.intuition_graph)
         return plot(directory, output)
     if a.action == "analyze":
         from .evidence.analyze import analyze

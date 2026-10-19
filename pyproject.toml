@@ -75,6 +75,7 @@ files = [
   "experiments/paper_theory/evidence/bindings.py",
   "experiments/paper_theory/evidence/analyze.py",
   "experiments/paper_theory/evidence/figures.py",
+  "experiments/paper_theory/evidence/network_snapshot.py",
   "experiments/paper_theory/evidence/main_smoke_design.py",
   "tests/typing/contracts.py",
 ]

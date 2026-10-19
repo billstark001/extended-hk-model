@@ -19,17 +19,19 @@ type Task struct {
 	// CompactRecords affects recording only; never enters frozen scientific IDs.
 	CompactRecords bool `json:"compact_records"`
 	// EnergyNormalization divides edge sums by N*k (nominal) or actual edge count.
-	EnergyNormalization string                       `json:"energy_normalization"`
-	ID                  string                       `json:"id"`
-	Kind                string                       `json:"kind"`
-	Request             kinetic.RunRequest           `json:"request"`
-	PhysicalDt          float64                      `json:"physical_dt"`
-	SnapshotSteps       []int                        `json:"snapshot_steps"`
-	Budgets             bool                         `json:"budgets"`
-	InitialState        *protocol.NodeEdgeProjection `json:"initial_state"`
-	Initial             string                       `json:"initial"`
-	MicroscopicInitial  *microscopicInitial          `json:"microscopic_initial"`
-	MicroOptions        *microOptions                `json:"micro_options"`
+	EnergyNormalization string             `json:"energy_normalization"`
+	ID                  string             `json:"id"`
+	Kind                string             `json:"kind"`
+	Request             kinetic.RunRequest `json:"request"`
+	PhysicalDt          float64            `json:"physical_dt"`
+	SnapshotSteps       []int              `json:"snapshot_steps"`
+	// CheckpointDir opts into SMP full-state checkpoints; ordinary batches stay in memory.
+	CheckpointDir      string                       `json:"checkpoint_dir,omitempty"`
+	Budgets            bool                         `json:"budgets"`
+	InitialState       *protocol.NodeEdgeProjection `json:"initial_state"`
+	Initial            string                       `json:"initial"`
+	MicroscopicInitial *microscopicInitial          `json:"microscopic_initial"`
+	MicroOptions       *microOptions                `json:"micro_options"`
 	// BranchSeeds gives independent process seeds for each saved audit state.
 	BranchSeeds map[int][]uint64 `json:"branch_seeds"`
 	Network     string           `json:"network"`

@@ -11,7 +11,7 @@ from typing_extensions import NotRequired, TypedDict
 from common.types import Backend, RuntimeBinding, ScientificSources
 from theory.types import ReleaseProtocol, Task
 
-MainTopic: TypeAlias = Literal["recommendation", "scaling", "numerics", "matched", "population"]
+MainTopic: TypeAlias = Literal["recommendation", "scaling", "numerics", "matched", "population", "network_snapshot"]
 MainProfile: TypeAlias = Literal[
     "main",
     "main_smoke",
@@ -25,6 +25,7 @@ MainProfile: TypeAlias = Literal[
     "smoke_numerics",
     "smoke_matched",
     "smoke_population",
+    "network_snapshot",
     # Frozen pre-rename profiles retain their original bytes and identities.
     "main_recommendation",
     "main_smoke_recommendation",
@@ -37,7 +38,7 @@ MainProfile: TypeAlias = Literal[
     "main_population",
     "main_smoke_population",
 ]
-MainRole: TypeAlias = Literal["effects", "scaling", "numerics", "closure", "matched", "population"]
+MainRole: TypeAlias = Literal["effects", "scaling", "numerics", "closure", "matched", "population", "network_snapshot"]
 
 
 class NumericalBaseline(TypedDict):

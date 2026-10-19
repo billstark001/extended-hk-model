@@ -182,14 +182,51 @@ def event_network(ax):
     ax.set_box_aspect(1)
 
 
-def intuition(data, epsilon, output, captions):
+def restructured_network(ax, snapshot):
+    """Actual post-rewiring graph from a separately declared SMP snapshot task."""
+    nodes, edges, _ = snapshot
+    graph = nx.DiGraph()
+    graph.add_nodes_from(node for node, _ in nodes)
+    graph.add_edges_from(edges)
+    # Omit arrowheads at manuscript size; retain all adjacency in the source CSV.
+    display = graph.to_undirected()
+    pos = nx.spring_layout(display, seed=42, iterations=150)
+    plot_network_snapshot(
+        pos,
+        np.array([opinion for _, opinion in nodes]),
+        display,
+        ax=ax,
+        colorbar=False,
+        node_size=3,
+        alpha=0.10,
+        rasterized=False,
+    )
+    for collection in ax.collections:
+        collection.set_rasterized(True)
+        if isinstance(collection, LineCollection):
+            collection.set_linewidth(0.2)
+        elif isinstance(collection, PathCollection):
+            collection.set_linewidth(0)
+    ax.set_title("Restructured")
+    ax.set_axis_off()
+    ax.set_box_aspect(1)
+
+
+def intuition(data, epsilon, output, captions, snapshot=None):
     nodes = data.rows("representative_nodes.csv", epsilon)
     edges = data.rows("representative_edges.csv.gz", epsilon)
     response = data.rows("representative_response.csv", epsilon)
     if not nodes or not edges or not response:
         raise ValueError("intuition needs representative fields and response; run analyze first")
+    info = nodes[0]
+    processes = int(info["processes"])
+    microscopic = "one microscopic process" if processes == 1 else f"{processes} microscopic processes"
+    horizon = max(r["tau"] for r in response)
     fig, axes = plt.subplots(1, 5, figsize=(7.1, 1.95), layout="constrained")
-    event_network(axes[0])
+    if snapshot is None:
+        event_network(axes[0])
+    else:
+        restructured_network(axes[0], snapshot)
     for source, color, ls in (("micro", ".2", "-"), ("pair", COLORS[2], "--")):
         rs = sorted([r for r in nodes if r["source"] == source], key=lambda r: r["bin"])
         axes[1].plot([r["x"] for r in rs], [r["density"] for r in rs], color=color, ls=ls, lw=1.1)
@@ -225,7 +262,7 @@ def intuition(data, epsilon, output, captions):
                 [r for r in response if r["source"] == source and r["channel"] == channel], key=lambda r: r["tau"]
             )
             axes[4].plot([r["tau"] for r in rs], [r["remaining"] for r in rs], color=color, ls=ls, lw=1.05)
-    time_axis(axes[4], 120)
+    time_axis(axes[4], horizon)
     axes[4].set(ylim=(-0.05, 1.05), ylabel=r"$S_X$", title="Energy release")
     for ax in axes[1:]:
         ax.set_box_aspect(1)
@@ -243,13 +280,24 @@ def intuition(data, epsilon, output, captions):
         f"Figure 1. (a) Illustrative event network, drawn with the EHK snapshot tool: i follows discordant j "
         "(orange dashed edge); a concordant recommended k offers replacement (blue dotted edge), and the arrow "
         "illustrates opinion motion. This schematic is not a reconstructed graph or measured rate. "
-        f"(b-d) HK Opinion4, epsilon={epsilon:g}, N=500, initial 0, tau=24; microscopic fields average four "
-        "population-design processes; the map starts from the same empirical measures. Edge densities share "
+        f"(b-d) HK Opinion4, epsilon={epsilon:g}, N={info['population']:g}, initial 0, tau={info['tau']:g}; "
+        f"fields use {microscopic}; the map starts from the same empirical measures. Edge densities share "
         "a fourth-root color scale. (e) Four remaining-energy curves from that same ensemble and prediction, "
-        "using each mean raw curve's own final-10% median on tau<=120; signed residuals are retained. "
+        f"using each raw curve's own final-10% median on tau<={horizon:g}; signed residuals are retained. "
         "Parameters: alpha=.02, q=.04, degree=15, recommended list=10, recommendation tolerance=.4, "
         "steepness=4, dt=1, D0=0, B=161, 33-point HK quadrature."
     )
+    if snapshot is not None:
+        metadata = snapshot[2]
+        caption = caption.replace(
+            "(a) Illustrative event network, drawn with the EHK snapshot tool: i follows discordant j "
+            "(orange dashed edge); a concordant recommended k offers replacement (blue dotted edge), and the arrow "
+            "illustrates opinion motion. This schematic is not a reconstructed graph or measured rate.",
+            f"(a) Actual restructured network at tau={metadata['tau']:g}, from an independent full-state SMP "
+            "snapshot task with the same HK Opinion4 parameters, initial seed 17000 and process seed 24000. "
+            "Node colors encode opinions from blue (-1) to red (+1); arrowheads are omitted. "
+            f"The remaining panels use {microscopic} and its matched measure-map prediction.",
+        )
     finish(fig, output, "figure_1_intuition", caption, captions)
 
 
@@ -502,16 +550,13 @@ def recommendation(data, output, captions, *, relative=False):
                     [r for r in rows if matches(r, dynamics=rule, recommender="random", steepness=1.0)],
                     key=lambda r: r["ratio"],
                 )
-                xs = [r["ratio"] if r["ratio"] else 0.0625 for r in baseline]
-                equal_area = np.array([-r["delta"] for r in baseline])
-                good = np.array([r["confirmed"] == "True" for r in baseline])
-                positive = np.array([r["ratio"] > 0 for r in baseline])
-                ax.plot(
-                    np.array(xs)[positive],
-                    np.where(good[positive], equal_area[positive], np.nan),
-                    color=".25",
-                    ls=(0, (1, 2)),
-                    lw=1.0,
+                response_curve(
+                    ax,
+                    [{**r, "equal_area": -r["delta"]} for r in baseline],
+                    "equal_area",
+                    "confirmed",
+                    ".25",
+                    (0, (1, 2)),
                 )
                 ax.axhline(0, color=COLORS[0], lw=0.7)
             else:
@@ -542,7 +587,7 @@ def recommendation(data, output, captions, *, relative=False):
             "All panels show each recommendation's log-area-ratio difference from Random at the same rate and configuration.",
         )
         caption += (
-            " Alternative coordinates: subtract the Random log ratio at each identical rate and "
+            " Main-text coordinates: subtract the Random log ratio at each identical rate and "
             "configuration. Random is therefore flat at zero; the original equal-area line moves "
             "to minus the Random log ratio. Confirmation flags also require the Random reference."
         )
@@ -824,8 +869,35 @@ def numerical_controls(data, epsilon, output, captions):
     )
 
 
-def plot(directory, output=None):
+def plot(directory, output=None, *, network_dir=None, intuition_graph=None):
     data = Analysis(directory)
+    intuition_data = data
+    graph_mode = intuition_graph or ("restructured" if network_dir else "event")
+    snapshot = None
+    if graph_mode == "restructured":
+        from .network_snapshot import read_export
+
+        if network_dir is None:
+            raise ValueError("restructured graph requires --network-dir from the network_snapshot task")
+        snapshot = read_export(network_dir)
+        if (Path(network_dir) / "analysis_manifest.json").exists():
+            intuition_data = Analysis(network_dir)
+        p = snapshot[2]["task"]["parameters"]
+        protocol = data.plan["analysis_protocol"]
+        if (
+            not matches(
+                p,
+                dynamics="hk",
+                recommender="opinion_random",
+                steepness=4.0,
+                epsilon=protocol["baseline_epsilon"],
+                population=protocol["matched_population"],
+                alpha=protocol["baseline_alpha"],
+                ratio=protocol["population_ratio"],
+            )
+            or snapshot[2]["tau"] != protocol["main_snapshot_tau"]
+        ):
+            raise ProtocolError("network snapshot parameters/time do not match the baseline intuition fields")
     output = Path(output).resolve() if output else data.root / "figures"
     output.mkdir(parents=True, exist_ok=True)
     setup_paper_params()
@@ -850,8 +922,14 @@ def plot(directory, output=None):
     for epsilon in data.plan["analysis_protocol"].get("confidence_radii", [baseline]):
         destination = output if epsilon == baseline else output / "supplementary" / f"epsilon_{epsilon:g}"
         destination.mkdir(parents=True, exist_ok=True)
-        if "population" in selected:
-            intuition(data, epsilon, destination, captions)
+        if "population" in selected or "network_snapshot" in selected:
+            intuition(
+                intuition_data if epsilon == baseline else data,
+                epsilon,
+                destination,
+                captions,
+                snapshot if epsilon == baseline else None,
+            )
         if "matched" in selected:
             matched(data, epsilon, destination, captions)
         if "population" in selected:
@@ -876,7 +954,16 @@ def plot(directory, output=None):
             "filled_marker_radius": 0.55,
             "hollow_marker_radius": 0.65,
             "frame_tick_strokes": 0.75,
-            "figure_1_event_panel": "unchanged",
+            "figure_1_network_panel": "excluded from stroke scaling",
+        },
+        "intuition_graph": graph_mode,
+        "network_snapshot": {"manifest_sha256": sha(Path(network_dir) / "network_manifest.json"), **snapshot[2]}
+        if snapshot
+        else None,
+        "figure_1_inputs": {
+            "plan_fingerprint": intuition_data.plan["plan_fingerprint"],
+            "analysis_manifest_sha256": sha(intuition_data.root / "analysis_manifest.json"),
+            "inputs": intuition_data.used,
         },
         "research_topics": list(selected),
         "input_scope": "portable local CSV only; no raw path lookup, solver, bootstrap or fitting",
@@ -890,6 +977,7 @@ def plot(directory, output=None):
                 Path(inspect.getfile(setup_paper_params)),
                 Path(inspect.getfile(save)),
                 Path(inspect.getfile(plot_network_snapshot)),
+                Path(__file__).with_name("network_snapshot.py"),
             )
         },
         "figures": [str(Path(p).relative_to(output)) + ".pdf" for p in sorted(captions)],

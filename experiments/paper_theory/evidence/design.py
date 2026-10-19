@@ -8,7 +8,11 @@ from ..types import MainPlan, MainProfile, MainTopic
 from . import main_design, main_smoke_design
 
 REGISTRY = TaskRegistry(
-    {**{t: (t, False) for t in main_design.TOPICS}, **{f"smoke_{t}": (t, True) for t in main_design.TOPICS}},
+    {
+        **{t: (t, False) for t in main_design.TOPICS},
+        **{f"smoke_{t}": (t, True) for t in main_design.TOPICS},
+        "network_snapshot": ("network_snapshot", False),
+    },
     {"main": main_design.TOPICS, "main_smoke": tuple(f"smoke_{t}" for t in main_design.TOPICS)},
 )
 PROFILES = REGISTRY.names
@@ -29,6 +33,10 @@ def is_smoke(profile: str) -> bool:
 
 
 def design(profile: MainProfile = "main", horizon: float | None = None) -> MainPlan:
+    if profile == "network_snapshot":
+        from .network_snapshot import design as snapshot_design
+
+        return snapshot_design(horizon)
     selected = REGISTRY.select(profile)
     module = main_smoke_design if all(smoke for _, smoke in selected) else main_design
     # The two modules are independently typed; avoid losing their callable type.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"gonum.org/v1/gonum/graph/simple"
 	"math"
+	"path/filepath"
 	"smp-meso/kinetic"
 	"smp-meso/protocol"
 	"smp/dynamics"
@@ -70,6 +71,12 @@ func makeMicro(t Task, ops []float64, graph *simple.DirectedGraph, seed uint64) 
 		return nil, err
 	}
 	return scenario, nil
+}
+
+func saveFullCheckpoint(scenario *simulation.Scenario, path string) error {
+	nativeSnapshotVectors = true
+	defer func() { nativeSnapshotVectors = false }()
+	return scenario.SaveCheckpointTo(path)
 }
 
 // project bins node mass and directed-edge mass, both weighted by 1/N.
@@ -240,6 +247,12 @@ func runMicro(t Task) (MicroResult, error) {
 	}
 	rewires := 0
 	for step := 0; step <= t.Request.Steps; step++ {
+		if t.CheckpointDir != "" && wanted[step] {
+			path := filepath.Join(t.CheckpointDir, fmt.Sprintf("checkpoint-%09d.msgpack.lz4", step))
+			if err := saveFullCheckpoint(m, path); err != nil {
+				return out, fmt.Errorf("save full-state checkpoint: %w", err)
+			}
+		}
 		if audits[step] && t.Branches > 0 {
 			a, err := audit(t, m)
 			if err != nil {

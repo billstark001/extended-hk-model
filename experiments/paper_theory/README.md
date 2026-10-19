@@ -254,16 +254,21 @@ are recorded in `analysis_manifest.json`. `analysis_cache/` is optional for plot
 
 The unified renderer in `evidence/figures.py` owns the five main figures; previous
 main-figure layouts and the competing paper-repository renderer are removed.
-Figure 1 uses five square panels and the EHK network-snapshot utility for an
-explicit event schematic, followed by matched node/edge fields and remaining
-energies from one four-process population group. Figure 2 uses a 2-by-4 outer
+Figure 1 uses five square panels. The independent `network_snapshot` task runs
+one microscopic realization and its matched measure-map prediction, saves full
+SMP checkpoints, and produces the entire figure from the same initial state.
+The network panel reuses the EHK snapshot utility; it shows actual adjacency
+with arrowheads omitted, rather than a graph sampled from distribution fields.
+The original event schematic remains available through `--intuition-graph event`.
+Figure 2 uses a 2-by-4 outer
 grid, with two spanning area panels; its legend explains filled HK and hollow
 Deffuant markers. Figure 3 uses a 2-by-4 grid across all three confidence radii:
 reference curves, hollow largest-update markers and calculated update envelopes
 replace overlapping line-style-only comparisons. Envelopes interpolate only on
 the common observed interval and are not confidence bands. Figure 4 uses a 2-by-3
 grid and retains both original log ratios and a second Random-baseline version:
-the original equal-area line is transformed to minus the Random log ratio.
+the original equal-area line is transformed to minus the Random log ratio. The
+paper uses the Random-relative version; the original coordinates remain supplemental.
 Figure 5 contains structure means and the node/joint-edge CDF W/I comparisons.
 
 All newly rendered panels use a manuscript-width canvas (7.1 inches) with
@@ -287,3 +292,41 @@ Legend samples receive the same scaling. Fonts and manuscript-size canvases stay
 fixed. Frozen supplementary vector assets can be restyled with the independent
 `evidence/vector_style.py` helper (optional `pypdf`), preserving text, page bounds,
 open data paths and marker centers. It does not restore retired plot generators.
+
+
+## Full-state network snapshot and complete Figure 1
+
+`network_snapshot` is a separate named design, outside the five-topic `main`
+aggregate, so existing frozen plans and their task counts remain unchanged. Its
+single HK Opinion4 task uses N=500, epsilon=.4, alpha=.02, q=.04, degree=15,
+recommendation count=10, tolerance=.4, steepness=4, initial seed=17000 and process
+seed=24000. The map starts from that exact empirical initial state (B=161,
+33-point quadrature). The observation window is tau<=120, with the network and
+field panels at tau=24. Checkpoints include identities, directed adjacency,
+float64 opinions, posts, recommender state and RNG streams. Native SMP array
+encoding is preserved in checkpoints; the compact transport codec stays separate.
+
+```sh
+# Defaults to <model-root>/outputs/paper_theory/network_snapshot; no external disk.
+python -m experiments.paper_theory plan --profile network_snapshot
+python -m experiments.paper_theory run --profile network_snapshot
+# Adjust placement as for the other tasks; --output-dir selects the CSV export.
+python -m experiments.paper_theory run --profile network_snapshot --work-dir /local/snapshot-run --output-dir /local/snapshot-csv
+# Reuse authenticated results and redraw the whole Figure 1, without a solver.
+python -m experiments.paper_theory plot --profile network_snapshot --run-dir /local/snapshot-run --output-dir /local/figures
+# Preserve the former event schematic as an alternate first panel.
+python -m experiments.paper_theory plot --profile network_snapshot --run-dir /local/snapshot-run --intuition-graph event --output-dir /local/event-figures
+# Integrate the complete new Figure 1 into figures from a frozen main CSV bundle.
+python -m experiments.paper_theory plot --run-dir /local/main-csv --network-dir /local/snapshot-csv --output-dir /local/paper-figures
+```
+
+A default run writes `checkpoints/`, one native record under `micro/raw/`, a
+verified build/run manifest, the portable `analysis/` CSV bundle, and
+`figures/figure_1_intuition.{pdf,png,txt}`. `analyze` reads the full checkpoint;
+`plot` authenticates only local CSV and manifests and can run after the raw
+checkpoint directory is disconnected. Plotting neither launches nor silently
+regenerates a simulation. Raw records/checkpoints stay in ignored outputs;
+publication assets and provenance belong in the paper repository. The figure
+manifest records the independent Figure 1 inputs separately from the frozen
+main-batch inputs. `--horizon` can shorten the independent task to a positive
+multiple of .02; its snapshot time is min(24, horizon).
