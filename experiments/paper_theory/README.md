@@ -252,11 +252,25 @@ derived blocks from CSV when the raw volume is absent. Complete cache blocks sur
 later analysis failures; partial blocks are never reused. Cache hit/compute counts
 are recorded in `analysis_manifest.json`. `analysis_cache/` is optional for plotting.
 
-The unified renderer writes the five proposed main figures at epsilon=.4 and the
-corresponding comparisons at the other confidence radii. Supplementary figures
-include absolute areas, numerical controls, matched representative distributions
-and all recorded population CDF decomposition times. Each figure has a PDF, PNG and
-plain-text scientific caption; the manifest records exactly the files used.
+The unified renderer in `evidence/figures.py` owns the five main figures; previous
+main-figure layouts and the competing paper-repository renderer are removed.
+Figure 1 uses five square panels and the EHK network-snapshot utility for an
+explicit event schematic, followed by matched node/edge fields and remaining
+energies from one four-process population group. Figure 2 uses a 2-by-4 outer
+grid, with two spanning area panels; its legend explains filled HK and hollow
+Deffuant markers. Figure 3 uses a 2-by-4 grid across all three confidence radii:
+reference curves, hollow largest-update markers and calculated update envelopes
+replace overlapping line-style-only comparisons. Envelopes interpolate only on
+the common observed interval and are not confidence bands. Figure 4 uses a 2-by-3
+grid and retains both original log ratios and a second Random-baseline version:
+the original equal-area line is transformed to minus the Random log ratio.
+Figure 5 contains structure means and the node/joint-edge CDF W/I comparisons.
+
+All newly rendered panels use a manuscript-width canvas (7.1 inches) with
+consistent 8-point axis/panel titles, 7-point ticks and 7-point legends. Other
+confidence radii, absolute areas, numerical controls, terminal W/I/B² and full
+population CDF times remain supplementary outputs, at the same typography. Each figure has PDF, PNG and a plain-text
+scientific caption; the manifest identifies the exact CSV and renderer inputs.
 
 Population CDF norms use dx for node CDF and dx² for the joint directed-edge CDF.
 W/I/B² use balanced initial/process groups; negative corrected I/B² estimates are
@@ -266,3 +280,10 @@ use exploratory bootstrap of whole initial groups, retaining every process branc
 Only saved observations/times are available offline; new unrecorded observables
 require the source data. Old summary-only exports must be upgraded by `analyze`
 once while their raw volume is available; plot never falls back to reading raw.
+
+The final display pass uses 60% data/error/reference strokes, 55% filled-marker
+radii, 65% hollow-marker radii and 75% frame/tick strokes; Figure 1(a) is excluded.
+Legend samples receive the same scaling. Fonts and manuscript-size canvases stay
+fixed. Frozen supplementary vector assets can be restyled with the independent
+`evidence/vector_style.py` helper (optional `pypdf`), preserving text, page bounds,
+open data paths and marker centers. It does not restore retired plot generators.

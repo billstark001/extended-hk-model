@@ -97,6 +97,38 @@ def representative_fields(records, protocol, tables):
                 raise ValueError(f"representative snapshot tau={at} was not recorded")
             return hits[0]
 
+        # The same conditional population ensemble supplies the four release curves.
+        # Normalize the mean raw energy, rather than averaging normalized branches.
+        first = members[0]["result"]
+        tau = np.array([f["time"] for f in first["frames"]]) * p["alpha"]
+        pair_tau = np.array([f["time"] for f in first["pair"]["frames"]]) * p["alpha"]
+        for channel in ("node", "edge"):
+            values = np.array([[f["exact_" + channel + "_energy"] for f in r["result"]["frames"]] for r in members])
+            for source, times, energy in (
+                ("micro", tau, values.mean(0)),
+                ("pair", pair_tau, np.array([f[channel + "_energy"] for f in first["pair"]["frames"]])),
+            ):
+                reference = float(np.median(energy[times >= 0.9 * times[-1]]))
+                amplitude = float(energy[0] - reference)
+                if amplitude <= 0:
+                    raise ValueError("representative release requires positive amplitude")
+                for time, raw in zip(times, energy):
+                    tables.add(
+                        "representative_response.csv",
+                        {
+                            "epsilon": p["epsilon"],
+                            "source": source,
+                            "channel": channel,
+                            "tau": float(time),
+                            "energy": float(raw),
+                            "reference": reference,
+                            "remaining": float((raw - reference) / amplitude),
+                            "population": p["population"],
+                            "initial": 0,
+                            "processes": len(members),
+                            "horizon_tau": float(times[-1]),
+                        },
+                    )
         fs = [snapshot(r["result"]["frames"]) for r in members]
         pair = snapshot(members[0]["result"]["pair"]["frames"])
         bins = len(pair["rho"])
