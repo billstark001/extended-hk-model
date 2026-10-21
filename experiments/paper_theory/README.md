@@ -15,7 +15,7 @@ software exercises. The latter never supplies manuscript evidence.
 
 | Research topic | Formal task | Smoke task | Formal trajectories | Manuscript use |
 | --- | --- | --- | ---: | --- |
-| Recommendation response | `recommendation` | `smoke_recommendation` | 330 measure | RQ2 response; proposed Fig. 4 and supplementary confidence/tail comparisons |
+| Recommendation response | `recommendation` | `smoke_recommendation` | 330 measure | RQ2 response; Fig. 4 and supplementary absolute areas across confidence radii |
 | Relative control | `scaling` | `smoke_scaling` | 450 measure | RQ1; proposed Fig. 3 and supplementary errors |
 | Numerical controls | `numerics` | `smoke_numerics` | 60 measure | Supplementary grid, quadrature and physical-update controls |
 | Microscopic / mesoscopic matching | `matched` | `smoke_matched` | 288 micro | Proposed Fig. 2 and supplementary distributions/errors |
@@ -58,6 +58,22 @@ have two initial states and eight conditional processes through tau=480;
 population comparisons have N=250/500/1000/2000, four initial states and four
 processes through tau=120. Only analytic measure tasks use joint state/energy
 stopping. Process replicates remain conditional on their initial state.
+
+The CSV figure renderer saves `figure_2_matched_v1` and `figure_2_matched_v2`
+for each confidence radius, through the same `matched()` and `matched_energy()`
+functions. V1 has a node row (a1--d1), an edge row (a2--d2), and two area
+panels (e,f); both energy rows use columns HK/0, HK/1, Deffuant/0,
+Deffuant/1. V2 overlays node and edge energies in the same four columns,
+above the same areas. Both variants share y scales between adjacent initial-state
+panels and display y labels only on the left. V1 additionally shares time axes
+between corresponding rows and displays time labels only in the second row. The manuscript uses
+v1, including the separate epsilon=.2/.8 supplementary figures. The single
+`supplementary/absolute_areas` figure has columns epsilon=.2/.4/.8 and rows
+HK node, HK edge, Deffuant node, Deffuant edge. Its previous per-epsilon
+rendering path has been removed. Historical tail, initial-state-only,
+combined-confidence-area, energy-budget and prediction-boundary figure
+assemblers are absent from this repository; retained analysis and the
+generic frozen-vector styling utility do not regenerate those figures.
 
 ## Retained and removed designs
 

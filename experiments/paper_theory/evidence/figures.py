@@ -90,11 +90,12 @@ def kernel_legend():
     return [Line2D([], [], color=c, label=label) for c, label in zip(COLORS, LABELS)]
 
 
-def decorate(axes):
+def decorate(axes, *, panel_labels=None):
     for i, ax in enumerate(np.asarray(axes, dtype=object).flat):
         title = ax.get_title()
         ax.set_title("")
-        ax.set_title(f"({chr(97 + i)}) {title}", loc="left", fontsize=8, pad=5)
+        panel_label = panel_labels[i] if panel_labels is not None else chr(97 + i)
+        ax.set_title(f"({panel_label}) {title}", loc="left", fontsize=8, pad=5)
         ax.spines[["top", "right"]].set_visible(False)
         if ax.axison:
             ax.grid(alpha=0.14, lw=0.5)
@@ -301,7 +302,10 @@ def intuition(data, epsilon, output, captions, snapshot=None):
     finish(fig, output, "figure_1_intuition", caption, captions)
 
 
-def matched(data, epsilon, output, captions):
+def matched(data, epsilon, output, captions, *, variant="v1"):
+    """Both initial states, with separate (v1) or overlaid (v2) energy panels."""
+    if variant not in ("v1", "v2"):
+        raise ValueError(f"unknown matched figure variant: {variant}")
     protocol = data.plan["analysis_protocol"]
     rows = data.rows("matched_curves.csv", epsilon)
     areas = [
@@ -316,38 +320,47 @@ def matched(data, epsilon, output, captions):
             plateau_reference="own_endpoint",
         )
     ]
-    fig = plt.figure(figsize=(7.1, 3.65), layout="constrained")
-    gs = fig.add_gridspec(2, 4, height_ratios=[1, 1.05])
-    top = [fig.add_subplot(gs[0, j]) for j in range(4)]
-    bottom = [fig.add_subplot(gs[1, :2]), fig.add_subplot(gs[1, 2:])]
-    for ax, (rule, channel) in zip(top, ((r, c) for r in RULES for c in ("node", "edge"))):
-        for idx in (0, 2, 4):
-            rs = sorted(
-                [
-                    r
-                    for r in rows
-                    if matches(
-                        r,
-                        dynamics=rule,
-                        channel=channel,
-                        initial=0,
-                        recommender=KERNELS[idx][0],
-                        steepness=KERNELS[idx][1],
-                    )
-                ],
-                key=lambda r: r["tau"],
+    separate = variant == "v1"
+    fig = plt.figure(figsize=(7.1, 5.4 if separate else 3.65), layout="constrained")
+    gs = fig.add_gridspec(3 if separate else 2, 4, height_ratios=[1, 1, 1.05] if separate else [1, 1.05])
+    panels = (
+        [(initial, rule, (channel,)) for channel in ("node", "edge") for rule in RULES for initial in (0, 1)]
+        if separate
+        else [(initial, rule, ("node", "edge")) for rule in RULES for initial in (0, 1)]
+    )
+    top: list[Axes] = []
+    for j in range(len(panels)):
+        row, col = divmod(j, 4)
+        top.append(
+            fig.add_subplot(
+                gs[row, col], sharey=top[j - 1] if col % 2 else None, sharex=top[col] if separate and row else None
             )
-            t = [r["tau"] for r in rs]
-            ax.fill_between(t, [r["lower"] for r in rs], [r["upper"] for r in rs], color=COLORS[idx], alpha=0.16, lw=0)
-            ax.plot(t, [r["mean"] for r in rs], color=COLORS[idx], lw=1.2)
-            ax.plot(t, [r["pair"] for r in rs], color=COLORS[idx], lw=1.05, ls="--")
+        )
+    bottom = [fig.add_subplot(gs[-1, :2]), fig.add_subplot(gs[-1, 2:])]
+    curve_styles = {"node": ("-", "--"), "edge": (":", "-.")}
+    for ax, (initial, rule, channels) in zip(top, panels):
+        for channel in channels:
+            microscopic_style, map_style = ("-", "--") if separate else curve_styles[channel]
+            matched_energy(ax, rows, rule, initial, channel, microscopic_style, map_style)
         time_axis(ax)
-        label = r"\rho" if channel == "node" else "E"
+        rule_label = "HK" if rule == "hk" else "Deffuant"
+        label = (r"\rho" if channels[0] == "node" else "E") if separate else "X"
         ax.set(
             ylabel=rf"$\mathcal{{U}}_{label}/\mathcal{{E}}_\star$",
-            title=("HK" if rule == "hk" else "Deffuant") + f" / {channel}",
+            title=f"{rule_label} / {channels[0]}\nInitial {initial}"
+            if separate
+            else f"{rule_label} / initial {initial}",
         )
         ax.yaxis.set_major_locator(MaxNLocator(3))
+    for j, ax in enumerate(top):
+        row, col = divmod(j, 4)
+        if col % 2:
+            ax.set_ylabel("")
+            ax.tick_params(axis="y", which="both", labelleft=False)
+            ax.yaxis.get_offset_text().set_visible(False)
+        if separate and row == 0:
+            ax.set_xlabel("")
+            ax.tick_params(axis="x", which="both", labelbottom=False)
     for ax, channel in zip(bottom, ("node", "edge")):
         for j, idx in enumerate((0, 2, 4)):
             for rule, offset in zip(RULES, (-0.16, 0.16)):
@@ -380,11 +393,15 @@ def matched(data, epsilon, output, captions):
             xlim=(-0.45, 2.45),
             yscale="log",
         )
-    decorate([*top, *bottom])
+    panel_labels = [f"{chr(97 + j % 4)}{j // 4 + 1}" for j in range(8)] + ["e", "f"] if separate else None
+    decorate([*top, *bottom], panel_labels=panel_labels)
     handles = [Line2D([], [], color=COLORS[i], label=LABELS[i]) for i in (0, 2, 4)]
-    handles += [
-        Line2D([], [], color=".3", ls=ls, label=label) for ls, label in (("-", "Microscopic"), ("--", "Measure map"))
-    ]
+    styles = (
+        (("-", "Microscopic"), ("--", "Measure map"))
+        if separate
+        else (("-", "Node / microscopic"), ("--", "Node / map"), (":", "Edge / microscopic"), ("-.", "Edge / map"))
+    )
+    handles += [Line2D([], [], color=".3", ls=ls, label=label) for ls, label in styles]
     handles += [
         Line2D([], [], color=".3", ls="", marker=m, label=label)
         for m, label in (("o", "Initial 0"), ("s", "Initial 1"), ("x", "Map area"))
@@ -393,17 +410,53 @@ def matched(data, epsilon, output, captions):
         Line2D([], [], color=".3", ls="", marker="o", mfc=fill, label=label)
         for fill, label in ((".3", "HK (filled)"), ("white", "Deffuant (hollow)"))
     ]
-    fig.legend(handles=handles, loc="outside lower center", ncol=5, frameon=False)
+    fig.legend(handles=handles, loc="outside lower center", ncol=5 if separate else 4, frameon=False)
+    layout_description = (
+        "First row (a1-d1): raw node energies; second row (a2-d2): raw edge energies. "
+        "Columns are HK/0, HK/1, Deffuant/0, Deffuant/1. Corresponding columns share time axes; "
+        "only the second row displays time labels. "
+        if separate
+        else "Top row: HK/0, HK/1, Deffuant/0, Deffuant/1, overlaying raw node and edge energies. "
+        "Solid/dashed lines show microscopic/map node energies; dotted/dash-dot lines show microscopic/map edge energies. "
+    )
     caption = (
-        f"Figure 2. Matched microscopic and measure-map dynamics, epsilon={epsilon:g}, N=500, r=2. "
-        "Top: raw node/edge energies for HK and Deffuant, initial 0, with eight conditional processes and 95% "
-        "whole-process bootstrap bands. Bottom: node and edge areas for both initial graphs; circles/squares "
+        f"Matched microscopic and measure-map dynamics ({variant}), epsilon={epsilon:g}, N=500, r=2. "
+        + layout_description
+        + "Adjacent initial-state panels share energy scales within each rule; only left panels display y labels. "
+        + "Each microscopic mean uses eight conditional processes and 95% whole-process bootstrap bands. "
+        "Time is linear up to tau=1 and logarithmic thereafter. Bottom (e,f): node and edge areas for both initial graphs; circles/squares "
         "denote initial 0/1, filled/hollow HK/Deffuant, crosses predictions. The bootstrap conditions on each "
         "initial state; processes are not independent initial states. Own-reference areas use each mean curve's "
         f"final-10% median through tau={protocol['maximum_horizon_tau']:g}, recomputed in 1000 resamples. "
         "B=161 and 33-point HK quadrature. These are finite-window areas."
     )
-    finish(fig, output, "figure_2_matched", caption, captions)
+    finish(fig, output, "figure_2_matched_" + variant, caption, captions)
+
+
+def matched_energy(ax, rows, rule, initial, channel, microscopic_style, map_style):
+    """Draw the same saved mean, uncertainty band and prediction in either layout."""
+    for idx in (0, 2, 4):
+        rs = sorted(
+            [
+                r
+                for r in rows
+                if matches(
+                    r,
+                    dynamics=rule,
+                    channel=channel,
+                    initial=initial,
+                    recommender=KERNELS[idx][0],
+                    steepness=KERNELS[idx][1],
+                )
+            ],
+            key=lambda r: r["tau"],
+        )
+        t = [r["tau"] for r in rs]
+        ax.fill_between(
+            t, [r["lower"] for r in rs], [r["upper"] for r in rs], color=COLORS[idx], alpha=0.16, lw=0, rasterized=True
+        )
+        ax.plot(t, [r["mean"] for r in rs], color=COLORS[idx], lw=1.2, ls=microscopic_style)
+        ax.plot(t, [r["pair"] for r in rs], color=COLORS[idx], lw=1.05, ls=map_style)
 
 
 def scaling(data, output, captions):
@@ -686,31 +739,44 @@ def population(data, epsilon, output, captions):
     finish(fig, output, "figure_5_population", caption, captions)
 
 
-def supplementary(data, epsilon, output, captions, selected):
-    if "recommendation" in selected:
+def absolute_areas(data, output, captions):
+    """All confidence radii in columns, HK node/edge then Deffuant node/edge in rows."""
+    epsilons = data.plan["analysis_protocol"].get("confidence_radii", [0.4])
+    fig, axes = plt.subplots(4, len(epsilons), figsize=(7.1, 6.6), squeeze=False, layout="constrained")
+    for col, epsilon in enumerate(epsilons):
         rows = data.rows("mean_release.csv", epsilon)
         rows = [r for r in rows if "effects" in r["roles"].split(",") and r["is_observed_endpoint"] == "True"]
-        fig, axes = plt.subplots(2, 2, figsize=(7.1, 4.0), layout="constrained")
-        for col, rule in enumerate(RULES):
-            for row, channel in enumerate(("node", "edge")):
-                ax = axes[row, col]
-                for idx, (rec, z) in enumerate(KERNELS):
-                    rs = [r for r in rows if matches(r, dynamics=rule, channel=channel, recommender=rec, steepness=z)]
-                    response_curve(ax, rs, "mean_tau", "plateau_confirmed", COLORS[idx])
-                rate_axis(ax)
-                ax.set_ylabel(f"{channel.capitalize()} residual area")
-                ax.set_yscale("log")
-                if row == 0:
-                    ax.set_title(rule.upper())
-        decorate(axes)
-        fig.legend(handles=kernel_legend(), loc="outside lower center", ncol=5, frameon=False)
-        finish(
-            fig,
-            output,
-            "absolute_areas",
-            "Supplement: absolute finite-window own-endpoint residual areas; hollow symbols mark unconfirmed plateaus.",
-            captions,
-        )
+        for row, (rule, channel) in enumerate((r, c) for r in RULES for c in ("node", "edge")):
+            ax = axes[row, col]
+            for idx, (rec, z) in enumerate(KERNELS):
+                rs = [r for r in rows if matches(r, dynamics=rule, channel=channel, recommender=rec, steepness=z)]
+                response_curve(ax, rs, "mean_tau", "plateau_confirmed", COLORS[idx])
+            rate_axis(ax)
+            symbol = r"\rho" if channel == "node" else "E"
+            rule_label = "HK" if rule == "hk" else "Deffuant"
+            ax.set(
+                ylabel=rf"$\widehat\Theta_{symbol}$",
+                yscale="log",
+                title=rf"{rule_label} / {channel}; $\epsilon={epsilon:g}$",
+            )
+            if row < 3:
+                ax.set_xlabel("")
+    decorate(axes)
+    fig.legend(handles=kernel_legend(), loc="outside lower center", ncol=5, frameon=False)
+    finish(
+        fig,
+        output,
+        "absolute_areas",
+        "Supplement: restricted node and edge residual-energy areas. Columns are epsilon="
+        + ", ".join(f"{e:g}" for e in epsilons)
+        + "; rows are HK node, HK edge, Deffuant node, Deffuant edge. Each curve uses its own final-10% "
+        "median reference and observed horizon. Hollow markers denote unconfirmed plateaus and break connecting "
+        "segments. The q=0 boundary is isolated; nonmonotone contributions are retained without clipping.",
+        captions,
+    )
+
+
+def supplementary(data, epsilon, output, captions, selected):
     if "numerics" in selected:
         numerical_controls(data, epsilon, output, captions)
     if "population" not in selected:
@@ -931,7 +997,8 @@ def plot(directory, output=None, *, network_dir=None, intuition_graph=None):
                 snapshot if epsilon == baseline else None,
             )
         if "matched" in selected:
-            matched(data, epsilon, destination, captions)
+            for variant in ("v1", "v2"):
+                matched(data, epsilon, destination, captions, variant=variant)
         if "population" in selected:
             population(data, epsilon, destination, captions)
         supplement = destination if epsilon != baseline else output / "supplementary"
@@ -943,6 +1010,7 @@ def plot(directory, output=None, *, network_dir=None, intuition_graph=None):
     if "scaling" in selected:
         scaling(data, output, captions)
     if "recommendation" in selected:
+        absolute_areas(data, output / "supplementary", captions)
         recommendation(data, output, captions)
         recommendation(data, output, captions, relative=True)
     manifest = {
