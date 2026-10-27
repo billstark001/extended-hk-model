@@ -45,6 +45,7 @@ def build_adapter(
     engine_root: Path,
     *,
     link_stage: Path | None = None,
+    binary_name: str = "paper-theory-engine",
 ) -> BuildManifest:
     """Build the shared adapter against both supplied runtime source checkouts.
 
@@ -53,6 +54,8 @@ def build_adapter(
     A matching snapshot is reused; different inputs or a changed binary require
     a new destination. Source edits during compilation are rejected.
     """
+    if not binary_name or Path(binary_name).name != binary_name or binary_name in (".", ".."):
+        raise ValueError("binary_name must be a filename")
     destination = Path(destination).resolve()
     destination.mkdir(parents=True, exist_ok=True)
     env = runtime_environment(destination)
@@ -70,7 +73,7 @@ def build_adapter(
         "go_version": subprocess.check_output(["go", "version"], text=True).strip(),
     }
     ident = fingerprint(inputs)
-    binary = destination / "paper-theory-engine"
+    binary = destination / binary_name
     manifest = destination / "manifest.json"
     if binary.exists() and manifest.exists():
         old = cast(BuildManifest, json.loads(manifest.read_text()))
@@ -78,7 +81,7 @@ def build_adapter(
             # The scientific manifest stays immutable; a caller may recreate a
             # removed APFS execution stage from its verified provenance copy.
             if link_stage is not None:
-                target = link_stage / "paper-theory-engine"
+                target = link_stage / binary_name
                 shutil.copy2(binary, target)
                 if sha(target) != old["binary_sha256"]:
                     raise RuntimeError("staged binary copy differs")
@@ -95,7 +98,7 @@ def build_adapter(
     )
     (destination / "go.sum").write_text((micro_root / "go.sum").read_text() + (meso_root / "go.sum").read_text())
     subprocess.run(["go", "mod", "tidy", "-modfile", str(destination / "go.mod")], cwd=engine_root, env=env, check=True)
-    target = link_stage / "paper-theory-engine" if link_stage is not None else binary
+    target = link_stage / binary_name if link_stage is not None else binary
     command = ["go", "build", "-modfile", str(destination / "go.mod"), "-p", "4", "-o", str(target)]
     if backend != "purego":
         command += ["-tags", backend]

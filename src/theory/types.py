@@ -254,6 +254,7 @@ class PopulationRequest(PopulationPolicies):
     microscopic_initial: dict[str, Any]
     micro_options: dict[str, int | float]
     compact_records: bool
+    checkpoint_dir: NotRequired[str]
 
 
 class ReleaseProtocol(TypedDict):

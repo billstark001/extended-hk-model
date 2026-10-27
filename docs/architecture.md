@@ -4,6 +4,18 @@
 
 `src/common` owns model-independent settings, I/O and hashes, numerical/statistical tools, plotting primitives and process/build/environment services. `src/ehk` owns microscopic observables, geometry and model-specific visualizations. Both `experiments/paper` and `experiments/paper_theory` use `common.experiments` for their durable task lifecycle. Scientific observable definitions, statistical choices and figure selection remain study-owned.
 
+`src/lifted` owns finite-population conditional probabilities, all-agent outcome
+handling, commitment-time bounds and joint increment diagnostics. Its runtime
+adapters reuse public theory initialization/transport interfaces and the two Go
+libraries. `experiments/paper_lifted` owns its named validation/calibration/formal
+designs, data-dependent follow-up plans and CSV-only figures, using the same
+`common.experiments` lifecycle and `RunStorage`. Lifted-specific estimators do not
+belong to `theory`. Shared code remains in its actual owning package; no study
+imports another study's Python implementation. The existing theory Go
+instrumentation source is explicitly selected by both builds for initialization.
+The lifted continuation adapter implements instrumentation, not model stepping.
+See the [commitment study](../experiments/paper_lifted/README.md).
+
 `src/theory` owns parameters, energies, finite exposure probabilities, recommendation/rewiring operators, transport, distribution/trajectory comparisons and release observables. `release/` includes restricted means, T50/other first-crossing quantiles, plateau diagnostics, conditional statistics and empirical survival/mixture fits. T50 remains available as a sensitivity diagnostic. `runtime/` owns public request schemas, JSONL/binary execution, result identity/completion checks and verified micro/pair references. It does not implement a kinetic/PDE solver. Model-independent binary codecs, array conversion/comparison, subprocess cancellation, retry and local storage staging belong in `src/common`.
 
 ```text

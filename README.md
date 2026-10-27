@@ -10,6 +10,11 @@ Both paper studies use `src/common/experiments` for task selection, frozen plans
 
 Standalone workflow commands live in [`tools/`](tools/README.md): `hdd-bridge` archives completed SSD simulations to HDD, and `waitpid` attaches a follow-up command to an existing process.
 
+The finite-population commitment study uses `src/lifted` and
+`experiments/paper_lifted`. Its separate `smoke`, `pilot` and `freeze` actions
+validate the runtimes and freeze a measured 6--8 hour design without starting
+formal simulations. See the [commitment workflow](experiments/paper_lifted/README.md).
+
 ## Development
 
 Install the optional type checker and `ruff` to check the Python packages:

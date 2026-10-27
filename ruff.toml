@@ -7,7 +7,7 @@ extend-exclude = ["outputs", "build", "dist"]
 select = ["E4", "E7", "E9", "F", "I"]
 
 [lint.isort]
-known-first-party = ["common", "ehk", "theory", "experiments"]
+known-first-party = ["common", "ehk", "theory", "lifted", "experiments"]
 split-on-trailing-comma = false
 
 [format]
