@@ -66,6 +66,9 @@ def settings(work: Path, publish: Path, args) -> RunManifest:
 
 def restore_binaries(work, stage, config):
     """Copy verified Cache executables to APFS; never rebuild bound results."""
+    # TODO(runtime-build): migrate to common.runtime.go.restore_adapter only after
+    # normalizing the legacy kinetic and instrumentation manifest schemas and
+    # preserving APFS staging, FreshReadPolicy and existing frozen bindings.
     paths = [
         (work / "build" / "manifest.json", work / "build" / "paper-theory-engine"),
         (work / "bin" / "kinetic_manifest.json", work / "bin" / "smp-kinetic"),

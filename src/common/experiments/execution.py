@@ -1,13 +1,14 @@
 """One task lifecycle with pluggable model and record adapters."""
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
-from common.runtime.failures import BatchTaskError, ProtocolError
+from common.runtime.failures import BatchTaskError, ProtocolError, TaskDeferred
 from common.runtime.process import run_tasks
 
 from .progress import Progress
+from .scheduling import ReadyTasks
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -23,8 +24,52 @@ class TaskAdapter(Generic[T, R]):
     batch: Callable[..., None] | None = None
 
 
+def execute_ready_tasks(
+    tasks,
+    adapter,
+    *,
+    completed,
+    key,
+    workers=1,
+    deadline=None,
+    store=None,
+    journal=None,
+    progress=False,
+    on_finish=None,
+):
+    """Reuse the task lifecycle while releasing children only after commit/cache validation."""
+    queue = ReadyTasks(tasks, completed, key=key, deadline=deadline)
+
+    def cached(task):
+        value = adapter.cached(task)
+        if value:
+            queue.complete(adapter.identifier(task))
+        return value
+
+    def save(task, result):
+        value = adapter.save(task, result)
+        if value is False:
+            queue.stop()
+        else:
+            queue.complete(adapter.identifier(task))
+        return value
+
+    def cancel():
+        queue.stop()
+        if adapter.cancel:
+            adapter.cancel()
+
+    streaming = TaskAdapter(adapter.identifier, cached, adapter.compute, save, cancel=cancel)
+    try:
+        execute_tasks(queue, streaming, workers=workers, store=store, journal=journal, progress=progress, stream=True)
+    finally:
+        if on_finish:
+            on_finish(set(queue.done))
+    return set(queue.done)
+
+
 def execute_tasks(
-    tasks: Sequence[T],
+    tasks: Iterable[T],
     adapter: TaskAdapter[T, R],
     *,
     workers=1,
@@ -35,13 +80,16 @@ def execute_tasks(
     executor="thread",
     raise_failures=True,
     progress=True,
+    stream=False,
 ) -> None:
     if workers < 1 or executor not in ("thread", "process") or (limit is not None and limit < 1):
         raise ValueError("positive workers/limit and thread/process executor required")
-    selected = list(tasks[:limit] if limit else tasks)
-    if len({adapter.identifier(t) for t in selected}) != len(selected):
+    if stream and (limit is not None or executor != "thread" or adapter.batch is not None or progress is True):
+        raise ValueError("streaming requires a thread adapter, no limit and an explicit progress sink or False")
+    selected: Any = tasks if stream else (list(tasks)[:limit] if limit else list(tasks))
+    if not stream and len({adapter.identifier(t) for t in selected}) != len(selected):
         raise ProtocolError("duplicate task identifiers")
-    meter = Progress(len(selected)) if progress else None
+    meter = Progress(len(selected)) if progress is True else (progress or None)
 
     def transition(task, state, **details):
         identifier = adapter.identifier(task)
@@ -66,8 +114,17 @@ def execute_tasks(
         transition(task, "deferred" if complete is False else "complete")
 
     def run(task):
-        if not cached(task):
-            save(task, adapter.compute(task))
+        try:
+            if not cached(task):
+                save(task, adapter.compute(task))
+        except TaskDeferred as error:
+            if stream and adapter.cancel:
+                adapter.cancel()
+            transition(task, "deferred", reason=str(error))
+        except BaseException:
+            if stream and adapter.cancel:
+                adapter.cancel()
+            raise
 
     def scheduling_event(task, state, **details):
         if state != "complete":

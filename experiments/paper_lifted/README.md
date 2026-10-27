@@ -6,6 +6,11 @@ This study owns sampling, frozen plans, resource allocation and offline figures.
 `common.experiments` owns task selection, execution, journals and recovery.
 Model stepping and recommendation remain in the public Go runtimes.
 
+See [CONTINUATION.md](CONTINUATION.md) for current global progress, balanced
+scheduling, worker-independent resume and explicit cumulative-budget extensions.
+The [module audit](../../docs/lifted-architecture-audit.md) documents shared-service
+extraction, responsibility boundaries and deferred migrations.
+
 See [RECHECK.md](RECHECK.md) for the current recovery/phase checks and frozen
 six-to-eight-hour plan. [VALIDATION.md](VALIDATION.md) retains the initial snapshot.
 
@@ -73,14 +78,16 @@ an analysis manifest is present and skips entirely pending, unclassified queries
 Concurrent analysis/plot writers use a shared output lock while execution may
 continue writing independent, atomic raw records.
 
-Workers/backend must match the frozen cost calibration. Scientific source or
+Backend must match the frozen cost calibration. Workers are a runtime option;
+new plans retain only a pilot reference count. Scientific source or
 runtime changes require a new run. Formal execution copies and authenticates the
 pilot's measured executables and module manifests, so later Git metadata alone
 does not cause a rebuild. Numerical source hashes must still match. Budget
 selection, cost estimation, CLI dispatch, offline exports and executable staging
 may be revised before freezing;
 the receipt records those revisions separately from the original pilot binding.
-Resume skips authenticated completed work,
+Execution-only source revisions are audited separately while preserving the
+original scientific binding. Resume skips authenticated completed work,
 retains the remaining wall budget and reuses exact checkpoint inputs. Ordinary
 cleanly paused time is not charged. An unfinalized killed attempt is charged
 conservatively at recovery. Pending tasks and process failures are operational

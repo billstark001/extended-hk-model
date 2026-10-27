@@ -15,6 +15,7 @@ from lifted.commitment import ensemble_cdf, timing
 from lifted.committor import estimate, terminal_boundary, total_variation
 from lifted.diagnostics import factor_summary, increment_factors
 from lifted.outcomes import CATEGORIES
+from lifted.runtime.costs import measurement
 from lifted.runtime.records import read, record_path
 
 from .protocol import sources
@@ -316,24 +317,7 @@ def _analyze(root):
                         observed_through_tau=row["step"] * p["alpha"],
                     )
                 )
-        costs.append(
-            dict(
-                task=task["id"],
-                kind=task["kind"],
-                ratio=p["ratio"],
-                population=p["population"],
-                bins=p["bins"],
-                variant=task["variant"],
-                layer=task["layer"],
-                paths=len(task["replicates"]),
-                horizon_steps=task["horizon_steps"],
-                source_step=task["source_step"],
-                executed_steps=result["executed_steps"],
-                elapsed_seconds=result["elapsed_seconds"],
-                wall_seconds=result["wall_seconds"],
-                unresolved=sum(r["category"] == "unresolved" for r in result["paths"]),
-            )
-        )
+        costs.append(measurement(task, result))
         for row in result["states"]:
             states.append(
                 {

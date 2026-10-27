@@ -13,6 +13,9 @@ from .evidence.fresh_reads import FreshReadPolicy, dependency_roots
 
 def launch(args):
     """Launch a parsed main command with local control and exclusive run ownership."""
+    # TODO(execution-policy): decouple workers and cumulative budget from legacy
+    # manifests after preserving binding-batch/spool limits and FreshReadPolicy.
+    # The common ready-stream services can then be adopted without changing topics.
     siblings = Path(__file__).resolve().parents[3]
     args.meso_root = args.meso_root or siblings / "social-media-mesoscopic-models"
     args.micro_root = args.micro_root or siblings / "social-media-models"

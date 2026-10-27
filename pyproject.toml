@@ -61,6 +61,8 @@ files = [
   "src/common/experiments/plans.py",
   "src/common/experiments/lifecycle.py",
   "src/common/experiments/execution.py",
+  "src/common/experiments/scheduling.py",
+  "src/common/experiments/receipts.py",
   "src/common/experiments/progress.py",
   "src/common/experiments/artifacts.py",
   "src/theory/variation.py",

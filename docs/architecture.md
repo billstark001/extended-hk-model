@@ -107,3 +107,18 @@ analysis protocols, coverage and hashes. `--force` bypasses analysis caches.
 The legacy binary schemas, frozen identities and default CLI orchestration remain
 unchanged; `--phase` selects computational stages without introducing another
 executor. Original-paper/drift-probe stage boundaries are not changed here.
+
+Lifted execution additionally supports a dependency-ready stream through the same
+`TaskAdapter` lifecycle. `common.experiments.scheduling.ReadyTasks` handles ready
+tasks and worker acknowledgements; the study supplies family/ratio fairness.
+Scientific task identity and raw bindings remain fixed while execution attempts
+record concurrency, scheduling, explicit cumulative limit changes and operational
+source revisions separately. Live progress uses journal increments and metadata
+cost samples; it does not replace the authenticated scientific export path.
+
+The [lifted module audit](lifted-architecture-audit.md) records the current owning
+modules and deferred ehk/theory migrations. Shared journal indexing, ready-stream
+execution, stage coverage, receipt archival, wall-limit extension and adapter
+restoration live in `common`. Lifted forecasting is a source-library algorithm
+with injected metadata; experiment modules own file selection, fairness policy,
+engine selection and separately frozen adaptive designs.

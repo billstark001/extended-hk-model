@@ -11,9 +11,9 @@ from common.io.json import atomic_json, sha
 from common.io.records import write_record
 from common.runtime.budget import wall_budget
 from common.runtime.failures import ProtocolError
+from common.runtime.go import restore_adapter
 from experiments.paper_lifted.evidence.budget import freeze, generation_sources
 from experiments.paper_lifted.evidence.design import validation_design
-from experiments.paper_lifted.run import calibrated_adapter
 from experiments.paper_lifted.study import LiftedStudy
 from lifted.runtime.adapters import BudgetExhausted, ContinuationAdapter
 from lifted.runtime.records import read, record_path
@@ -150,19 +150,21 @@ def test_formal_stages_verified_pilot_executable_without_rebuilding(tmp_path, mo
     )
     atomic_json(source / "manifest.json", manifest)
     calibration = dict(pilot_dir=str(pilot), runtime_binding={"binaries": {"lifted": manifest["binary_sha256"]}})
-    monkeypatch.setattr("experiments.paper_lifted.run.engine_manifest", lambda p: manifest["engine"])
-    monkeypatch.setattr("experiments.paper_lifted.run.build_adapter", lambda *a, **kw: pytest.fail("unexpected build"))
+    monkeypatch.setattr("common.runtime.go.build_adapter", lambda *a, **kw: pytest.fail("unexpected build"))
 
     def stage(**options):
-        return calibrated_adapter(
-            formal,
-            "lifted",
-            tmp_path,
-            calibration,
-            backend="accelerate",
-            micro=options.get("micro", manifest["micro"]),
-            meso=manifest["meso"],
-        )
+        return restore_adapter(
+            formal / "build/lifted",
+            source,
+            binary_name="paper-lifted-engine",
+            expected_inputs=dict(
+                backend="accelerate",
+                micro=options.get("micro", manifest["micro"]),
+                meso=manifest["meso"],
+                engine=manifest["engine"],
+            ),
+            expected_sha256=calibration["runtime_binding"]["binaries"]["lifted"],
+        )["binary"]
 
     binary = Path(stage())
     assert sha(binary) == manifest["binary_sha256"] and binary.stat().st_mode & 0o111

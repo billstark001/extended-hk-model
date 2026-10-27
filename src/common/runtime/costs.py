@@ -12,6 +12,9 @@ from common.io.json import read_result
 
 def estimate(jobs, baseline, workers):
     """Return a heuristic wall-time estimate from completed baseline timings; report missing comparables explicitly and never run a solver."""
+    # TODO(cost-schema): this legacy jobs/meta/payload adapter is study-specific.
+    # Move schema translation to its paper owner before sharing the pure cost
+    # aggregation with the task-based theory/lifted workflows; preserve old fits.
     plan_path, status_path = baseline / "plan.json", baseline / "status.json"
     if not plan_path.exists() or not status_path.exists():
         return {"available": False, "reason": "completed baseline timings unavailable", "jobs": len(jobs)}

@@ -5,8 +5,9 @@ from pathlib import Path
 
 from common.experiments.plans import freeze_plan, read_plan
 from common.io.json import atomic_json, sha
-from lifted.runtime.costs import plan_cost
+from lifted.runtime.costs import measurement, plan_cost
 
+from ..policy import scientific_sources
 from .analyze import available, plans, status
 from .design import formal_design
 from .protocol import sources
@@ -14,19 +15,15 @@ from .protocol import sources
 
 def generation_sources(binding):
     """Offline exports, CLI dispatch and cost selection do not change pilot paths."""
-    operational = {
-        "experiments/paper_lifted/evidence/budget.py",
-        "experiments/paper_lifted/run.py",
-        "experiments/paper_lifted/__main__.py",
-        "experiments/paper_lifted/evidence/analyze.py",
-        "experiments/paper_lifted/evidence/figures.py",
-        "src/lifted/runtime/costs.py",
-    }
-    return {name: digest for name, digest in binding.items() if name not in operational}
+    return scientific_sources(binding)
 
 
-def freeze(pilot, destination, *, workers=4, hours=7):
+def freeze(pilot, destination, *, workers=None, hours=7):
     pilot, destination = Path(pilot).resolve(), Path(destination).resolve()
+    # Reference concurrency describes a cost measurement, not a scientific execution constraint.
+    status_file = pilot / "status.json"
+    reference = json.loads(status_file.read_text()).get("workers", 4) if status_file.exists() else 4
+    workers = reference if workers is None else workers
     if not 6 <= hours <= 8 or not 1 <= workers <= 8 or destination == pilot:
         raise ValueError("new formal directory, 6..8 hours and 1..8 workers required")
     plan, tasks = plans(pilot)
@@ -40,27 +37,7 @@ def freeze(pilot, destination, *, workers=4, hours=7):
     report = json.loads((pilot / "analysis/report.json").read_text())
     if not report["naive_base_equal_pairs"]:
         raise ValueError("pilot must verify the Random naive/base comparison")
-    measurements = []
-    for task, result in available(pilot, tasks):
-        p = task["parameters"]
-        measurements.append(
-            dict(
-                task=task["id"],
-                kind=task["kind"],
-                ratio=p["ratio"],
-                population=p["population"],
-                bins=p["bins"],
-                variant=task["variant"],
-                layer=task["layer"],
-                paths=len(task["replicates"]),
-                horizon_steps=task["horizon_steps"],
-                source_step=task["source_step"],
-                executed_steps=result["executed_steps"],
-                elapsed_seconds=result["elapsed_seconds"],
-                wall_seconds=result["wall_seconds"],
-                unresolved=sum(r["category"] == "unresolved" for r in result["paths"]),
-            )
-        )
+    measurements = [measurement(task, result) for task, result in available(pilot, tasks)]
     reserve = 85 * 60  # 45 min independent validation/tails + 40 min offline output/verification.
     best = None
     cache: dict[str, tuple[float, bool]] = {}
@@ -93,7 +70,7 @@ def freeze(pilot, destination, *, workers=4, hours=7):
     receipt = {
         "target_hours": hours,
         "hard_hours": 8,
-        "workers": workers,
+        "reference_workers": workers,
         "analysis_reserve_seconds": 40 * 60,
         "followup_reserve_seconds": 45 * 60,
         "pilot_dir": str(pilot),

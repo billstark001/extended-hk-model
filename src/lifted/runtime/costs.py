@@ -5,6 +5,27 @@ import math
 import numpy as np
 
 
+def measurement(task, result):
+    """One timing-row contract for calibration, offline exports and live forecasting."""
+    p = task["parameters"]
+    return dict(
+        task=task["id"],
+        kind=task["kind"],
+        ratio=p["ratio"],
+        population=p["population"],
+        bins=p["bins"],
+        variant=task["variant"],
+        layer=task["layer"],
+        paths=len(task["replicates"]),
+        horizon_steps=task["horizon_steps"],
+        source_step=task["source_step"],
+        executed_steps=result["executed_steps"],
+        elapsed_seconds=result["elapsed_seconds"],
+        wall_seconds=result["wall_seconds"],
+        unresolved=sum(r["category"] == "unresolved" for r in result["paths"]),
+    )
+
+
 def task_cost(task, measurements):
     """Predict serial seconds; full-horizon censored pilots scale by requested steps.
 

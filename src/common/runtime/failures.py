@@ -9,6 +9,10 @@ class TaskError(RuntimeError):
     """One independent scientific task failed; retain its diagnostic."""
 
 
+class TaskDeferred(RuntimeError):
+    """Operational admission/budget stop; no completed scientific result exists."""
+
+
 class BatchTaskError(RuntimeError):
     def __init__(self, failures):
         self.failures = failures

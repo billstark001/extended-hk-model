@@ -159,3 +159,30 @@ class TaskJournal:
             result["state"] = "partial"
         atomic_json(self.directory / "status.json", result)
         return result
+
+
+class StageJournals:
+    """Route a dependency stream to existing per-stage journals and coverage files."""
+
+    def __init__(self, directory, stages, *, prefix=""):
+        self.directory, self.stages, self.prefix = Path(directory), stages, prefix
+        self.journals = {s["name"]: TaskJournal(self.directory / (prefix + s["name"])) for s in stages}
+        self.owners = {identifier: s["name"] for s in stages for identifier in s["task_ids"]}
+
+    def event(self, identifier, state, **details):
+        self.journals[self.owners[identifier]].event(identifier, state, **details)
+
+    def publish(self, completed):
+        from .plans import coverage
+
+        for stage in self.stages:
+            identifiers = stage["task_ids"]
+            counts = (
+                coverage(({"id": i} for i in identifiers), set(identifiers) & completed)
+                if identifiers
+                else dict(planned=0, completed=0, missing=[])
+            )
+            atomic_json(
+                self.directory / (self.prefix + stage["name"]) / "coverage.json",
+                {**counts, "state": "partial" if counts["missing"] else "complete"},
+            )

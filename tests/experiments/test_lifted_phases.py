@@ -67,7 +67,7 @@ def forbidden(*args, **kwargs):
 
 def test_partial_tables_and_plots_remain_partial_and_track_staleness(tmp_path, monkeypatch):
     plan, tasks, save, late = partial_data(tmp_path)
-    monkeypatch.setattr("experiments.paper_lifted.run.build", forbidden)
+    monkeypatch.setattr("experiments.paper_lifted.bindings.build", forbidden)
     monkeypatch.setattr("common.runtime.process.run_binary", forbidden)
     assert cli.main(["analyze", "--work-dir", str(tmp_path)]) == 0
     assert cli.main(["plot", "--work-dir", str(tmp_path)]) == 0

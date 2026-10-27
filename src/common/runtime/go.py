@@ -11,7 +11,46 @@ from typing import cast
 
 from common.io.json import atomic_json, fingerprint, sha
 from common.runtime.environment import runtime_environment
+from common.runtime.failures import ProtocolError
 from common.types import Backend, BuildInputs, BuildManifest, FileHashes
+
+
+def restore_adapter(destination, source, *, binary_name, expected_inputs, expected_sha256):
+    """Restore a measured executable and module manifests without invoking Go.
+
+    Source selection and calibration ownership remain caller policy. This service
+    authenticates the standard BuildManifest and preserves immutable provenance.
+    """
+    if not binary_name or Path(binary_name).name != binary_name or binary_name in (".", ".."):
+        raise ValueError("binary_name must be a filename")
+    destination, source = Path(destination), Path(source)
+    manifest = cast(BuildManifest, json.loads((source / "manifest.json").read_text()))
+    if any(manifest.get(key) != value for key, value in expected_inputs.items()):
+        raise ProtocolError("calibrated runtime source/backend changed")
+    if manifest["binary_sha256"] != expected_sha256:
+        raise ProtocolError("calibrated adapter source/binary changed")
+    destination.mkdir(parents=True, exist_ok=True)
+    for name, digest in (
+        (binary_name, expected_sha256),
+        ("go.mod", manifest["module_sha256"]),
+        ("go.sum", manifest["sum_sha256"]),
+    ):
+        original, target = source / name, destination / name
+        if sha(original) != digest or (target.exists() and sha(target) != digest):
+            raise ProtocolError("calibrated executable/module hash changed")
+        if not target.exists():
+            shutil.copy2(original, target)
+        if sha(target) != digest:
+            raise ProtocolError("calibrated executable/module copy differs")
+    binary = str(destination / binary_name)
+    restored = {**manifest, "binary": binary, "cached_binary": binary}
+    path = destination / "manifest.json"
+    if path.exists():
+        if json.loads(path.read_text()) != restored:
+            raise ProtocolError("restored executable manifest changed")
+    else:
+        atomic_json(path, restored)
+    return restored
 
 
 def source_manifest(root: Path) -> FileHashes:
