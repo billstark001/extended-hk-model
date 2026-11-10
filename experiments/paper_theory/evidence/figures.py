@@ -264,7 +264,7 @@ def intuition(data, epsilon, output, captions, snapshot=None):
             )
             axes[4].plot([r["tau"] for r in rs], [r["remaining"] for r in rs], color=color, ls=ls, lw=1.05)
     time_axis(axes[4], horizon)
-    axes[4].set(ylim=(-0.05, 1.05), ylabel=r"$S_X$", title="Energy release")
+    axes[4].set(ylim=(-0.05, 1.05), ylabel=r"$S_X(\tau/\alpha;c_X^{\rm ref})$", title="Energy release")
     for ax in axes[1:]:
         ax.set_box_aspect(1)
     decorate(axes)
@@ -282,8 +282,8 @@ def intuition(data, epsilon, output, captions, snapshot=None):
         "(orange dashed edge); a concordant recommended k offers replacement (blue dotted edge), and the arrow "
         "illustrates opinion motion. This schematic is not a reconstructed graph or measured rate. "
         f"(b-d) HK Opinion4, epsilon={epsilon:g}, N={info['population']:g}, initial 0, tau={info['tau']:g}; "
-        f"fields use {microscopic}; the map starts from the same empirical measures. Edge densities share "
-        "a fourth-root color scale. (e) Four remaining-energy curves from that same ensemble and prediction, "
+        f"binned densities of the node measure and e=E/k̄ use {microscopic} and its matched prediction. "
+        "Edge densities share a fourth-root color scale. (e) Four remaining-energy curves from that same ensemble and prediction, "
         f"using each raw curve's own final-10% median on tau<={horizon:g}; signed residuals are retained. "
         "Parameters: alpha=.02, q=.04, degree=15, recommended list=10, recommendation tolerance=.4, "
         "steepness=4, dt=1, D0=0, B=161, 33-point HK quadrature."
@@ -529,7 +529,7 @@ def scaling(data, output, captions):
             error.set(
                 xscale="log",
                 yscale="log",
-                xlabel=r"Update size $\alpha$",
+                xlabel=r"Opinion-update rate $\alpha$",
                 ylabel=f"{channel.capitalize()} gap (%)",
                 title="Maximum error",
             )
@@ -548,9 +548,10 @@ def scaling(data, output, captions):
     caption = (
         "Figure 3. Rows: HK, Deffuant; columns: raw node energy, node error, raw edge energy, edge error. "
         "Colors identify epsilon=.2,.4,.8. Solid curves use alpha=.0025, hollow markers alpha=.04; "
-        "shading spans all five updates on the common observed interval, with linear display interpolation "
+        "shading spans all five rates on the common observed interval, with linear display interpolation "
         "and no extrapolation. It is a calculated range, not a confidence band. "
         "Representative paths use Opinion4, r=2, with q=r*alpha, uniform initial node measure and random mixing. "
+        "Error panels use the opinion-update rate alpha at dt=1. "
         "Errors maximize the raw-energy gap over all five recommendation laws and r=.25,2,10, separately "
         "for each epsilon, rule and energy. Each comparison uses alpha_ref=.0025, its common observed interval, "
         "and the larger of the reference initial magnitude and range as denominator. No alignment or tail "
@@ -838,7 +839,7 @@ def terminal_variation(data, output, captions):
     components = (
         ("process_variance", r"$W$"),
         ("initial_variance_corrected", r"$I$"),
-        ("conditional_bias_squared_corrected", r"$B^2$"),
+        ("conditional_bias_squared_corrected", r"$\widehat{\mathrm{Err}}_{\rm mean}$"),
     )
     for metric, name in (("node_cdf", "node_cdf_terminal"), ("edge_cdf", "edge_cdf_terminal")):
         fig, axes = plt.subplots(3, len(epsilons), figsize=(7.1, 5.6), layout="constrained", squeeze=False)
@@ -879,7 +880,8 @@ def terminal_variation(data, output, captions):
         fig.legend(handles=condition_legend(), loc="outside lower center", ncol=4, frameon=False)
         caption = (
             f"Supplement. {metric.replace('_', ' ')} at tau={at:g}: rows W, corrected I and corrected "
-            "finite-N conditional residual B²; columns are confidence radii. Shading is the LOIO range, "
+            "mean squared conditional prediction residual. Columns are confidence radii. "
+            "Shading is the LOIO range, "
             "not a confidence interval. Signed log axes retain negative corrections with a linear region "
             "at absolute values below 1e-4. Norm weights and the population protocol are unchanged."
         )
