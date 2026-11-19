@@ -12,7 +12,9 @@ SWITCH = "StructureM9"
 REPLICATES = 16
 
 SETTING_PARAMS = [0.01, 0.03, 0.05, 0.10, 0.30]
-SETTINGS = list(zip(SETTING_PARAMS, reversed(SETTING_PARAMS)))
+CROSS_SETTINGS = [(0.01, 0.10), (0.03, 0.30), (0.10, 0.01), (0.30, 0.03)]
+# Appending preserves the parameter coordinates used by existing RNG seeds.
+SETTINGS = [*zip(SETTING_PARAMS, reversed(SETTING_PARAMS)), *CROSS_SETTINGS]
 REPOST_RATES = (0.0, 0.1, 0.25)
 CORE_EPSILON = 0.45
 CORE_HISTORY = 0
@@ -67,8 +69,8 @@ def generate_tasks(study: str) -> list[dict]:
             (SENSITIVITY_SETTING, SENSITIVITY_REPOST, sensitivity, epsilon, history)
             for sensitivity, epsilon, history in SENSITIVITIES
         )
-    for ((influence, rewiring), repost, sensitivity, epsilon, history), replicate in product(
-        coordinates, range(REPLICATES)
+    for replicate, ((influence, rewiring), repost, sensitivity, epsilon, history) in product(
+        range(REPLICATES), coordinates
     ):
         setting = f"al{round(100 * influence):02}_q{round(100 * rewiring):02}_e{round(100 * epsilon):02}_kh{history}"
         name = f"s_{study}_{setting}_p{round(100 * repost):02}_sim{replicate:02}"

@@ -2,13 +2,15 @@
 
 ## 设计
 
-核心设计取五个 `(α, q)` 格点 `(0.01, 0.30)`、`(0.03, 0.10)`、`(0.05, 0.05)`、`(0.10, 0.03)`、`(0.30, 0.01)`，各取 `p=0, 0.1, 0.25`。历史主扫描每个独立设定有 12 个重复，本轮每个设定有 16 个独立初态，共 240 组。使用 500 个节点、初始期望出度 15、`ε=0.45`、十个推荐位与 `k_h=0`。组内各臂共享图、意见、帖和初始化 RNG。
+核心设计取九个 `(α, q)` 格点：原有的 `(0.01, 0.30)`、`(0.03, 0.10)`、`(0.05, 0.05)`、`(0.10, 0.03)`、`(0.30, 0.01)`，以及新增的 `(0.01, 0.10)`、`(0.03, 0.30)`、`(0.10, 0.01)`、`(0.30, 0.03)`，各取 `p=0, 0.1, 0.25`。历史主扫描每个独立设定有 12 个重复，本轮每个设定有 16 个独立初态，共 432 组。使用 500 个节点、初始期望出度 15、`ε=0.45`、十个推荐位与 `k_h=0`。组内各臂共享图、意见、帖和初始化 RNG。
 
-`staged` 与 `recommender_variants` 各增加四项单因素敏感性：仅在 `(α,q,p)=(0.05,0.05,0.1)`，分别取 `ε=0.35/0.55`（保留 `k_h=0`）及 `k_h=2/6`（保留 `ε=0.45`）。每项仍有 16 个重复，并沿用对应核心组的初始化种子；不交叉扩展半径和历史长度。两项研究各有 304 组。`staged_timing` 只包含 240 个核心组，使用独立于阶段研究的初始化种子。设定标识、表格和图均区分半径、历史长度及敏感性类别。
+`staged` 与 `recommender_variants` 各增加四项单因素敏感性：仅在 `(α,q,p)=(0.05,0.05,0.1)`，分别取 `ε=0.35/0.55`（保留 `k_h=0`）及 `k_h=2/6`（保留 `ε=0.45`）。每项仍有 16 个重复，并沿用对应核心组的初始化种子；不交叉扩展半径和历史长度。两项研究各有 496 组。`staged_timing` 只包含 432 个核心组，使用独立于阶段研究的初始化种子。设定标识、表格和图均区分半径、历史长度及敏感性类别。
+
+任务按 replicate 外层、参数格点内层排列，先遍历所有格点的第 0 个重复，再遍历第 1 个重复。新增格点追加到原有种子坐标之后，已有任务的全部字段和每臂运行配置不变。恢复时先登记通过原始记录检查的全部缓存，再按新顺序调度未完成任务；并行完成次序仍可因各格点耗时不同而改变。
 
 - `staged` 用 OpinionM9 生成参考轨迹。每 16 步观测一次，在设计表指定的候选步写检查点。早期取两项指标都低于阈值的首个候选点。中期取早期之后至少一项指标过线、且尚未符合晚期判据的首个候选点。晚期从第 128 步起，取最近两个观测间隔的每次更新平均绝对意见位移不超过 0.001、完成换边率不超过 0.01 的首个候选点。每个可用检查点配对比较保持 OpinionM9 和切换到 StructureM9 后的 512 步。两臂请求相同的推荐位与探索位。阶段缺失计入覆盖率。
 - 晚期另有两项诊断。桥接臂在可用时提供一条进入置信范围的跨阵营当前原创帖，可以填空或替换末位。转发抑制臂在 `p>0` 下屏蔽由转发产生的候选展示位置（含用户转发自己的旧帖），继续按相同的 `p` 生成转发。主对照使用各政策自己的候选生成和排序。
-- `staged_timing` 使用独立初态。阶段研究的 240 个核心组全部完成后，只用核心组中同时具有早、晚检查点的同组重复计算「晚期切换效应减早期切换效应」。512 步意见分离效应差的绝对均值至少为 0.05 且 95% t 区间排除零时进入本研究；门控未通过就不运行 timing。敏感性组不进入门控。两种触发均切换到 StructureM9 恰好 512 步，再恢复 OpinionM9。固定触发点为 128 步，状态触发取过量同信首次达到 0.10 的时刻，至 1536 步仍未达线就触发。另有两种一直使用的政策作为对照。状态触发相对于固定触发的主要目标是降低第 2048 步的意见分离。
+- `staged_timing` 使用独立初态。阶段研究的 432 个核心组全部完成后，只用核心组中同时具有早、晚检查点的同组重复计算「晚期切换效应减早期切换效应」。512 步意见分离效应差的绝对均值至少为 0.05 且 95% t 区间排除零时进入本研究；门控未通过就不运行 timing。敏感性组不进入门控。两种触发均切换到 StructureM9 恰好 512 步，再恢复 OpinionM9。固定触发点为 128 步，状态触发取过量同信首次达到 0.10 的时刻，至 1536 步仍未达线就触发。另有两种一直使用的政策作为对照。状态触发相对于固定触发的主要目标是降低第 2048 步的意见分离。
 - `recommender_variants` 将 Opinion、OpinionM9、OpinionRandom、Structure、StructureM9 和 StructureRandom 从同一个初始检查点分别运行 2048 步。无后缀版本按各自分数排序，M9 请求一个均匀探索位和九个排序位，`Random` 后缀按各自的分数加权抽样。加权版本沿用默认噪声和权重，独立均匀混合权重设为零。图表比较同族版本与 M9 的差异，也比较同后缀的 Opinion 与 Structure。
 
 ## 指标
@@ -45,9 +47,21 @@ python -m experiments.paper.recommendation.plot /path/to/dataset
 
 调度前先在目标卷运行一个 8 节点、2 步的持久化检查，验证原生事件库、轨迹和快照能够写入和重开。检查失败会立即停止，不会继续提交实验任务。SMP 事件库使用 SQLite WAL；运行中的数据库必须连同其 `-wal`、`-shm` 文件保留，正常关闭后再归档。
 
+本次从五个核心格点扩为九个格点时，先中断旧调度器，再显式扩展冻结计划。迁移命令会验证每个旧任务及结果指纹，保留旧计划与迁移凭据，不修改结果、原始记录或二进制绑定。普通运行入口仍拒绝未经迁移的设计变化。
+
+```sh
+python -m experiments.paper.recommendation.migrate_plan /Volumes/Cache/ehk_cache/run
+```
+
 用 `kill -TERM PID` 中断后，重跑完全相同的命令即可恢复：每臂保留持久快照，已完成且通过记录校验的任务会跳过。恢复必须沿用冻结设计与绑定的二进制 SHA；改变参数或程序后应使用新数据集目录。不要同时对同一数据集启动两个调度器。
 
 分析默认输出到数据目录下的 `analysis/`，生成逐运行指标、轨迹、配对差和逐设定的完成及阶段覆盖率。核心与各敏感性条件的图分别写入 `core_e45_kh0/`、`epsilon_e35_kh0/` 等子目录；不同 `ε` 或 `k_h` 不合并。历史数据可从原始工作区重算到 `stats-v2.db`。旧库由审计命令按场景名和工作区来源读取。
+
+运行中可用 `--output` 指定独立分析目录。分析只读取入口时已完成的记录，并在 `coverage.json` 保存计划、记录 SHA、二进制绑定及分析时刻；`coverage.csv` 和覆盖图区分尚未完成与未计划的格点。每个参数格点单独绘图，标题标注完成数和计划重复数；`complete_cells/` 的汇总图只包含重复已齐的格点。顺序执行时，已完成格点并不代表整个参数设计，部分完成格点保留在逐运行表和各自图中。
+
+初步分析可加 `--tables-only`，只导出表格、覆盖率和来源信息，避免渲染全部格点。`review_plots` 提供逐重复桥接配对差、参考 PbS 数量网格和单初态跨阶段轨迹图；使用前两者时分别传入同一观测口径的运行表和路径计数表。比较参数格点时可以限制到各格均已完成的 replicate 编号以平衡样本数，但不同参数点的同编号并不共享初态，不构成跨参数配对。
+
+阶段臂的完整首达分类合并切换前的共同参考前缀；窗口起点已经过线时，单独的 `window_pathway` 标记为 `left_censored`，不会把它当成全程同时首达。参考轨迹图展示至 2048 步及活动定义的阶段检查点。晚期曝光主图使用政策槽与桥接槽之和，另外保存含探索的总曝光图；意见热图按重复分别展示，KDE 峰数和置信分量终点分类分开。全部核心组完成前，阶段门控状态为 `pending`，不据中途结果改变实验调度。
 
 ```sh
 python -m experiments.paper.analysis.run gradation WORKSPACE
@@ -56,3 +70,18 @@ python -m experiments.paper.main_scan.plot
 ```
 
 持久化 SMP 运行用 `ViewPostsDetails=true` 采集逐槽详情。仅设置 `ViewPostsEvent=true` 时记录原有置信分组。旧 ViewTweets 表先用 `smp-migrate events` 显式迁移。
+
+## Portable manuscript figures
+
+`python -m experiments.paper.recommendation.manuscript` separates `export`,
+`prepare` and `compose`. Export authenticates completed summaries and computes CSV
+analysis into a separate local bundle; prepare reads only that bundle and saves
+self-contained `plot_data.json` plus an editable `layout.json`. Compose reads only
+these two files, so the source dataset and data disk may be disconnected. The
+completed 496-task study, commands and figure scope are documented in the
+manuscript's `artifacts/ehk_staged_interventions_20261119/README.md`. The same
+export/prepare/compose commands refresh the figures; none launch a
+simulation. Full records remain under model `outputs/`, while the manuscript
+retains the compact plot data, vector figures, layout and provenance. The optional
+`panels` command additionally exports individual SVG/PDF/PNG files; composition
+does not read them. Older directories with `panels/specs.json` remain supported.

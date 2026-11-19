@@ -1,6 +1,6 @@
 """Summarize completed paired experiments on their recorded observation grid."""
 
-from itertools import combinations
+from itertools import chain, combinations
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +9,7 @@ from scipy.stats import t
 
 from common.experiments.plans import read_plan
 from common.io.json import fingerprint, read_result
-from ehk.metrics.pathway import first_passage
+from ehk.metrics.pathway import EXCESS_THRESHOLD, SEPARATION_THRESHOLD, first_passage
 from ehk.metrics.polarization import opinion_peak_count
 
 from . import design as cfg
@@ -33,11 +33,10 @@ def read_study(directory: Path, study: str | None = None):
     if plan["schema"] != cfg.DESIGN_VERSION:
         raise ValueError("unsupported recommendation design version")
 
+    paths = [(task, directory / "records" / (task["id"] + ".json.gz")) for task in plan["tasks"]]
+    available = [(task, path) for task, path in paths if path.is_file()]
     records = {}
-    for task in plan["tasks"]:
-        path = directory / "records" / (task["id"] + ".json.gz")
-        if not path.is_file():
-            continue
+    for task, path in available:
         entry = read_result(path)
         if entry["task_fingerprint"] != fingerprint(task):
             raise ValueError(f"record does not match design: {path}")
@@ -81,7 +80,14 @@ def exposure_columns(exposure: dict) -> dict:
     return values
 
 
-def summarize_arm(arm):
+def _passage(points):
+    return first_passage(
+        (point["step"], point["pathway"]["separation"], point["pathway"]["excess_concordance"])
+        for point in points
+    )
+
+
+def summarize_arm(arm, prefix=()):
     points = arm["endpoints"]
     initial, final = (point["pathway"] for point in (points[0], points[-1]))
     windows = [exposure_columns(point["exposure"]) for point in points]
@@ -90,9 +96,10 @@ def summarize_arm(arm):
         for key in windows[0]
     }
     n = totals["updates"]
-    passage = first_passage(
-        (point["step"], point["pathway"]["separation"], point["pathway"]["excess_concordance"]) for point in points
-    )
+    passage = _passage(chain(prefix, points))
+    window = _passage(points)
+    separation_crossed = initial["separation"] >= SEPARATION_THRESHOLD
+    segregation_crossed = initial["excess_concordance"] is not None and initial["excess_concordance"] >= EXCESS_THRESHOLD
     peaks = opinion_peak_count(np.asarray(arm["final_opinions"]))
     excess0, excess1 = initial["excess_concordance"], final["excess_concordance"]
     return {
@@ -116,6 +123,11 @@ def summarize_arm(arm):
         "pathway": passage.label,
         "separation_step": passage.separation_step,
         "segregation_step": passage.segregation_step,
+        "window_pathway": "left_censored" if separation_crossed or segregation_crossed else window.label,
+        "window_separation_step": None if separation_crossed else window.separation_step,
+        "window_segregation_step": None if segregation_crossed else window.segregation_step,
+        "start_separation_crossed": separation_crossed,
+        "start_segregation_crossed": segregation_crossed,
         "fill": _ratio(totals["recommended"], totals["requested"]),
         "cross_camp_per_update": _ratio(totals["cross_camp"], n),
         "cross_share": _ratio(totals["cross_camp"], totals["recommended"]),
@@ -123,6 +135,7 @@ def summarize_arm(arm):
         "rewires_per_update": _ratio(totals["rewires"], n),
         "opinion_shift_per_update": _ratio(totals["absolute_shift"], n),
         **totals,
+        **{f"non_exploration_{key}": totals[f"policy_{key}"] + totals[f"bridge_{key}"] for key in SLOT_MEASURES},
     }
 
 
@@ -201,7 +214,12 @@ def study_tables(plan, records):
         for stage, arms in stages.items():
             for name, arm in arms.items():
                 ids = {**identifying, "stage": stage, "arm": name}
-                rows.append({**ids, **summarize_arm(arm)})
+                start = arm["endpoints"][0]["step"]
+                prefix = (
+                    (point for point in record["reference"]["endpoints"] if point["step"] < start)
+                    if plan["profile"] == "staged" else ()
+                )
+                rows.append({**ids, **summarize_arm(arm, prefix)})
                 for point in arm["endpoints"]:
                     trajectories.append(
                         {
@@ -238,6 +256,48 @@ def coverage_by_setting(plan, records):
                 for stage in records[task["id"]]["stages"]:
                     row["stages"][stage] += 1
     return list(groups.values())
+
+
+def completed_cell_task_ids(plan, records):
+    """Select observed tasks only from parameter cells with every planned repeat."""
+    complete = {
+        (cell["setting"], cell["repost"])
+        for cell in coverage_by_setting(plan, records) if cell["completed"] == cell["planned"]
+    }
+    return {
+        task["id"] for task in plan["tasks"]
+        if task["id"] in records and (task["setting"], task["metadata"]["HKParams"]["RepostRate"]) in complete
+    }
+
+
+def reference_tables(plan, records):
+    """Expose full reference histories and activity-selected intervention states."""
+    references, selections = [], []
+    if plan["profile"] != "staged":
+        return pd.DataFrame(), pd.DataFrame()
+    for task in plan["tasks"]:
+        if task["id"] not in records:
+            continue
+        metadata = task["metadata"]
+        ids = {
+            "task_id": task["id"], "setting": task["setting"], "sensitivity": task["sensitivity"],
+            "epsilon": metadata["HKParams"]["Tolerance"], "history": metadata["PostRetainCount"],
+            "influence": metadata["HKParams"]["Influence"], "rewiring": metadata["HKParams"]["RewiringRate"],
+            "repost": metadata["HKParams"]["RepostRate"], "replicate": task["replicate"],
+        }
+        record = records[task["id"]]
+        ids["reference_outcome"] = outcome(record["reference"])
+        for point in record["reference"]["endpoints"]:
+            references.append({**ids, "step": point["step"], **point["pathway"], **exposure_columns(point["exposure"])})
+        for stage, block in record["stages"].items():
+            point = block["checkpoint"]
+            exposure = point["exposure"]
+            selections.append({
+                **ids, "stage": stage, "step": point["step"], **point["pathway"],
+                "opinion_shift_per_update": _ratio(exposure["absolute_shift"], exposure["updates"]),
+                "rewires_per_update": _ratio(exposure["rewires"], exposure["updates"]),
+            })
+    return pd.DataFrame(references), pd.DataFrame(selections)
 
 
 def analysis_strata(runs):

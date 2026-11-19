@@ -5,11 +5,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from common.io.json import fingerprint
 from ehk.metrics.homophily import mean_followee_edge_concordance, uniform_concordance_probability
 from ehk.metrics.pathway import first_passage
 from ehk.micro.observables import get_gradation_index_hp
 from experiments.paper.recommendation.analysis import (
-    EFFECTS, contrast_table, coverage_by_setting, exposure_columns, stage_gate, stage_interactions,
+    EFFECTS, EXPOSURE_COUNTS, SLOT_MEASURES, SLOT_SOURCES, completed_cell_task_ids, contrast_table,
+    coverage_by_setting, exposure_columns, stage_gate, stage_interactions, summarize_arm,
 )
 from experiments.paper.recommendation import design as cfg
 from experiments.paper.recommendation.design import generate_tasks, select_stages
@@ -72,19 +74,23 @@ def test_timing_gate_uses_same_seed_stage_contrasts_and_complete_evidence():
 
 def test_design_covers_core_cells_and_paired_single_factor_sensitivities():
     staged, timing, variants = (generate_tasks(name) for name in ("staged", "staged_timing", "recommender_variants"))
-    assert len(staged) == len(variants) == 304 and len(timing) == 240
-    assert cfg.SETTINGS == [(0.01, 0.30), (0.03, 0.10), (0.05, 0.05), (0.10, 0.03), (0.30, 0.01)]
+    assert len(staged) == len(variants) == 496 and len(timing) == 432
+    assert cfg.SETTINGS == [
+        (0.01, 0.30), (0.03, 0.10), (0.05, 0.05), (0.10, 0.03), (0.30, 0.01),
+        (0.01, 0.10), (0.03, 0.30), (0.10, 0.01), (0.30, 0.03),
+    ]
     assert all(task["sensitivity"] == "core" for task in timing)
     for a, b in zip(staged, timing):
         assert a["metadata"]["RNG"] != b["metadata"]["RNG"]
     for tasks in (staged, variants):
         assert len({task["id"] for task in tasks}) == len(tasks)
+        assert [task["replicate"] for task in tasks] == sorted(task["replicate"] for task in tasks)
         cells = {}
         for task in tasks:
             metadata = task["metadata"]
             key = task["setting"], metadata["HKParams"]["RepostRate"]
             cells.setdefault(key, set()).add(task["replicate"])
-        assert len(cells) == 19 and all(replicates == set(range(16)) for replicates in cells.values())
+        assert len(cells) == 31 and all(replicates == set(range(16)) for replicates in cells.values())
         center = {
             task["replicate"]: task["metadata"]["RNG"]
             for task in tasks if task["sensitivity"] == "core"
@@ -94,6 +100,23 @@ def test_design_covers_core_cells_and_paired_single_factor_sensitivities():
         for task in tasks:
             if task["sensitivity"] != "core":
                 assert task["metadata"]["RNG"] == center[task["replicate"]]
+
+
+@pytest.mark.parametrize("study, expected_count, expected_hash", [
+    ("staged", 304, "556698b6805ec4ca177dcb1f6f5a613caef9aa150bfe551c9ee10538a7e1c8d5"),
+    ("staged_timing", 240, "f98a184b8f0ef72a6914c99a0a0298c60b8972e7aec1ce9c54f7a1f1976a9181"),
+    ("recommender_variants", 304, "e6ded01aad20a8c0661f6deef4ea8e0f2a70fdb5f449bfd21233aad46b4e7ded"),
+])
+def test_extension_preserves_every_existing_task_field(study, expected_count, expected_hash):
+    existing_settings = {(0.01, 0.30), (0.03, 0.10), (0.05, 0.05), (0.10, 0.03), (0.30, 0.01)}
+    tasks = generate_tasks(study)
+    existing = [task for task in tasks if (
+        task["metadata"]["HKParams"]["Influence"], task["metadata"]["HKParams"]["RewiringRate"]
+    ) in existing_settings]
+    assert len(existing) == expected_count
+    assert fingerprint(sorted(existing, key=lambda task: task["id"])) == expected_hash
+    seeds = [fingerprint(task["metadata"]["RNG"]) for task in tasks if task["sensitivity"] == "core"]
+    assert len(seeds) == len(set(seeds))
 
 
 def test_contrasts_and_stage_interactions_keep_measurement_settings_separate():
@@ -123,10 +146,41 @@ def test_setting_coverage_keeps_missing_stages_visible():
     tasks = generate_tasks("staged")
     records = {tasks[0]["id"]: {"stages": {"early": {}}}}
     coverage = coverage_by_setting({"profile": "staged", "tasks": tasks}, records)
-    assert len(coverage) == 19 and sum(row["planned"] for row in coverage) == 304
+    assert len(coverage) == 31 and sum(row["planned"] for row in coverage) == 496
     assert sum(row["completed"] for row in coverage) == 1
     assert sum(row["stages"]["early"] for row in coverage) == 1
     assert sum(row["stages"]["late"] for row in coverage) == 0
+
+
+def test_complete_cell_selection_excludes_partially_finished_repeats():
+    tasks = generate_tasks("staged")
+    first = [task for task in tasks if task["setting"] == tasks[0]["setting"]
+             and task["metadata"]["HKParams"]["RepostRate"] == 0 and task["replicate"] < 2]
+    second = [task for task in tasks if task["setting"] == tasks[0]["setting"]
+              and task["metadata"]["HKParams"]["RepostRate"] == 0.1 and task["replicate"] < 2]
+    selected = [*first, *second]
+    records = {task["id"]: {"stages": {}} for task in selected[:3]}
+    assert completed_cell_task_ids({"profile": "staged", "tasks": selected}, records) == {task["id"] for task in first}
+
+
+def test_stage_passage_keeps_reference_order_and_marks_window_censoring():
+    def point(step, separation, excess):
+        exposure = dict.fromkeys(EXPOSURE_COUNTS, 0)
+        exposure.update({source: dict.fromkeys(SLOT_MEASURES, 0) for source in SLOT_SOURCES})
+        return {"step": step, "pathway": {"separation": separation, "excess_concordance": excess,
+                                           "edge_concordance": 0.9, "pair_concordance": 0.7}, "exposure": exposure}
+
+    prefix = [point(0, 0.1, 0), point(16, 0.1, 0.2)]
+    arm = {"endpoints": [point(256, 0.6, 0.2), point(768, 0.7, 0.2)],
+           "final_opinions": [-0.7, -0.7, 0.7, 0.7], "terminal": {"status": "unresolved"}, "raw_record": "raw/test"}
+    arm["endpoints"][-1]["exposure"]["policy"]["cross_confident"] = 3
+    arm["endpoints"][-1]["exposure"]["bridge"]["cross_confident"] = 7
+    result = summarize_arm(arm, iter(prefix))
+    assert result["pathway"] == "SbP"
+    assert (result["segregation_step"], result["separation_step"]) == (16, 256)
+    assert result["window_pathway"] == "left_censored"
+    assert result["window_separation_step"] is None and result["window_segregation_step"] is None
+    assert result["non_exploration_cross_confident"] == 10
 
 
 def test_new_exposure_protocol_requires_actual_counters():
@@ -155,7 +209,8 @@ def test_late_exposure_plot_covers_every_repost_setting(tmp_path, monkeypatch):
     monkeypatch.setattr(plot, "plt_save_and_close", save)
     rows = pd.DataFrame([
         {"stage": "late", "arm": "hold", "epsilon": 0.45, "history": 0, "repost": repost,
-         "updates": 10, "policy_cross_camp": 2, "policy_cross_confident": 1, "policy_cross_rewire": 0}
+         "updates": 10, "non_exploration_cross_camp": 2, "non_exploration_cross_confident": 1, "non_exploration_cross_rewire": 0,
+         "cross_camp": 2, "cross_confident": 1, "cross_rewire": 0}
         for repost in cfg.REPOST_RATES
     ])
     plot.plot_late_exposure(rows, tmp_path)

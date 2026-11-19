@@ -173,10 +173,16 @@ def run_study(study, directory, binary, workers, *, stage_evidence=None):
         def execute():
             state = "complete"
             try:
+                pending = []
+                for task in tasks:
+                    if cached(task):
+                        journal.event(task["id"], "cached")
+                    else:
+                        pending.append(task)
                 adapter = TaskAdapter(
                     lambda task: task["id"], cached, lambda task: run_task(study, binary, directory, task), save
                 )
-                execute_tasks(tasks, adapter, workers=workers, journal=journal, raise_failures=False)
+                execute_tasks(pending, adapter, workers=workers, journal=journal, raise_failures=False)
             except BaseException as error:
                 state = "interrupted" if isinstance(error, KeyboardInterrupt) else "failed"
                 raise
