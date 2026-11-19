@@ -654,7 +654,111 @@ def recommendation(data, output, captions, *, relative=False):
     )
 
 
+def population_series(rows, metric, tau):
+    for idx in (0, 2):
+        recommender, steepness = KERNELS[idx]
+        for rule, ls in zip(RULES, ("-", "--")):
+            series = sorted(
+                (
+                    row
+                    for row in rows
+                    if matches(row, metric=metric, recommender=recommender, steepness=steepness, dynamics=rule, tau=tau)
+                ),
+                key=lambda row: row["population"],
+            )
+            yield [row["population"] for row in series], series, COLORS[idx], ls
+
+
 def population(data, epsilon, output, captions):
+    at = data.plan["analysis_protocol"]["population_horizon_tau"]
+    structure = data.rows("population_structure.csv", epsilon)
+    variation = data.rows("population_variation.csv", epsilon)
+    fig, axes = plt.subplots(2, 3, figsize=(7.1, 3.9), sharex=True, layout="constrained")
+    for ax, metric, title, ylabel, boundary in zip(
+        axes[:, 0],
+        ("opinion_variance", "excess_concordance"),
+        ("Node structure", "Edge structure"),
+        ("Mean opinion variance", "Mean excess concordance"),
+        (1e-4, 0),
+    ):
+        for ns, rows, color, ls in population_series(structure, metric, at):
+            means = [row["mean"] for row in rows]
+            predictions = [row["mean"] - row["signed_bias"] for row in rows]
+            ax.fill_between(ns, [row["lower"] for row in rows], [row["upper"] for row in rows], color=color, alpha=0.10)
+            ax.plot(ns, predictions, "s" + ls, color=color, mfc="white", ms=6.5, lw=0.85)
+            ax.plot(ns, means, "o" + ls, color=color, ms=5, zorder=3)
+        ax.axhline(boundary, color=".35", ls=":", lw=1.2)
+        ax.set(title=title, ylabel=ylabel)
+
+    residual = "conditional_bias_squared_corrected"
+    axes[1, 2].sharey(axes[0, 2])
+    axes[0, 2].yaxis.set_major_locator(MaxNLocator(nbins=5, integer=True))
+    for error_ax, ratio_ax, metric, title in zip(
+        axes[:, 1], axes[:, 2], ("node_cdf", "edge_cdf"), ("Node CDF", "Joint edge CDF")
+    ):
+        for ns, rows, color, ls in population_series(variation, metric, at):
+            errors = [row[residual] for row in rows]
+            ratios = [
+                row[residual] / row["process_variance"] if row["process_variance"] > 0 else np.nan for row in rows
+            ]
+            error_ax.plot(ns, errors, "o" + ls, color=color, ms=5)
+            error_ax.fill_between(
+                ns,
+                [row[residual + "_loio_min"] for row in rows],
+                [row[residual + "_loio_max"] for row in rows],
+                color=color,
+                alpha=0.10,
+            )
+            ratio_ax.plot(ns, ratios, "o" + ls, color=color, ms=5)
+        error_ax.axhline(0, color=".65", lw=0.65)
+        error_ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
+        error_ax.ticklabel_format(axis="y", style="sci", scilimits=(-3, 3))
+        error_ax.set(title=title, ylabel=r"$\widehat{\mathrm{Err}}_{\rm mean}$")
+        ratio_ax.set(title="Relative residual", ylabel=r"$\widehat{\mathrm{Err}}_{\rm mean}/W$")
+
+    ns = sorted({row["population"] for row in structure})
+    for ax in axes[:, 2]:
+        reference_line = ax.axhline(
+            1, color=".35", ls=(0, (4, 3)), lw=1.2, zorder=1, label=r"Error equals process variance $W$"
+        )
+    for ax in axes.flat:
+        ax.set_xscale("log", base=2)
+        ax.set_xticks(ns, [f"{n:g}" for n in ns])
+    for ax in axes[1]:
+        ax.set_xlabel(r"Population $N$")
+    axes[0, 2].set_ylim(bottom=min(0, axes[0, 2].get_ylim()[0]))
+    decorate(axes)
+    conditions = condition_legend()
+    fig.legend(
+        handles=[
+            conditions[0],
+            Line2D([], [], color=".25", marker="o", ls="none", ms=5, label="Microscopic mean"),
+            conditions[1],
+            Line2D([], [], color=".25", marker="s", mfc="white", ls="none", ms=6.5, label="Matched map mean"),
+            conditions[2],
+            reference_line,
+            conditions[3],
+        ],
+        loc="outside lower center",
+        ncol=4,
+        frameon=False,
+    )
+    caption = (
+        f"Figure 5. Matched comparisons across population sizes at epsilon={epsilon:g}, r=2 and tau={at:g}. "
+        "Rows show node and edge responses; columns show collective structure, corrected CDF residuals, "
+        "and residuals divided by process variance W. Panels a,d show microscopic and matched map ensemble "
+        "means from the same initial states. Dotted lines mark the near-consensus boundary at variance "
+        "1e-4 in a and the independent-pairing reference at zero excess concordance in d. Shading gives "
+        "exploratory 95% whole-initial-group bootstrap intervals for the microscopic means. Panels b,e show "
+        "the corrected squared conditional-mean residual for node and joint-edge CDFs, with "
+        "leave-one-initial-out sensitivity ranges. Panels c,f divide "
+        "each residual by the corresponding within-initial-state process variance W. The dashed line at 1 marks "
+        "equality with W. Ratios require positive W. All process outcomes contribute to the estimates."
+    )
+    finish(fig, output, "figure_5_population", caption, captions)
+
+
+def supplementary_population(data, epsilon, output, captions):
     structure = data.rows("population_structure.csv", epsilon)
     variation = data.rows("population_variation.csv", epsilon)
     at = data.plan["analysis_protocol"]["population_horizon_tau"]
@@ -696,26 +800,9 @@ def population(data, epsilon, output, captions):
     ]
     fig, axes = plt.subplots(3, 2, figsize=(7.1, 5.35), layout="constrained")
     for ax, (source, metric, point, low, high, label) in zip(axes.flat, panels):
-        for idx in (0, 2):
-            for rule, ls in zip(RULES, ("-", "--")):
-                rs = sorted(
-                    [
-                        r
-                        for r in source
-                        if matches(
-                            r,
-                            metric=metric,
-                            recommender=KERNELS[idx][0],
-                            steepness=KERNELS[idx][1],
-                            dynamics=rule,
-                            tau=at,
-                        )
-                    ],
-                    key=lambda r: r["population"],
-                )
-                ns = [r["population"] for r in rs]
-                ax.plot(ns, [r[point] for r in rs], "o" + ls, color=COLORS[idx], ms=4)
-                ax.fill_between(ns, [r[low] for r in rs], [r[high] for r in rs], color=COLORS[idx], alpha=0.10)
+        for ns, rs, color, ls in population_series(source, metric, at):
+            ax.plot(ns, [r[point] for r in rs], "o" + ls, color=color, ms=4)
+            ax.fill_between(ns, [r[low] for r in rs], [r[high] for r in rs], color=color, alpha=0.10)
         ns = sorted({r["population"] for r in source})
         ax.set_xscale("log", base=2)
         ax.set_xticks(ns, [f"{n:g}" for n in ns])
@@ -1002,7 +1089,8 @@ def plot(directory, output=None, *, network_dir=None, intuition_graph=None):
             for variant in ("v1", "v2"):
                 matched(data, epsilon, destination, captions, variant=variant)
         if "population" in selected:
-            population(data, epsilon, destination, captions)
+            render_population = population if epsilon == baseline else supplementary_population
+            render_population(data, epsilon, destination, captions)
         supplement = destination if epsilon != baseline else output / "supplementary"
         supplement.mkdir(exist_ok=True)
         supplementary(data, epsilon, supplement, captions, selected)

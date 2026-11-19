@@ -77,9 +77,11 @@ generic frozen-vector styling utility do not regenerate those figures.
 
 ## Retained and removed designs
 
-The proposal retains historical evidence in `revision_validation.tex` and
-`channel_diagnostics.tex`. The completed 762-job validation and 346-job follow-up
-batches are defined by their own authenticated frozen plans. Historical generation
+The current manuscript's energy-accounting and fixed-ensemble grid audits use
+epsilon=.2/.4/.8 through `evidence/energy_audit.py` and `evidence/grid_audit.py`.
+Their plans and raw records are separate from the original main batch. Historical
+762-job validation and 346-job follow-up batches remain defined by their own
+authenticated frozen plans. Historical generation
 modules and their separate executor have been removed. `theory.runtime.historical`
 validates their saved job/build identities and reads gzip records without rewriting
 them; `paper_theory.historical` and the manuscript report modules assemble the
@@ -101,6 +103,36 @@ settings are unchanged; the selected roles and aggregate plan fingerprints
 change. **Use a new run directory for the revised design.** Offline analysis
 and plotting still read the original frozen 1884-task dataset and its saved
 protocol, without regenerating a plan or rewriting raw records.
+
+## Energy accounting and fixed-ensemble grid audits
+
+The two audit modules have independent resumable run directories. The energy
+audit replays 90 source-identified uniform/random-mixing measure trajectories:
+three confidence radii, both update rules, five recommendation laws and
+r=.25/2/10. It records every physical opportunity through tau=30, including
+the pre-transport replacement and endpoint-motion energy budgets. It also
+reads the original long-window conservation diagnostics as a separate cohort.
+
+The grid audit runs HK Random at r=10, N=500, using four physical initial
+states and 16 process branches per state at each confidence radius. Three
+conditional map predictions (B=81/161/241, Q=33) share each initial state and
+the same microscopic ensemble. Initial hashes are verified across grids.
+Endpoint W1 is evaluated after conservative projection to the common 81-bin
+comparison grid; bootstrap intervals condition on each initial state.
+
+Both defaults use epsilon=.2/.4/.8, alpha=.02, dt=1, degree=15,
+recommendations=10 and no background diffusion. New audit records do not
+extend or change the frozen 1884-task batch.
+
+```sh
+python -m experiments.paper_theory.evidence.energy_audit --source-bundle "$ANALYSIS_BUNDLE" --run-dir "$ENERGY_AUDIT_RUN" --meso-root "$MESO_ROOT" --micro-root "$MICRO_ROOT" --workers 2
+python -m experiments.paper_theory.evidence.energy_audit --source-bundle "$ANALYSIS_BUNDLE" --run-dir "$ENERGY_AUDIT_RUN" --meso-root "$MESO_ROOT" --micro-root "$MICRO_ROOT" --report-only
+python -m experiments.paper_theory.evidence.grid_audit run --directory "$GRID_AUDIT_RUN" --workers 2
+python -m experiments.paper_theory.evidence.grid_audit analyze --directory "$GRID_AUDIT_RUN"
+```
+
+Keep bulk records under model `outputs/`. The manuscript publishes the compact
+audit summaries and provenance in `artifacts/theory_audits_20261119/`.
 
 ## Retained energy-curve fitting and single-slot plots
 
@@ -285,7 +317,13 @@ the common observed interval and are not confidence bands. Figure 4 uses a 2-by-
 grid and retains both original log ratios and a second Random-baseline version:
 the original equal-area line is transformed to minus the Random log ratio. The
 paper uses the Random-relative version; the original coordinates remain supplemental.
-Figure 5 contains structure means and the node/joint-edge CDF W/I comparisons.
+Figure 5 uses a 2-by-3 grid (7.1 by 3.9 inches): rows are node and edge
+responses; columns contain matched structure means, corrected conditional-mean
+CDF residuals, and those residuals divided by process variance W. Structure
+intervals use whole-initial-group bootstrap estimates, and residual shading shows
+leave-one-initial-out ranges. The structure boundaries and the ratio reference
+at 1 are explained in the caption. Other-confidence population figures retain
+their separate structure and W/I summaries.
 
 All newly rendered panels use a manuscript-width canvas (7.1 inches) with
 consistent 8-point axis/panel titles, 7-point ticks and 7-point legends. Other
