@@ -5,11 +5,10 @@ import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import networkx as nx  # type: ignore[import-untyped]
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection, PathCollection
-from matplotlib.colors import PowerNorm, to_rgba
+from matplotlib.colors import to_rgba
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import MaxNLocator, NullFormatter
@@ -18,12 +17,12 @@ from common.io.json import atomic_json, sha
 from common.plotting import setup_paper_params
 from common.plotting.figures import save
 from common.runtime.failures import ProtocolError
-from ehk.plotting import plot_network_snapshot
 
 from .bundle import Bundle, csv_rows
 from .design import is_smoke, topics
 from .figure_style import COLORS, LABELS, RULES, matches
 from .protocol import KERNELS
+from .selected_figures import render as render_selected
 
 
 class Analysis:
@@ -164,56 +163,100 @@ def time_axis(ax, maximum=480):
     ax.set(xlim=(0, maximum), xlabel=r"Scaled time $\tau$")
 
 
-def event_network(ax):
-    """Illustrative event, rendered by the same snapshot utility as the EHK paper."""
-    opinions = np.array([-0.65, -0.55, -0.48, -0.42, -0.35, 0.35, 0.45, 0.55, 0.65])
-    graph = nx.Graph([(0, 1), (1, 2), (2, 3), (3, 4), (4, 0), (0, 2), (5, 6), (6, 7), (7, 8), (8, 5), (5, 7), (2, 6)])
-    pos = nx.spring_layout(graph, seed=42, iterations=100)
-    plot_network_snapshot(pos, opinions, graph, ax=ax, colorbar=False, node_size=25, alpha=0.26, rasterized=False)
-    # A discordant followee is replaced by a concordant recommendation.
-    nx.draw_networkx_edges(graph, pos, edgelist=[(2, 6)], ax=ax, edge_color="#bd4e19", style="dashed", width=1.4)
-    nx.draw_networkx_edges(graph, pos, edgelist=[(2, 4)], ax=ax, edge_color="#166da8", style="dotted", width=1.8)
-    for node, label in ((2, "i"), (6, "j"), (4, "k")):
-        ax.annotate(label, pos[node], xytext=(3, 5), textcoords="offset points", fontsize=7)
-    start = np.asarray(pos[2])
-    end = start + 0.22 * (np.asarray(pos[4]) - start)
-    ax.annotate("", xy=end, xytext=start, arrowprops=dict(arrowstyle="->", color="black", lw=1.2))
-    ax.set_title("Event network")
+def exposure_event(ax):
+    """Schematic finite list; coordinates are not observed opinions or rates."""
+    ax.set(xlim=(-0.02, 1.43), ylim=(0, 1), title="One exposure event")
+    positions = {"i": (0.12, 0.56), "f": (0.69, 0.84), "k": (0.69, 0.54), "j": (0.69, 0.25)}
+    for target, color, style in (("f", COLORS[2], "-"), ("k", COLORS[2], ":"), ("j", COLORS[4], "--")):
+        ax.annotate("", xy=positions[target], xytext=positions["i"],
+                    arrowprops={"arrowstyle": "->", "color": color, "linestyle": style, "lw": 0.9,
+                                "shrinkA": 7, "shrinkB": 7})
+    for node, point in positions.items():
+        ax.plot(*point, "o", color=COLORS[2] if node != "j" else COLORS[4], ms=5)
+    ax.text(-0.01, 0.37, r"Receiver $x$", fontsize=6.5)
+    ax.text(0.76, 0.84, "Accepted followee\n" + r"$x+\delta$, $0<|\delta|\leq\epsilon$", va="center", fontsize=6.5)
+    ax.text(0.76, 0.54, "Recommendation\n" + r"at $x$", va="center", fontsize=6.5)
+    ax.text(0.76, 0.25, r"Followee $y$" + "\n" + r"$|y-x|>\epsilon$", va="center", fontsize=6.5)
+    ax.text(0.0, 0.03, "Zero added displacement;\nan eligible replacement", fontsize=7)
     ax.set_axis_off()
-    ax.set_box_aspect(1)
 
 
-def restructured_network(ax, snapshot):
-    """Actual post-rewiring graph from a separately declared SMP snapshot task."""
-    nodes, edges, _ = snapshot
-    graph = nx.DiGraph()
-    graph.add_nodes_from(node for node, _ in nodes)
-    graph.add_edges_from(edges)
-    # Omit arrowheads at manuscript size; retain all adjacency in the source CSV.
-    display = graph.to_undirected()
-    pos = nx.spring_layout(display, seed=42, iterations=150)
-    plot_network_snapshot(
-        pos,
-        np.array([opinion for _, opinion in nodes]),
-        display,
-        ax=ax,
-        colorbar=False,
-        node_size=3,
-        alpha=0.10,
-        rasterized=False,
-    )
-    for collection in ax.collections:
-        collection.set_rasterized(True)
-        if isinstance(collection, LineCollection):
-            collection.set_linewidth(0.2)
-        elif isinstance(collection, PathCollection):
-            collection.set_linewidth(0)
-    ax.set_title("Restructured")
-    ax.set_axis_off()
-    ax.set_box_aspect(1)
+def edge_gap_distribution(rows):
+    """Push normalized edge-cell masses onto source-minus-target bin centres.
+
+    The input mass is e=E/kbar, already normalized to one. This projection
+    retains opinion gaps but does not reconstruct the full joint edge measure.
+    """
+    curves, checks = {}, {}
+    for source in ("micro", "pair"):
+        selected = [row for row in rows if row["source"] == source]
+        if not selected:
+            raise ValueError(f"missing edge-gap source: {source}")
+        bins = int(selected[0]["bins"])
+        if len(selected) != bins * bins or any(int(row["bins"]) != bins for row in selected):
+            raise ValueError("edge-gap projection requires one complete shared-grid snapshot per source")
+        width = 2.0 / bins
+        centres = np.arange(1 - bins, bins) * width
+        borders = np.r_[centres - width / 2, centres[-1] + width / 2]
+        mass = np.zeros(2 * bins - 1)
+        maximum_coordinate_error = 0.0
+        energy_joint = 0.0
+        epsilon = selected[0]["epsilon"]
+        for row in selected:
+            index = int(row["i"]) - int(row["j"]) + bins - 1
+            difference = row["x"] - row["y"]
+            maximum_coordinate_error = max(maximum_coordinate_error, abs(difference - centres[index]))
+            if not np.isfinite(row["mass"]) or row["mass"] < -1e-14:
+                raise ValueError("edge-cell masses must be finite and nonnegative")
+            mass[index] += row["mass"]
+            energy_joint += row["mass"] * min(difference * difference, epsilon * epsilon) / 2
+        if not np.isclose(mass.sum(), 1.0, rtol=0, atol=1e-10) or maximum_coordinate_error > 1e-12:
+            raise ValueError("edge-gap projection changed normalization or source-minus-target coordinates")
+        energy_gap = float(mass @ (np.minimum(centres * centres, epsilon * epsilon) / 2))
+        if abs(energy_joint - energy_gap) > 1e-12:
+            raise ValueError("edge-gap projection changed the binned truncated edge energy")
+        density = mass / width
+        curves[source] = (centres, borders, mass, density)
+        checks[source] = {
+            "mass": float(mass.sum()), "density_integral": float(density.sum() * width),
+            "gap_bin_width": width, "gap_bins": len(mass), "endpoint_bins": bins,
+            "source_minus_target_maximum_error": maximum_coordinate_error,
+            "binned_truncated_energy_projection_error": abs(energy_joint - energy_gap),
+            "concordant_mass": float(mass[np.abs(centres) <= epsilon].sum()),
+            "same_bin_mass": float(mass[bins - 1]),
+        }
+    return curves, checks
 
 
-def intuition(data, epsilon, output, captions, snapshot=None):
+def draw_edge_gap(ax, curves, epsilon):
+    """Full opinion-gap support with a linear, same-density-scale central zoom."""
+    inset = ax.inset_axes([0.59, 0.42, 0.40, 0.54])
+    for source, color, style in (("micro", ".25", "-"), ("pair", COLORS[2], "--")):
+        _, borders, _, density = curves[source]
+        for target in (ax, inset):
+            target.stairs(density, borders, color=color, ls=style, lw=0.85)
+    for boundary in (-epsilon, epsilon):
+        ax.axvline(boundary, color=COLORS[4], ls=":", lw=0.65, zorder=0)
+    maximum = max(float(curve[3].max()) for curve in curves.values()) * 1.10
+    ax.set(title="Edge-gap snapshot", xlabel=r"Gap $s=x-y$", ylabel=r"Binned $\gamma(s)$",
+           xlim=(-2, 2), ylim=(0, maximum), xticks=(-2, 0, 2))
+    ax.yaxis.set_major_locator(MaxNLocator(4))
+    ax.text(-epsilon - 0.04, maximum * 0.13, r"$-\epsilon$", color=COLORS[4], ha="right", fontsize=6)
+    ax.text(epsilon + 0.04, maximum * 0.13, r"$\epsilon$", color=COLORS[4], ha="left", fontsize=6)
+    inset.set(xlim=(-0.075, 0.075), ylim=(0, maximum), xticks=(-0.05, 0, 0.05), yticks=())
+    inset.set_xticklabels(("−.05", "0", ".05"))
+    inset.tick_params(labelsize=5, length=1.5, pad=1)
+    inset.set_title("Zoom near zero", fontsize=5.5, pad=2)
+    inset.set_facecolor("white")
+    inset.grid(False)
+    for spine in inset.spines.values():
+        spine.set_visible(True)
+        spine.set_color(".55")
+        spine.set_linewidth(0.45)
+    return inset
+
+
+def intuition(data, epsilon, output, captions):
     nodes = data.rows("representative_nodes.csv", epsilon)
     edges = data.rows("representative_edges.csv.gz", epsilon)
     response = data.rows("representative_response.csv", epsilon)
@@ -223,53 +266,28 @@ def intuition(data, epsilon, output, captions, snapshot=None):
     processes = int(info["processes"])
     microscopic = "one microscopic process" if processes == 1 else f"{processes} microscopic processes"
     horizon = max(r["tau"] for r in response)
-    fig, axes = plt.subplots(1, 5, figsize=(7.1, 1.95), layout="constrained")
-    if snapshot is None:
-        event_network(axes[0])
-    else:
-        restructured_network(axes[0], snapshot)
-    for source, color, ls in (("micro", ".2", "-"), ("pair", COLORS[2], "--")):
+    fig, axes = plt.subplots(1, 4, figsize=(7.1, 2.35),
+                             gridspec_kw={"width_ratios": (1.4, 1.0, 1.15, 1.15)}, layout="constrained")
+    exposure_event(axes[0])
+    for source, color, ls in (("micro", ".25", "-"), ("pair", COLORS[2], "--")):
         rs = sorted([r for r in nodes if r["source"] == source], key=lambda r: r["bin"])
-        axes[1].plot([r["x"] for r in rs], [r["density"] for r in rs], color=color, ls=ls, lw=1.1)
-    axes[1].set(xlabel=r"Opinion $x$", ylabel=r"$\rho(x)$", title="Node snapshot", xticks=[-1, 0, 1])
-    matrices = []
-    for source in ("micro", "pair"):
-        rs = [r for r in edges if r["source"] == source]
-        bins = int(rs[0]["bins"])
-        matrix = np.zeros((bins, bins))
-        for r in rs:
-            matrix[int(r["i"]), int(r["j"])] = r["density"]
-        matrices.append(matrix)
-    norm = PowerNorm(gamma=0.25, vmin=0, vmax=max(float(np.max(m)) for m in matrices))
-    for ax, matrix, title in zip(axes[2:4], matrices, ("Microscopic $e$", "Measure-map $e$")):
-        heat = ax.imshow(
-            matrix.T,
-            origin="lower",
-            extent=(-1, 1, -1, 1),
-            cmap="magma",
-            norm=norm,
-            interpolation="nearest",
-            rasterized=True,
-        )
-        ax.set(xlabel=r"Source $x$", ylabel=r"Target $y$", xticks=[-1, 0, 1], yticks=[-1, 0, 1], title=title)
-        ax.grid(False)
-    # A thin inset scale keeps the two heatmaps square at full manuscript width.
-    bar = axes[3].inset_axes([1.04, 0, 0.035, 1])
-    fig.colorbar(heat, cax=bar, ticks=[0, 10, 100, 1000])
-    bar.tick_params(labelsize=6, length=1.5, pad=1)
+        width = 2 / int(rs[0]["bins"])
+        borders = np.r_[[r["x"] - width / 2 for r in rs], rs[-1]["x"] + width / 2]
+        axes[1].stairs([r["density"] for r in rs], borders, color=color, ls=ls)
+    axes[1].set(xlabel=r"Opinion $x$", ylabel=r"Binned $\rho(x)$", title="Node snapshot",
+                xlim=(-1, 1), xticks=(-1, 0, 1))
+    axes[1].yaxis.set_major_locator(MaxNLocator(4))
+    gap_curves, _ = edge_gap_distribution(edges)
+    draw_edge_gap(axes[2], gap_curves, epsilon)
     for channel, color in (("node", COLORS[2]), ("edge", COLORS[4])):
         for source, ls in (("micro", "-"), ("pair", "--")):
-            rs = sorted(
-                [r for r in response if r["source"] == source and r["channel"] == channel], key=lambda r: r["tau"]
-            )
-            axes[4].plot([r["tau"] for r in rs], [r["remaining"] for r in rs], color=color, ls=ls, lw=1.05)
-    time_axis(axes[4], horizon)
-    axes[4].set(ylim=(-0.05, 1.05), ylabel=r"$S_X(\tau/\alpha;c_X^{\rm ref})$", title="Energy release")
-    for ax in axes[1:]:
-        ax.set_box_aspect(1)
+            rs = sorted([r for r in response if r["source"] == source and r["channel"] == channel],
+                        key=lambda r: r["tau"])
+            axes[3].plot([r["tau"] for r in rs], [r["remaining"] for r in rs], color=color, ls=ls, lw=1.05)
+    time_axis(axes[3], horizon)
+    axes[3].set(ylim=(-0.05, 1.05), ylabel=r"$S_X(\tau/\alpha;c_X^{\rm ref})$", title="Energy response")
     decorate(axes)
-    for ax in axes[2:4]:
-        ax.grid(False)
+    axes[0].grid(False)
     handles = [
         Line2D([], [], color=".2", label="Microscopic", lw=1.2),
         Line2D([], [], color=".2", ls="--", label="Measure map", lw=1.2),
@@ -278,27 +296,20 @@ def intuition(data, epsilon, output, captions, snapshot=None):
     ]
     fig.legend(handles=handles, loc="outside lower center", ncol=4, frameon=False)
     caption = (
-        f"Figure 1. (a) Illustrative event network, drawn with the EHK snapshot tool: i follows discordant j "
-        "(orange dashed edge); a concordant recommended k offers replacement (blue dotted edge), and the arrow "
-        "illustrates opinion motion. This schematic is not a reconstructed graph or measured rate. "
-        f"(b-d) HK Opinion4, epsilon={epsilon:g}, N={info['population']:g}, initial 0, tau={info['tau']:g}; "
-        f"binned densities of the node measure and e=E/k̄ use {microscopic} and its matched prediction. "
-        "Edge densities share a fourth-root color scale. (e) Four remaining-energy curves from that same ensemble and prediction, "
+        "Figure 1. (a) Schematic finite-exposure event: a recommendation at the receiver's opinion adds no "
+        "displacement but enters the concordant count and can replace a discordant followee. Schematic coordinates "
+        "are not measured opinions or rates. "
+        f"(b,c) HK Opinion4, epsilon={epsilon:g}, N={info['population']:g}, initial 0, tau={info['tau']:g}; "
+        f"binned node and normalized edge-gap distributions use {microscopic} and its matched measure map. "
+        "The edge gap is source minus target, s=x-y, projected from e=E/kbar on existing endpoint-bin centres; "
+        "the full range is [-2,2] with guides at +/-epsilon and an inset spanning [-.075,.075]. "
+        "This one-dimensional projection does not retain the full joint edge measure. "
+        "(d) Four remaining-energy curves from the same processes and prediction, "
         f"using each raw curve's own final-10% median on tau<={horizon:g}; signed residuals are retained. "
+        "Solid: microscopic; dashed: measure map. Blue/orange energy curves: node/edge. "
         "Parameters: alpha=.02, q=.04, degree=15, recommended list=10, recommendation tolerance=.4, "
         "steepness=4, dt=1, D0=0, B=161, 33-point HK quadrature."
     )
-    if snapshot is not None:
-        metadata = snapshot[2]
-        caption = caption.replace(
-            "(a) Illustrative event network, drawn with the EHK snapshot tool: i follows discordant j "
-            "(orange dashed edge); a concordant recommended k offers replacement (blue dotted edge), and the arrow "
-            "illustrates opinion motion. This schematic is not a reconstructed graph or measured rate.",
-            f"(a) Actual restructured network at tau={metadata['tau']:g}, from an independent full-state SMP "
-            "snapshot task with the same HK Opinion4 parameters, initial seed 17000 and process seed 24000. "
-            "Node colors encode opinions from blue (-1) to red (+1); arrowheads are omitted. "
-            f"The remaining panels use {microscopic} and its matched measure-map prediction.",
-        )
     finish(fig, output, "figure_1_intuition", caption, captions)
 
 
@@ -734,7 +745,7 @@ def population(data, epsilon, output, captions):
             conditions[0],
             Line2D([], [], color=".25", marker="o", ls="none", ms=5, label="Microscopic mean"),
             conditions[1],
-            Line2D([], [], color=".25", marker="s", mfc="white", ls="none", ms=6.5, label="Matched map mean"),
+            Line2D([], [], color=".25", marker="s", mfc="white", ls="none", ms=6.5, label="Matched measure map mean"),
             conditions[2],
             reference_line,
             conditions[3],
@@ -1030,14 +1041,11 @@ def plot(directory, output=None, *, network_dir=None, intuition_graph=None):
     graph_mode = intuition_graph or ("restructured" if network_dir else "event")
     snapshot = None
     if graph_mode == "restructured":
-        from .network_snapshot import read_export
-
         if network_dir is None:
-            raise ValueError("restructured graph requires --network-dir from the network_snapshot task")
-        snapshot = read_export(network_dir)
-        if (Path(network_dir) / "analysis_manifest.json").exists():
-            intuition_data = Analysis(network_dir)
-        p = snapshot[2]["task"]["parameters"]
+            raise ValueError("snapshot field selection requires --network-dir from the network_snapshot task")
+        snapshot = json.loads((Path(network_dir) / "network_manifest.json").read_text())
+        intuition_data = Analysis(network_dir)
+        p = snapshot["task"]["parameters"]
         protocol = data.plan["analysis_protocol"]
         if (
             not matches(
@@ -1050,7 +1058,7 @@ def plot(directory, output=None, *, network_dir=None, intuition_graph=None):
                 alpha=protocol["baseline_alpha"],
                 ratio=protocol["population_ratio"],
             )
-            or snapshot[2]["tau"] != protocol["main_snapshot_tau"]
+            or snapshot["tau"] != protocol["main_snapshot_tau"]
         ):
             raise ProtocolError("network snapshot parameters/time do not match the baseline intuition fields")
     output = Path(output).resolve() if output else data.root / "figures"
@@ -1083,7 +1091,6 @@ def plot(directory, output=None, *, network_dir=None, intuition_graph=None):
                 epsilon,
                 destination,
                 captions,
-                snapshot if epsilon == baseline else None,
             )
         if "matched" in selected:
             for variant in ("v1", "v2"):
@@ -1103,8 +1110,24 @@ def plot(directory, output=None, *, network_dir=None, intuition_graph=None):
         absolute_areas(data, output / "supplementary", captions)
         recommendation(data, output, captions)
         recommendation(data, output, captions, relative=True)
+    selected_layouts = {}
+    # These layouts document the frozen manuscript cohort; other profiles retain their own panels.
+    if data.plan["plan_fingerprint"] == "7601b36253f6510e794abd24bfdabee9f19af00b2ae08829f31e30efecaf2cef":
+        selected_names = ("conditional_means.csv", "matched_curves.csv", "population_structure.csv",
+                          "population_variation.csv", "population_outcomes.csv", "micro_branches.csv")
+        selected_tables = {name: data.rows(name, None) for name in selected_names}
+        selected_layouts.update(render_selected(selected_tables, output, include={"figure_2_matched_v1"}))
+        supplement = output / "supplementary"
+        selected_layouts.update(render_selected(selected_tables, supplement,
+                                                include={"supp_response_factors", "supp_structure", "supp_variability"}))
+        for name, metadata in selected_layouts.items():
+            destination = output if name == "figure_2_matched_v1" else supplement
+            caption = metadata["caption"]
+            (destination / (name + ".txt")).write_text(caption + "\n")
+            captions[str(destination / name)] = caption
     manifest = {
         "schema": 1,
+        "selected_manuscript_layouts": selected_layouts,
         "plan_fingerprint": data.plan["plan_fingerprint"],
         "profile": data.plan["profile"],
         "display_style": {
@@ -1112,10 +1135,11 @@ def plot(directory, output=None, *, network_dir=None, intuition_graph=None):
             "filled_marker_radius": 0.55,
             "hollow_marker_radius": 0.65,
             "frame_tick_strokes": 0.75,
-            "figure_1_network_panel": "excluded from stroke scaling",
+            "figure_1_exposure_panel": "excluded from stroke scaling",
         },
-        "intuition_graph": graph_mode,
-        "network_snapshot": {"manifest_sha256": sha(Path(network_dir) / "network_manifest.json"), **snapshot[2]}
+        "intuition_panel": "finite-exposure schematic",
+        "intuition_field_source": "network_snapshot" if snapshot else "main_analysis",
+        "network_snapshot": {"manifest_sha256": sha(Path(network_dir) / "network_manifest.json"), **snapshot}
         if snapshot
         else None,
         "figure_1_inputs": {
@@ -1132,9 +1156,9 @@ def plot(directory, output=None, *, network_dir=None, intuition_graph=None):
             for path in (
                 Path(__file__),
                 Path(__file__).with_name("figure_style.py"),
+                Path(__file__).with_name("selected_figures.py"),
                 Path(inspect.getfile(setup_paper_params)),
                 Path(inspect.getfile(save)),
-                Path(inspect.getfile(plot_network_snapshot)),
                 Path(__file__).with_name("network_snapshot.py"),
             )
         },

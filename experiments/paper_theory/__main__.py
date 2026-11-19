@@ -20,11 +20,11 @@ def parser():
     p.add_argument("--work-dir", type=Path, help="new bulk run directory")
     p.add_argument("--publish-dir", type=Path)
     p.add_argument("--output-dir", type=Path, help="local analysis bundle or figure destination")
-    p.add_argument("--network-dir", type=Path, help="portable network_snapshot analysis export for Figure 1(a)")
+    p.add_argument("--network-dir", type=Path, help="portable matched-snapshot analysis export for Figure 1(b-d)")
     p.add_argument(
         "--intuition-graph",
         choices=("restructured", "event"),
-        help="network panel; defaults to restructured when --network-dir is supplied",
+        help="legacy field-source selector: restructured uses --network-dir, event uses the main analysis; panel (a) is always a schematic",
     )
     p.add_argument("--control-dir", type=Path, help="persistent local APFS control/spool directory")
     p.add_argument("--model-root", type=Path, default=Path(__file__).resolve().parents[2])

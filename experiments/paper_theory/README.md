@@ -300,14 +300,28 @@ derived blocks from CSV when the raw volume is absent. Complete cache blocks sur
 later analysis failures; partial blocks are never reused. Cache hit/compute counts
 are recorded in `analysis_manifest.json`. `analysis_cache/` is optional for plotting.
 
-The unified renderer in `evidence/figures.py` owns the five main figures; previous
-main-figure layouts and the competing paper-repository renderer are removed.
-Figure 1 uses five square panels. The independent `network_snapshot` task runs
-one microscopic realization and its matched measure-map prediction, saves full
-SMP checkpoints, and produces the entire figure from the same initial state.
-The network panel reuses the EHK snapshot utility; it shows actual adjacency
-with arrowheads omitted, rather than a graph sampled from distribution fields.
-The original event schematic remains available through `--intuition-graph event`.
+The canonical renderer in `evidence/figures.py` owns the model-repository figure
+family. The manuscript revision also bundles a renderer of its selected layouts
+using the same frozen CSV inputs. Figure 1 uses four panels: finite-exposure
+schematic, node distribution, signed edge opinion-gap distribution, and energy
+histories. The independent `network_snapshot` task supplies one microscopic
+realization and its matched measure map from the same initial state. The network
+thumbnail is removed. The gap is source minus target, s=x-y, projected from the
+already normalized edge-cell masses e=E/kbar, with no smoothing or renormalization.
+The axis spans [-2,2], dotted guides mark +/-epsilon, and a central inset spans
+[-.075,.075] on the same density scale. The projection preserves gap observables
+but does not retain the full joint edge measure. `--network-dir` selects the
+matched snapshot tables; `--intuition-graph` remains a legacy field-source selector
+and panel (a) is always the exposure schematic.
+For the frozen manuscript plan, `evidence/selected_figures.py` also produces the
+selected supplementary figures `supp_response_factors` (4 panels),
+`supp_structure` (3 panels), and `supp_variability` (6 panels), and replaces the
+matched main-figure layout with a compact 7.1-by-4.7-inch canvas. The selected
+helper is byte-identical to the manuscript bundle's copy. It reads only validated
+frozen CSV tables: area errors use microscopic denominators, the outcome panel
+retains all processes in every initial-state group containing a near-consensus
+outcome, and variation panels retain signed corrections and LOIO ranges. It adds
+no simulation, bootstrap resampling, fitted curve or confidence interval.
 Figure 2 uses a 2-by-4 outer
 grid, with two spanning area panels; its legend explains filled HK and hollow
 Deffuant markers. Figure 3 uses a 2-by-4 grid across all three confidence radii:
@@ -355,8 +369,8 @@ aggregate, so existing frozen plans and their task counts remain unchanged. Its
 single HK Opinion4 task uses N=500, epsilon=.4, alpha=.02, q=.04, degree=15,
 recommendation count=10, tolerance=.4, steepness=4, initial seed=17000 and process
 seed=24000. The map starts from that exact empirical initial state (B=161,
-33-point quadrature). The observation window is tau<=120, with the network and
-field panels at tau=24. Checkpoints include identities, directed adjacency,
+33-point quadrature). The observation window is tau<=120, with the node and edge-gap
+snapshots at tau=24. Checkpoints include identities, directed adjacency,
 float64 opinions, posts, recommender state and RNG streams. Native SMP array
 encoding is preserved in checkpoints; the compact transport codec stays separate.
 
@@ -368,8 +382,6 @@ python -m experiments.paper_theory run --profile network_snapshot
 python -m experiments.paper_theory run --profile network_snapshot --work-dir /local/snapshot-run --output-dir /local/snapshot-csv
 # Reuse authenticated results and redraw the whole Figure 1, without a solver.
 python -m experiments.paper_theory plot --profile network_snapshot --run-dir /local/snapshot-run --output-dir /local/figures
-# Preserve the former event schematic as an alternate first panel.
-python -m experiments.paper_theory plot --profile network_snapshot --run-dir /local/snapshot-run --intuition-graph event --output-dir /local/event-figures
 # Integrate the complete new Figure 1 into figures from a frozen main CSV bundle.
 python -m experiments.paper_theory plot --run-dir /local/main-csv --network-dir /local/snapshot-csv --output-dir /local/paper-figures
 ```
