@@ -1,43 +1,17 @@
-from typing import List, Callable, Tuple, Any
-
-import os
+from typing import Any, Callable, List, Tuple
 
 import numpy as np
 from matplotlib.axes import Axes
 
-from scipy.stats import gaussian_kde
-
+from common.numerics import adaptive_moving_stats, get_kde_pdf
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
-from common.numerics import adaptive_moving_stats
 from common.storage.sqlite import create_db_engine_and_session
-from experiments.paper.paths import STAT_INPUT, MECHANISM_OUTPUT
 from experiments.paper.analysis.records import ScenarioStatistics
+from experiments.paper.paths import MECHANISM_OUTPUT, statistics_database
 
-
-plot_path = str(STAT_INPUT.resolve())
-stats_db_path = os.path.join(plot_path, "stats.db")
+stats_db_path = str(statistics_database())
 
 setup_paper_params()
-
-
-def kde_min_bw_factory(min_bandwidth):
-    def min_bw_factor(kde_obj):
-        default_factor = kde_obj.scotts_factor()
-        min_factor = min_bandwidth / np.std(kde_obj.dataset, ddof=1)
-        return max(default_factor, min_factor)
-
-    return min_bw_factor
-
-
-def fix_margin_stat(arr: np.ndarray, x_left, x_right, x_mid):
-    arr_left = arr[x_left][::-1]
-    arr_right = arr[x_right][::-1]
-    arr_mid = arr[x_mid]
-
-    arr_mid[: arr_left.size] += arr_left
-    arr_mid[-arr_right.size :] += arr_right
-
-    return arr_mid
 
 
 def draw_prob(
@@ -48,18 +22,15 @@ def draw_prob(
     ax: Axes,
     stats_grad: np.ndarray,
     x_axis: np.ndarray,
-    x: np.ndarray,
-    x_left: np.ndarray,
-    x_right: np.ndarray,
-    x_mid: np.ndarray,
 ):
-    bw_method = kde_min_bw_factory(0.025)
+    if total_size == 0:
+        return
 
-    def _f(filter: np.ndarray):
-        data_x = stats_grad[filter]
+    def _f(mask: np.ndarray):
+        data_x = stats_grad[mask]
         if data_x.size == 0:
             return x_axis * 0
-        return fix_margin_stat(gaussian_kde(data_x, bw_method=bw_method)(x), x_left, x_right, x_mid)
+        return get_kde_pdf(data_x, 0.025, x_axis[0], x_axis[-1])(x_axis)
 
     div_ratio_1 = np.sum(filter_1) / total_size
     div_ratio_2 = np.sum(filter_2) / total_size
@@ -113,33 +84,30 @@ if __name__ == "__main__":
 
     # Load cluster data.
     stats_f1 = session.query(ScenarioStatistics).filter(
-        ScenarioStatistics.grad_index.is_not(None), ScenarioStatistics.last_opinion_peak_count.is_not(None)
+        ScenarioStatistics.pathway_integral.is_not(None), ScenarioStatistics.last_opinion_peak_count.is_not(None)
     )
 
     stats_grad, stats_peak, stats_retweet = np.array(
-        [(x.grad_index, x.last_opinion_peak_count, x.retweet) for x in stats_f1], dtype=np.float64
+        [(x.pathway_integral, x.last_opinion_peak_count, x.repost_rate) for x in stats_f1], dtype=np.float64
     ).T
 
     stats_peak = stats_peak.astype(int)
 
-    # Configure cluster axes.
-    resolution = 0.005
-    margin = 0.3
-    x = np.arange(-margin, 1 + margin + resolution, resolution)
-    x_left = x < -resolution * 0.5
-    x_right = x > 1 + resolution * 0.5
-    x_mid = np.logical_not(np.logical_or(x_left, x_right))
-    x_axis = x[x_mid]
+    x_min, x_max = float(stats_grad.min() - 0.1), float(stats_grad.max() + 0.1)
+    x_axis = np.linspace(x_min, x_max, 400)
 
     # Load repost data.
     stats_raw = session.query(ScenarioStatistics).filter(
-        ScenarioStatistics.grad_index.is_not(None),
+        ScenarioStatistics.pathway_integral.is_not(None),
         ScenarioStatistics.opinion_diff_seg_mean.is_not(None),
         ScenarioStatistics.opinion_diff_seg_std.is_not(None),
     )
 
     def _filter(f: Callable[[ScenarioStatistics], bool]):
         stats_filtered = [x for x in stats_raw if f(x)]
+
+        if not stats_filtered:
+            return np.full(5, np.nan), np.full(5, np.nan)
 
         raw_mean, raw_std = np.array(
             [(x.opinion_diff_seg_mean, x.opinion_diff_seg_std) for x in stats_filtered]
@@ -154,31 +122,31 @@ if __name__ == "__main__":
 
         return opinion_diff_mean, opinion_diff_std
 
-    od_p2_r_mean, od_p2_r_std = _filter(lambda x: x.grad_index is not None and x.grad_index < 0.6 and x.retweet != 0)
-    od_p2_nr_mean, od_p2_nr_std = _filter(lambda x: x.grad_index is not None and x.grad_index < 0.6 and x.retweet == 0)
-    od_p1_r_mean, od_p1_r_std = _filter(lambda x: x.grad_index is not None and x.grad_index >= 0.6 and x.retweet != 0)
-    od_p1_nr_mean, od_p1_nr_std = _filter(lambda x: x.grad_index is not None and x.grad_index >= 0.6 and x.retweet == 0)
+    od_p2_r_mean, od_p2_r_std = _filter(lambda x: x.pathway_label == "PbS" and x.repost_rate != 0)
+    od_p2_nr_mean, od_p2_nr_std = _filter(lambda x: x.pathway_label == "PbS" and x.repost_rate == 0)
+    od_p1_r_mean, od_p1_r_std = _filter(lambda x: x.pathway_label == "SbP" and x.repost_rate != 0)
+    od_p1_nr_mean, od_p1_nr_std = _filter(lambda x: x.pathway_label == "SbP" and x.repost_rate == 0)
 
     # Compare repost conditions.
     x1, y1, y_std_1 = np.array(
         [
-            (x.grad_index, x.opinion_diff_seg_mean[1], x.opinion_diff_seg_std[1])
+            (x.pathway_integral, x.opinion_diff_seg_mean[1], x.opinion_diff_seg_std[1])
             for x in stats_raw
-            if x.retweet == 0 and x.opinion_diff_seg_mean is not None and x.opinion_diff_seg_std is not None
+            if x.repost_rate == 0 and x.opinion_diff_seg_mean is not None and x.opinion_diff_seg_std is not None
         ]
     ).T
-    x1_f, y1_f, _ = adaptive_moving_stats(x1, y1, 0.2, min=0, max=1)
-    _, y1_std_f, _ = adaptive_moving_stats(x1, y_std_1, 0.2, min=0, max=1)
+    x1_f, y1_f, _ = adaptive_moving_stats(x1, y1, 0.2, min=x_min, max=x_max)
+    _, y1_std_f, _ = adaptive_moving_stats(x1, y_std_1, 0.2, min=x_min, max=x_max)
 
     x2, y2, y_std_2 = np.array(
         [
-            (x.grad_index, x.opinion_diff_seg_mean[1], x.opinion_diff_seg_std[1])
+            (x.pathway_integral, x.opinion_diff_seg_mean[1], x.opinion_diff_seg_std[1])
             for x in stats_raw
-            if x.retweet != 0 and x.opinion_diff_seg_mean is not None and x.opinion_diff_seg_std is not None
+            if x.repost_rate != 0 and x.opinion_diff_seg_mean is not None and x.opinion_diff_seg_std is not None
         ]
     ).T
     x2_f, y2_f, _ = adaptive_moving_stats(x2, y2, 0.2)
-    _, y2_std_f, _ = adaptive_moving_stats(x2, y_std_2, 0.2, min=0, max=1)
+    _, y2_std_f, _ = adaptive_moving_stats(x2, y_std_2, 0.2, min=x_min, max=x_max)
 
     # Combine both studies in a two-by-three layout.
     fig, axes = plt_figure(n_row=2, n_col=3)
@@ -194,10 +162,6 @@ if __name__ == "__main__":
         ax1,
         stats_grad,
         x_axis,
-        x,
-        x_left,
-        x_right,
-        x_mid,
     )
     draw_prob(
         np.logical_and(stats_peak == 1, stats_retweet == 0),
@@ -207,10 +171,6 @@ if __name__ == "__main__":
         ax2,
         stats_grad,
         x_axis,
-        x,
-        x_left,
-        x_right,
-        x_mid,
     )
     draw_prob(
         np.logical_and(stats_peak == 1, stats_retweet != 0),
@@ -220,10 +180,6 @@ if __name__ == "__main__":
         ax3,
         stats_grad,
         x_axis,
-        x,
-        x_left,
-        x_right,
-        x_mid,
     )
 
     for ax in [ax1, ax2, ax3]:

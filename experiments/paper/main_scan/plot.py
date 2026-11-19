@@ -1,5 +1,4 @@
 import copy
-import os
 from typing import Callable, Dict, Iterable, List, Sequence, Tuple, TypeVar
 
 import numpy as np
@@ -12,7 +11,7 @@ import experiments.paper.scenarios as cfg
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
 from common.storage.sqlite import create_db_engine_and_session
 from experiments.paper.analysis.records import ScenarioStatistics
-from experiments.paper.paths import MAIN_SCAN_OUTPUT, STAT_INPUT
+from experiments.paper.paths import MAIN_SCAN_OUTPUT, statistics_database
 
 T = TypeVar("T")
 T1 = TypeVar("T1")
@@ -20,8 +19,7 @@ T2 = TypeVar("T2")
 
 # parameters
 
-plot_path = str(STAT_INPUT.resolve())
-stats_db_path = os.path.join(plot_path, "stats.db")
+stats_db_path = str(statistics_database())
 
 rs_keys = list(cfg.GRADATION_RECOMMENDATIONS)
 tw_keys = list(cfg.REPOST_AXIS)
@@ -88,7 +86,8 @@ def create_heatmap_evaluator(session: Session, rs_key: str, opinion_peak_count: 
         ),
         ScenarioStatistics.name.startswith("s_grad"),
         ScenarioStatistics.recsys_type == rs_key,
-        ScenarioStatistics.grad_index.is_not(None),
+        ScenarioStatistics.post_retain_count == 0,
+        ScenarioStatistics.pathway_integral.is_not(None),
     )
     return _create_evaluator(full_data_selector)
 
@@ -96,9 +95,11 @@ def create_heatmap_evaluator(session: Session, rs_key: str, opinion_peak_count: 
 def create_heatmap_evaluator_retweet(session: Session, retweet_rate: float, rs_key: str | None = None):
     full_data_selector: Iterable[ScenarioStatistics] = session.query(ScenarioStatistics).filter(
         ScenarioStatistics.name.startswith("s_grad"),
-        *((ScenarioStatistics.recsys_type == rs_key,) if rs_key else ()),
-        ScenarioStatistics.retweet == retweet_rate,
-        ScenarioStatistics.grad_index.is_not(None),
+        *((ScenarioStatistics.recsys_type == rs_key,
+        ScenarioStatistics.post_retain_count == 0,) if rs_key else ()),
+        ScenarioStatistics.repost_rate == retweet_rate,
+        ScenarioStatistics.post_retain_count == 0,
+        ScenarioStatistics.pathway_integral.is_not(None),
     )
     return _create_evaluator(full_data_selector)
 
@@ -179,7 +180,15 @@ def plot_combined_heatmaps(
         mean_st, std_st = evaluator_st(f)
         mean_op, std_op = evaluator_op(f)
         diff = mean_op - mean_st
-        all_data.append((mean_st, std_st, mean_op, std_op, diff, stats_name, kwargs))
+        all_data.append((mean_st, std_st, mean_op, std_op, diff, stats_name, dict(kwargs)))
+
+    # A signed trajectory integral is not bounded by [0, 1].
+    for mean_st, _, mean_op, _, diff, _, options in all_data:
+        if options.get("signed"):
+            values = np.concatenate((mean_st.ravel(), mean_op.ravel()))
+            extent = max(np.max(np.abs(values[np.isfinite(values)]), initial=0), 0.1)
+            diff_extent = max(np.max(np.abs(diff[np.isfinite(diff)]), initial=0), 0.1)
+            options.update(heatmap_min=-extent, heatmap_max=extent, diff_range=diff_extent)
 
     # Setup figure
     n_cols_per_metric = 3 if with_diff else 2
@@ -257,7 +266,7 @@ def plot_combined_heatmaps(
 
 
 def plot_heatmap_by_retweet(
-    f: Callable[[ScenarioStatistics], float] = lambda x: x.grad_index,  # type: ignore
+    f: Callable[[ScenarioStatistics], float] = lambda x: x.pathway_integral,  # type: ignore
     stats_name="$I_w$",
     heatmap_min=0,
     heatmap_max=1,
@@ -269,7 +278,7 @@ def plot_heatmap_by_retweet(
         for r, k in [(0, "StructureM9"), (0, "OpinionM9"), (0.5, "StructureM9"), (0.5, "OpinionM9")]
     ]
 
-    labels = ["St., p=0", "St., p=0", "Op., p=0.5", "Op., p=0.5"]
+    labels = ["St., p=0", "Op., p=0", "St., p=0.5", "Op., p=0.5"]
 
     stats = [e(f) for e in evaluators]
 
@@ -310,8 +319,8 @@ if __name__ == "__main__":
     figure_dir.mkdir(parents=True, exist_ok=True)
 
     def f_grad(x: ScenarioStatistics) -> float:
-        assert x.grad_index is not None
-        return x.grad_index
+        assert x.pathway_integral is not None
+        return x.pathway_integral
 
     p_indices_op = {}
     p_indices_st = {}
@@ -330,7 +339,7 @@ if __name__ == "__main__":
 
     # Create combined plot for gradient index and polarization backdrop index
     metrics = [
-        (f_grad, "$I_w$", {"cmap": "RdYlBu_r", "heatmap_min": 0, "heatmap_max": 1, "diff_range": 0.6}),
+        (f_grad, "$I_w$", {"cmap": "RdBu_r", "signed": True}),
         (
             f_p_backdrop,
             r"$I_p^T$, #P=1",

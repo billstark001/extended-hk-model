@@ -21,9 +21,9 @@ def fake_statistics(metadata, base, origin, previous):
         tolerance=0.4,
         decay=0.02,
         rewiring=0.04,
-        retweet=0,
+        repost_rate=0,
         recsys_type="Random",
-        tweet_retain_count=3,
+        post_retain_count=3,
         step=(previous.step + 1) if previous else 1,
         x_indices=np.array([1, 2], dtype=np.int32),
     )

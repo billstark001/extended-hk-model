@@ -1,4 +1,3 @@
-import os
 from typing import Iterable, TypeVar
 
 import numpy as np
@@ -8,7 +7,7 @@ import experiments.paper.scenarios as cfg
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
 from common.storage.sqlite import create_db_session
 from experiments.paper.analysis.records import ScenarioStatistics
-from experiments.paper.paths import EPSILON_SCAN_OUTPUT, STAT_INPUT
+from experiments.paper.paths import EPSILON_SCAN_OUTPUT, statistics_database
 
 T = TypeVar("T")
 T1 = TypeVar("T1")
@@ -16,8 +15,7 @@ T2 = TypeVar("T2")
 
 # parameters
 
-plot_path = str(STAT_INPUT.resolve())
-stats_db_path = os.path.join(plot_path, "stats.eps.db")
+stats_db_path = str(statistics_database())
 
 rs_keys = list(cfg.GRADATION_RECOMMENDATIONS)
 tw_keys = list(cfg.REPOST_AXIS)
@@ -46,7 +44,7 @@ def get_random_stats(
             for x in (
                 (ScenarioStatistics.decay == decay) if decay is not None else None,
                 (ScenarioStatistics.rewiring == rewiring) if rewiring is not None else None,
-                (ScenarioStatistics.retweet == retweet) if retweet is not None else None,
+                (ScenarioStatistics.repost_rate == retweet) if retweet is not None else None,
             )
             if x is not None
         ),
@@ -62,7 +60,7 @@ if __name__ == "__main__":
     all_epsilon_vals = set(x.tolerance for x in stats)
     vals = {x: [] for x in sorted(list(all_epsilon_vals))}
     for x in stats:
-        vals[x.tolerance].append((x.grad_index, x.last_community_count, x.last_opinion_peak_count))
+        vals[x.tolerance].append((x.pathway_integral, x.last_community_count, x.last_opinion_peak_count))
 
     plt_x = np.array(list(vals.keys()))
     plt_ig_avg, plt_cm_avg, plt_cp_avg, plt_ig_std, plt_cm_std, plt_cp_std = (

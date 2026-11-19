@@ -1,24 +1,19 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Tuple
 
 import networkx as nx
 import numpy as np
 from numpy.typing import NDArray
-from scipy.signal import find_peaks
 from scipy.stats import kurtosis, skew
 
-from common.numerics import (
-    adaptive_discrete_sampling,
-    area_under_curve,
-    first_more_or_equal_than,
-    get_kde_pdf,
-    merge_data_with_axes,
-)
+from common.numerics import adaptive_discrete_sampling, area_under_curve, first_more_or_equal_than
 from common.pipeline import Context
-from ehk.metrics.homophily import normalize_homophily
-from ehk.metrics.polarization import DistanceCalculator
+from ehk.metrics.homophily import mean_followee_edge_concordance, normalize_homophily
+from ehk.metrics.pathway import OBSERVATION_INTERVAL, first_passage
+from ehk.metrics.polarization import DistanceCalculator, opinion_peak_count
 
 if TYPE_CHECKING:
     from smp_bindings import PostEventBody, RawSimulationRecord
@@ -165,77 +160,90 @@ def get_retweeted_tweets_lifecycle_raw_stats(scenario_record: RawSimulationRecor
 distance_collector = DistanceCalculator(use_js_divergence=True, min_bandwidth=0.01, sample_count=500)
 
 
-def err_func_distance(x1, x2, x3, t3):
-    return max(abs(x1[i] * (1 - t3) + x2[i] * t3 - x3[i]) for i in range(4))
-
-
 def calc_distance(rec: RawSimulationRecord, step: int):
-    #   print('dis', step)
-    graph = rec.get_graph(step)
-    opinion = rec.opinions[step]
-
-    dis_res = distance_collector.calculate(graph, opinion, t_opinion=rec.metadata["HKParams"]["Tolerance"])
-
-    d_rand_o = dis_res.rand_o
-    d_rand_s = dis_res.rand_s
-    d_worst_o = 1 - dis_res.worst_o
-    d_worst_s = 1 - dis_res.worst_s
-
-    return d_rand_o, d_rand_s, d_worst_o, d_worst_s
+    result = distance_collector.calculate(
+        rec.get_graph(step), rec.opinions[step], rec.metadata["HKParams"]["Tolerance"], random_state=step
+    )
+    return result.rand_o, result.rand_s
 
 
 def calc_homophily(rec: RawSimulationRecord, step: int):
-    f = rec.followers
-    f_slice = rec.agent_numbers[step, :, 0]
-    h_index_raw: float = np.mean(f_slice / f, dtype=float)
-    # normalize: random state = 0, convergence state = 1
-    eps = rec.metadata["HKParams"]["Tolerance"]
-    return normalize_homophily(h_index_raw, eps)
+    epsilon = rec.metadata["HKParams"]["Tolerance"]
+    rho = mean_followee_edge_concordance(rec.get_graph(step), rec.opinions[step], epsilon)
+    return normalize_homophily(rho, epsilon) if np.isfinite(rho) else np.nan
 
 
-def sanitize_index_series(series: NDArray, lower_bound: float = 0.0, upper_bound: float = 1.0):
-    arr = np.asarray(series, dtype=float).copy()
-    if arr.size == 0:
-        return np.zeros(1, dtype=float)
+def followee_post_concordance(rec: RawSimulationRecord, step: int) -> float:
+    # Row t describes the feed used to update the model from t-1 to t.
+    counts = rec.feed_counts(step)
+    if counts is None:
+        return np.nan
+    shown = counts[:, 0].astype(float) + counts[:, 2]
+    seen = shown > 0
+    return float(np.mean(counts[seen, 0] / shown[seen])) if np.any(seen) else np.nan
 
-    finite_mask = np.isfinite(arr)
-    if not np.any(finite_mask):
-        return np.zeros(arr.shape, dtype=float)
 
-    # Fill NaN/inf by interpolation over nearby valid values.
-    if not np.all(finite_mask):
-        idx_all = np.arange(arr.size)
-        idx_valid = idx_all[finite_mask]
-        arr[~finite_mask] = np.interp(idx_all[~finite_mask], idx_valid, arr[finite_mask])
+@c.selector(("x_indices", "h_index", "p_index", "g_index"))
+def get_indices(scenario_record: RawSimulationRecord):
+    def point(step):
+        t = int(step)
+        p, g = calc_distance(scenario_record, t)
+        return np.array([p, g, calc_homophily(scenario_record, t)])
 
-    return np.clip(arr, lower_bound, upper_bound)
+    def error(left, right, midpoint, fraction):
+        residual = np.abs(midpoint - (left * (1 - fraction) + right * fraction))
+        return float(np.max(residual, where=np.isfinite(residual), initial=0))
+
+    end = scenario_record.max_step
+    if end == 0:
+        p, g, h = point(0)[:, None]
+        return np.array([0]), h, p, g
+    steps, indices = adaptive_discrete_sampling(
+        point, 0.01, 0, end, max_interval=512, err_func=error, int_midpoint=True
+    )
+    p, g, h = np.array(indices).T
+    return np.asarray(steps, dtype=int), h, p, g
 
 
 @c.selector
-def get_indices(scenario_record: RawSimulationRecord):
-    g_distance = adaptive_discrete_sampling(
-        lambda x: calc_distance(scenario_record, int(x)),
-        0.01,
-        0,
-        scenario_record.max_step,
-        max_interval=512,
-        err_func=err_func_distance,
-        int_midpoint=True,
-    )
-    g_homophily = adaptive_discrete_sampling(
-        lambda x: calc_homophily(scenario_record, int(x)), 0.01, 0, scenario_record.max_step, max_interval=512
-    )
-    x_indices_raw, (y_dist, y_homo) = merge_data_with_axes(
-        g_distance,
-        g_homophily,  # type: ignore
-    )
+def get_concordance_series(scenario_record: RawSimulationRecord, x_indices: NDArray):
+    epsilon = scenario_record.metadata["HKParams"]["Tolerance"]
+    rho_edge = np.array([
+        mean_followee_edge_concordance(scenario_record.get_graph(int(t)), scenario_record.opinions[t], epsilon)
+        for t in x_indices
+    ])
+    rho_post = np.array([followee_post_concordance(scenario_record, int(t)) for t in x_indices])
+    return rho_edge, rho_post
 
-    x_indices = x_indices_raw
-    h_index = y_homo
-    p_index = y_dist[:, 2]  # d-worst-o
-    g_index = y_dist[:, 3]  # d-worst-s
 
-    return x_indices, h_index, p_index, g_index
+@c.selector(("pathway_label", "separation_step", "segregation_step"))
+def get_pathway_passage(scenario_record: RawSimulationRecord, probe_binary: Path):
+    from contextlib import closing
+
+    from smp_bindings.probe import FrozenSimulationState, run_probe_jobs
+
+    end = scenario_record.max_step
+    epsilon = scenario_record.metadata["HKParams"]["Tolerance"]
+    steps = [*range(0, end, OBSERVATION_INTERVAL), end]
+
+    def requests():
+        for step, graph in scenario_record.iter_graphs(steps):
+            precision = scenario_record.trajectory.opinion_precision_at(step) if scenario_record.has_trajectory else "float32"
+            state = FrozenSimulationState(
+                step=step, graph=graph, opinions=scenario_record.opinions[step], posts={},
+                precision="history_" + precision.replace("float", "f"),
+            )
+            yield {
+                "request_id": f"pathway-{step}", "states": [state.to_wire()],
+                "measurements": ["pathway"], "epsilon": epsilon,
+            }
+
+    with closing(run_probe_jobs(requests(), binary_path=str(probe_binary))) as measured:
+        passage = first_passage(
+            (state["step"], state["pathway"]["separation"], state["pathway"]["excess_concordance"])
+            for response in measured for state in response["results"]
+        )
+    return passage.label, passage.separation_step, passage.segregation_step
 
 
 @c.selector
@@ -256,7 +264,7 @@ def get_backdrop_rates(p_index: NDArray, h_index: NDArray, g_index: NDArray):
 
 @c.selector
 def get_gradation_index_hp(p_index, h_index):
-    return area_under_curve(np.array([p_index, h_index]))
+    return area_under_curve(np.array([p_index, h_index]), complement=None)
 
 
 def interp(x0, x1, p):
@@ -330,8 +338,7 @@ def get_opinion_diff(scenario_record: RawSimulationRecord):
     opinion = scenario_record.opinions
     opinion_diff = np.copy(opinion)
     opinion_diff[1:] -= opinion[:-1]
-    if opinion_diff.shape[0] > 1:
-        opinion_diff[0] = opinion_diff[1]
+    opinion_diff[0] = 0
     return opinion_diff
 
 
@@ -412,15 +419,7 @@ def get_last_community_count(scenario_record: RawSimulationRecord):
 @c.selector("last_opinion_peak_count")
 def get_last_opinion_peak_count(opinion_last: NDArray, opinion_peak_distance: int):
 
-    kde = get_kde_pdf(opinion_last, 0.1, -1, 1)
-
-    x_grid = np.linspace(-1, 1, 1001)
-    y_kde = kde(x_grid)
-
-    height_threshold = np.max(y_kde) * 0.1
-    peaks, _ = find_peaks(y_kde, height=height_threshold, distance=opinion_peak_distance)
-
-    return len(peaks)
+    return opinion_peak_count(opinion_last, opinion_peak_distance)
 
 
 # endregion
@@ -469,7 +468,7 @@ def get_bc_hom_x_and_smpl(scenario_record: RawSimulationRecord):
 
 _, state_vars, cycles = c.get_dep_graph()
 
-valid_state_vars = {"scenario_record", "active_threshold", "min_inactive_value", "opinion_peak_distance"}
+valid_state_vars = {"scenario_record", "active_threshold", "min_inactive_value", "opinion_peak_distance", "probe_binary"}
 
 invalid_state_vars = [x for x in state_vars if x not in valid_state_vars]
 

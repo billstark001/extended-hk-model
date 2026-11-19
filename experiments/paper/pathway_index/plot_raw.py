@@ -1,4 +1,3 @@
-import os
 from typing import Callable, Dict, Iterable, List, Tuple, TypeVar
 
 import numpy as np
@@ -10,7 +9,7 @@ import experiments.paper.scenarios as cfg
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
 from common.storage.sqlite import create_db_engine_and_session
 from experiments.paper.analysis.records import ScenarioStatistics
-from experiments.paper.paths import PATHWAY_OUTPUT, STAT_INPUT
+from experiments.paper.paths import PATHWAY_OUTPUT, statistics_database
 from experiments.paper.pathway_index.data_utils import piecewise_linear_integral_trapz
 
 T = TypeVar("T")
@@ -19,8 +18,7 @@ T2 = TypeVar("T2")
 
 # parameters
 
-plot_path = str(STAT_INPUT.resolve())
-stats_db_path = os.path.join(plot_path, "stats.db")
+stats_db_path = str(statistics_database())
 
 rs_keys = list(cfg.GRADATION_RECOMMENDATIONS)
 tw_keys = list(cfg.REPOST_AXIS)
@@ -46,10 +44,10 @@ for i, rw in enumerate(cfg.REWIRING_AXIS):
     bc_inst_orig.append(lst)
 
 k_filters_1 = [
-    (ScenarioStatistics.recsys_type == "StructureM9", ScenarioStatistics.retweet == 0),
-    (ScenarioStatistics.recsys_type == "StructureM9", ScenarioStatistics.retweet != 0),
-    (ScenarioStatistics.recsys_type == "OpinionM9", ScenarioStatistics.retweet == 0),
-    (ScenarioStatistics.recsys_type == "OpinionM9", ScenarioStatistics.retweet != 0),
+    (ScenarioStatistics.recsys_type == "StructureM9", ScenarioStatistics.repost_rate == 0),
+    (ScenarioStatistics.recsys_type == "StructureM9", ScenarioStatistics.repost_rate != 0),
+    (ScenarioStatistics.recsys_type == "OpinionM9", ScenarioStatistics.repost_rate == 0),
+    (ScenarioStatistics.recsys_type == "OpinionM9", ScenarioStatistics.repost_rate != 0),
 ]
 
 k_labels_1 = ["St, !R", "St, R", "Op, !R", "Op, R"]
@@ -57,33 +55,33 @@ k_labels_1 = ["St, !R", "St, R", "Op, !R", "Op, R"]
 k_filters_2 = [
     (
         ScenarioStatistics.recsys_type == "OpinionM9",
-        ScenarioStatistics.tweet_retain_count == 0,
-        ScenarioStatistics.retweet == 0,
+        ScenarioStatistics.post_retain_count == 0,
+        ScenarioStatistics.repost_rate == 0,
     ),
     (
         ScenarioStatistics.recsys_type == "OpinionM9",
-        ScenarioStatistics.tweet_retain_count == 2,
-        ScenarioStatistics.retweet == 0,
+        ScenarioStatistics.post_retain_count == 2,
+        ScenarioStatistics.repost_rate == 0,
     ),
     (
         ScenarioStatistics.recsys_type == "OpinionM9",
-        ScenarioStatistics.tweet_retain_count == 6,
-        ScenarioStatistics.retweet == 0,
+        ScenarioStatistics.post_retain_count == 6,
+        ScenarioStatistics.repost_rate == 0,
     ),
     (
         ScenarioStatistics.recsys_type == "OpinionM9",
-        ScenarioStatistics.tweet_retain_count == 0,
-        ScenarioStatistics.retweet != 0,
+        ScenarioStatistics.post_retain_count == 0,
+        ScenarioStatistics.repost_rate != 0,
     ),
     (
         ScenarioStatistics.recsys_type == "OpinionM9",
-        ScenarioStatistics.tweet_retain_count == 2,
-        ScenarioStatistics.retweet != 0,
+        ScenarioStatistics.post_retain_count == 2,
+        ScenarioStatistics.repost_rate != 0,
     ),
     (
         ScenarioStatistics.recsys_type == "OpinionM9",
-        ScenarioStatistics.tweet_retain_count == 6,
-        ScenarioStatistics.retweet != 0,
+        ScenarioStatistics.post_retain_count == 6,
+        ScenarioStatistics.repost_rate != 0,
     ),
 ]
 
@@ -91,8 +89,8 @@ k_labels_2 = ["k=0, !R", "k=2", "k=6", "k=0, R", "k=2", "k=6"]
 
 
 m_filters = [
-    (ScenarioStatistics.grad_index.is_not(None), ScenarioStatistics.grad_index < 0.6),
-    (ScenarioStatistics.grad_index.is_not(None), ScenarioStatistics.grad_index >= 0.6),
+    (ScenarioStatistics.pathway_label == "PbS",),
+    (ScenarioStatistics.pathway_label == "SbP",),
 ]
 
 m_labels = ["PbS", "SbP"]
@@ -103,13 +101,19 @@ m_colors = ["tab:blue", "tab:red"]
 def evaluate_bar_on_filters(
     session: Session, filters: List[ColumnExpressionArgument[bool]], f_ext: Callable[[ScenarioStatistics], float]
 ):
-    full_data: Iterable[ScenarioStatistics] = session.query(ScenarioStatistics).filter(*filters)
+    full_data: Iterable[ScenarioStatistics] = session.query(ScenarioStatistics).filter(
+        ScenarioStatistics.name.startswith("s_grad"),
+        ScenarioStatistics.post_retain_count == 0,
+        *filters,
+    )
 
     data_arr: List[float] = []
     for datum in full_data:
         data_arr.append(f_ext(datum))
 
-    return np.mean(data_arr), np.std(data_arr)
+    values = np.asarray(data_arr, dtype=float)
+    values = values[np.isfinite(values)]
+    return (np.mean(values), np.std(values)) if values.size else (np.nan, np.nan)
 
 
 def plot_bar(ax: Axes, f: Callable[[ScenarioStatistics], float], compare_op=False, plot_title: str = "") -> List[str]:
@@ -181,15 +185,14 @@ if __name__ == "__main__":
         return x.event_count
 
     def f_ev_step(x: ScenarioStatistics) -> float:
-        assert x.event_step_mean is not None
         assert x.active_step is not None
-        return x.event_step_mean / max(x.active_step, 1)
+        return np.nan if x.event_step_mean is None else x.event_step_mean / max(x.active_step, 1)
 
     def f_auc_subj_pol_index(x: ScenarioStatistics) -> float:
         assert x.x_indices is not None
         assert x.active_step is not None
         assert x.g_index is not None
-        f = piecewise_linear_integral_trapz(x.x_indices / x.active_step, x.g_index, 0, 1)
+        f = piecewise_linear_integral_trapz(x.x_indices / max(x.active_step, 1), x.g_index, 0, 1)
         return f
 
     def f_triads(x: ScenarioStatistics) -> float:

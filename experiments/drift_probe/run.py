@@ -1,4 +1,4 @@
-"""Run temporary frozen-state drift probes on archived microscopic records."""
+"""Evaluate counterfactual drift directly on archived microscopic records."""
 
 from __future__ import annotations
 
@@ -25,11 +25,11 @@ from experiments.drift_probe.scenarios import (
     INPUT_DIR,
     NORMALIZED_TIMES,
     OUTPUT_DIR,
-    PROBE_BINARY,
     PROBE_RNG,
     TASKS,
     LandscapeScenario,
 )
+from experiments.paths import SMP_PROBE_BINARY
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -69,21 +69,18 @@ def run_scenario(
     grid_step: float,
     replicates: int,
 ) -> tuple[Path, dict[str, Any]]:
-    from smp_bindings import RawSimulationRecord
+    from smp_bindings import run_probe_run
 
     metadata = scenario.metadata()
     steps = _probe_steps(scenario.active_step)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    record = RawSimulationRecord(os.fspath(workspace), metadata)
-    with record:
-        if scenario.active_step > record.max_step:
-            raise ValueError(
-                f"{scenario.key}: active step {scenario.active_step} exceeds available step {record.max_step}"
-            )
-        response = record.evaluate_probe(
-            steps=steps.tolist(), h=grid_step, replicates=replicates, rng=PROBE_RNG, binary_path=os.fspath(probe_binary)
-        )
+    directory = workspace / metadata["UniqueName"]
+    response = run_probe_run(
+        directory, steps.tolist(), measurements=["force"],
+        metadata=metadata if not (directory / "metadata.json").is_file() else None,
+        h=grid_step, replicates=replicates, rng=PROBE_RNG, binary_path=os.fspath(probe_binary),
+    )
 
     state_results = response["results"]
     returned_steps = np.asarray([int(state["step"]) for state in state_results], dtype=np.int64)
@@ -149,7 +146,7 @@ def run_scenario(
         "unique_name": metadata["UniqueName"],
         "active_step": scenario.active_step,
         "influence": influence,
-        "max_step": record.max_step,
+        "max_step": response["source_max_step"],
         "normalized_time": list(NORMALIZED_TIMES),
         "actual_normalized_time": (returned_steps / scenario.active_step).tolist(),
         "steps": returned_steps.tolist(),
@@ -169,7 +166,7 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="task key or all; repeat to select several (default: all)",
     )
     parser.add_argument("--workspace", type=Path, default=INPUT_DIR.resolve())
-    parser.add_argument("--probe-binary", type=Path, default=PROBE_BINARY.resolve())
+    parser.add_argument("--probe-binary", type=Path, default=SMP_PROBE_BINARY.resolve())
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR.resolve())
     parser.add_argument("--grid-step", type=float, default=0.01)
     parser.add_argument("--replicates", type=int, default=20)

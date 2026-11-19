@@ -1,23 +1,12 @@
-from typing import TYPE_CHECKING
+from typing import Optional
 
 import numpy as np
-from sqlalchemy import Integer, Float, String, Text
-from sqlalchemy.orm import declarative_base, Mapped, mapped_column
-from typing import Optional
+from sqlalchemy import Float, Integer, String, Text
+from sqlalchemy.orm import Mapped, declarative_base, mapped_column
 
 from common.storage.sqlite import NumpyArrayType
 
-if TYPE_CHECKING:
-    from ehk.micro.scenarios import ScenarioMetadata
-
 Base = declarative_base()
-
-
-def _():
-    pass
-
-
-exclude = ["name", "origin", "tolerance", "decay", "rewiring", "retweet", "recsys_type", "tweet_retain_count"]
 
 
 class ScenarioStatistics(Base):
@@ -33,9 +22,9 @@ class ScenarioStatistics(Base):
     tolerance: Mapped[float] = mapped_column(Float, index=True, nullable=False)
     decay: Mapped[float] = mapped_column(Float, index=True, nullable=False)
     rewiring: Mapped[float] = mapped_column(Float, index=True, nullable=False)
-    retweet: Mapped[float] = mapped_column(Float, index=True, nullable=False)
+    repost_rate: Mapped[float] = mapped_column("retweet", Float, index=True, nullable=False)
     recsys_type: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
-    tweet_retain_count: Mapped[float] = mapped_column(Float, index=True, nullable=False)
+    post_retain_count: Mapped[float] = mapped_column("tweet_retain_count", Float, index=True, nullable=False)
 
     # simulation result fields
     step: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -49,7 +38,13 @@ class ScenarioStatistics(Base):
     p_index: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.float64), nullable=True)
     g_index: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.float64), nullable=True)
 
-    grad_index: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    rho_edge: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.float64), nullable=True)
+    rho_post: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.float64), nullable=True)
+    pathway_label: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    separation_step: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    segregation_step: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    pathway_integral: Mapped[Optional[float]] = mapped_column("grad_index", Float, nullable=True)
     event_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     event_step_mean: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     triads: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -78,26 +73,3 @@ class ScenarioStatistics(Base):
 
     opinion_diff_seg_mean: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.float64), nullable=True)
     opinion_diff_seg_std: Mapped[Optional[np.ndarray]] = mapped_column(NumpyArrayType(dtype=np.float64), nullable=True)
-
-
-def stats_from_dict(scenario_metadata: "ScenarioMetadata", stats_dict: dict, origin: str) -> ScenarioStatistics:
-    _d = {}
-    for k, v in stats_dict.items():
-        if k in exclude:
-            continue
-        if hasattr(ScenarioStatistics, k):
-            _d[k] = v
-
-    scenario_name = scenario_metadata["UniqueName"]
-    instance = ScenarioStatistics(
-        name=scenario_name,
-        origin=origin,
-        tolerance=scenario_metadata["Tolerance"],
-        decay=scenario_metadata["Influence"],
-        rewiring=scenario_metadata["RewiringRate"],
-        retweet=scenario_metadata["RepostRate"],
-        recsys_type=scenario_metadata["RecsysFactoryType"],
-        tweet_retain_count=scenario_metadata["PostRetainCount"],
-        **_d,
-    )
-    return instance

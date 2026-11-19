@@ -1,6 +1,6 @@
 # Temporary drift probe
 
-This standalone temporary study uses the frozen-state counterfactual probe implemented by `social-media-models`. It is separate from the original-paper experiment designs. Tasks use the shared `TaskRegistry`, frozen plans, execution and timing journals; `--scenario all` selects the eleven saved-record cases.
+This standalone temporary study uses the counterfactual probe implemented by `social-media-models`. Go reads archived runs and reconstructs the selected states directly. Tasks use the shared `TaskRegistry`, frozen plans, execution and timing journals; `--scenario all` selects the eleven saved-record cases.
 
 See [`RESULTS.md`](RESULTS.md) for the completed run's numerical summary.
 
@@ -24,6 +24,8 @@ python -m experiments.drift_probe.run
 ```
 
 Existing `EHK_SOCIAL_FORCE_INPUT_DIR` and `EHK_SOCIAL_FORCE_OUTPUT_DIR` settings remain supported. The default input directory is `outputs/experiments/paper/mechanism_cases/raw`. Set `EHK_SOCIAL_FORCE_INPUT_DIR` in `.env` or use `--workspace` when the records live elsewhere.
+
+`SMP_PROBE_BINARY` configures the same probe executable used for paper pathway statistics. Archived directories without `metadata.json` receive their explicit scenario metadata in the probe request; the source files remain unchanged.
 
 Defaults:
 

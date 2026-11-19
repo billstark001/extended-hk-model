@@ -1,6 +1,8 @@
 from typing import Tuple
-from numpy.typing import NDArray
+
 import numpy as np
+from numpy.typing import NDArray
+from scipy.integrate import trapezoid
 from scipy.stats import gaussian_kde
 
 
@@ -65,7 +67,7 @@ def piecewise_linear_integral_trapz(x: np.ndarray, y: np.ndarray, a: float, b: f
 
     # Include interval endpoints.
     x_new = np.sort(np.concatenate([x, [a, b]]))
-    y_new = np.interp(x_new, x, y, left=0, right=1)
+    y_new = np.interp(x_new, x, y)
 
     # Keep points inside the interval.
     mask = (x_new >= a) & (x_new <= b)
@@ -73,4 +75,4 @@ def piecewise_linear_integral_trapz(x: np.ndarray, y: np.ndarray, a: float, b: f
     y_new = y_new[mask]
 
     # Integrate the clipped curve.
-    return np.trapz(y_new, x_new)
+    return trapezoid(y_new, x_new)

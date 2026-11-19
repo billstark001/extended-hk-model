@@ -16,7 +16,6 @@ NORMALIZED_TIMES = tuple(i / 10 for i in range(11))
 PROBE_RNG = {"Algorithm": "pcg64-dxsm-v1", "Seed1": "0x4c414e4453434150", "Seed2": "0x50524f4245323032"}
 
 INPUT_DIR = register_path("EHK_SOCIAL_FORCE_INPUT_DIR", "outputs/experiments/paper/mechanism_cases/raw")
-PROBE_BINARY = register_path("SMP_PROBE_BINARY", "../social-media-models/smp-probe")
 OUTPUT_DIR = register_path("EHK_SOCIAL_FORCE_OUTPUT_DIR", "outputs/experiments/drift_probe")
 
 

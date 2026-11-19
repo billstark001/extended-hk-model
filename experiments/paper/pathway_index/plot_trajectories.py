@@ -1,4 +1,3 @@
-import os
 from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
@@ -11,10 +10,9 @@ import experiments.paper.scenarios as cfg
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
 from common.storage.sqlite import create_db_engine_and_session
 from experiments.paper.analysis.records import ScenarioStatistics
-from experiments.paper.paths import PATHWAY_OUTPUT, STAT_INPUT
+from experiments.paper.paths import PATHWAY_OUTPUT, statistics_database
 
-plot_path = str(STAT_INPUT.resolve())
-stats_db_path = os.path.join(plot_path, "stats.db")
+stats_db_path = str(statistics_database())
 
 retweet_groups: List[float] = list(cfg.REPOST_AXIS)
 rs_groups: List[Tuple[str, int]] = [(rs, int(retain)) for rs, retain in cfg.GRADATION_RECOMMENDATIONS.values()]
@@ -38,9 +36,7 @@ def _safe_curve(p_index: np.ndarray | None, h_index: np.ndarray | None) -> np.nd
     if np.count_nonzero(mask) < 2:
         return None
 
-    p_valid = np.minimum(np.maximum(p[mask], 0.0), 1.0)
-    h_valid = np.minimum(np.maximum(h[mask], 0.0), 1.0)
-    points = np.column_stack((p_valid, h_valid))
+    points = np.column_stack((p[mask], h[mask]))
     if points.shape[0] < 2:
         return None
     return points
@@ -55,13 +51,13 @@ def _group_data(
             grouped[(rt, rs_type, retain_count)] = []
 
     for datum in full_data:
-        if datum.grad_index is None:
+        if datum.pathway_integral is None:
             continue
         if datum.p_index is None or datum.h_index is None:
             continue
 
-        retain_count = int(round(float(datum.tweet_retain_count)))
-        key = (float(datum.retweet), str(datum.recsys_type), retain_count)
+        retain_count = int(round(float(datum.post_retain_count)))
+        key = (float(datum.repost_rate), str(datum.recsys_type), retain_count)
         if key not in grouped:
             continue
 
@@ -69,14 +65,14 @@ def _group_data(
         if points is None:
             continue
 
-        grad = min(max(float(datum.grad_index), 0.0), 1.0)
+        grad = float(datum.pathway_integral)
         grouped[key].append((points, grad))
 
     return grouped
 
 
 def _density_image(
-    curves: List[Tuple[np.ndarray, float]], cmap, norm: Normalize, bins: int = HEATMAP_BINS
+    curves: List[Tuple[np.ndarray, float]], cmap, norm: Normalize, p_max: float, bins: int = HEATMAP_BINS
 ) -> np.ndarray | None:
     if not curves:
         return None
@@ -85,12 +81,12 @@ def _density_image(
     grad_sums = np.zeros((bins, bins), dtype=float)
 
     for points, grad in curves:
-        hist, x_edges, y_edges = np.histogram2d(points[:, 0], points[:, 1], bins=bins, range=((0.0, 1.0), (0.0, 1.0)))
+        hist, x_edges, y_edges = np.histogram2d(points[:, 0], points[:, 1], bins=bins, range=((0.0, p_max), (0.0, 1.0)))
         weighted_hist, _, _ = np.histogram2d(
             points[:, 0],
             points[:, 1],
             bins=bins,
-            range=((0.0, 1.0), (0.0, 1.0)),
+            range=((0.0, p_max), (0.0, 1.0)),
             weights=np.full(points.shape[0], grad, dtype=float),
         )
         counts += hist
@@ -179,7 +175,7 @@ def plot_p_h_index_trajectories() -> Figure:
         ScenarioStatistics.name.startswith("s_grad"),
         ScenarioStatistics.p_index.is_not(None),
         ScenarioStatistics.h_index.is_not(None),
-        ScenarioStatistics.grad_index.is_not(None),
+        ScenarioStatistics.pathway_integral.is_not(None),
     )
 
     grouped = _group_data(full_data)
@@ -189,17 +185,21 @@ def plot_p_h_index_trajectories() -> Figure:
 
     axes_arr = np.array(axes)
     cmap = cm.get_cmap("coolwarm")
-    norm = Normalize(vmin=0, vmax=1)
+    all_curves = [entry for group in grouped.values() for entry in group]
+    p_max = max((float(points[:, 0].max()) for points, _ in all_curves), default=1.0)
+    p_max = max(1.0, p_max)
+    grad_max = max((abs(g) for _, g in all_curves), default=1.0)
+    norm = Normalize(vmin=-grad_max, vmax=grad_max)
 
     for i_rt, rt in enumerate(retweet_groups):
         for i_rs, (rs_type, retain_count) in enumerate(rs_groups):
             ax = axes_arr[i_rt, i_rs]
             curves = grouped[(rt, rs_type, retain_count)]
 
-            density_img = _density_image(curves, cmap, norm)
+            density_img = _density_image(curves, cmap, norm, p_max)
             if density_img is not None:
                 ax.imshow(
-                    density_img, extent=(0, 1, 0, 1), origin="lower", interpolation="bilinear", aspect="equal", zorder=1
+                    density_img, extent=(0, p_max, 0, 1), origin="lower", interpolation="bilinear", aspect="auto", zorder=1
                 )
 
             for points, grad, _ in summary_curves_clustered(curves):
@@ -215,7 +215,7 @@ def plot_p_h_index_trajectories() -> Figure:
 
             eps = 0.05
 
-            ax.set_xlim(0 - eps, 1 + eps)
+            ax.set_xlim(-eps, p_max + eps)
             ax.set_ylim(0 - eps, 1 + eps)
             ax.set_facecolor("white")
             ax.grid(True, linestyle="--", linewidth=0.5)

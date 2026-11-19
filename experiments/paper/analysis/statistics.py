@@ -49,7 +49,7 @@ class StatisticsAdapter(TaskAdapter):
         return (
             None
             if row is None
-            else SimpleNamespace(**{c.name: getattr(row, c.name) for c in ScenarioStatistics.__table__.columns})
+            else SimpleNamespace(**{c.key: getattr(row, c.key) for c in ScenarioStatistics.__mapper__.column_attrs})
         )
 
     def persist(self, job, result):

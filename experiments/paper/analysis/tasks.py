@@ -7,40 +7,14 @@ import numpy as np
 
 import experiments.paper.scenarios as cfg
 from common.experiments.registry import TaskRegistry
-from common.pipeline import Context
+from ehk.metrics.pathway import EXCESS_THRESHOLD, OBSERVATION_INTERVAL, SEPARATION_THRESHOLD
 from ehk.micro.observables import c
 from experiments.paper.analysis.records import ScenarioStatistics
 from experiments.paper.analysis.statistics import analyze_statistics
-from experiments.paper.paths import STAT_INPUT
+from experiments.paper.paths import STAT_INPUT, statistics_database
+from experiments.paths import SMP_PROBE_BINARY
 from experiments.workspaces import instance_name as resolve_instance_name
 from experiments.workspaces import workspace_dir
-
-
-def merge_stats_to_context(
-    stats: ScenarioStatistics | None,
-    ctx: Context,
-    ctx_name_to_stat_name: dict[str, str] | None = None,
-    include_names: list[str] | None = None,
-    exclude_names: list[str] | None = None,
-):
-    if stats is None:
-        return
-
-    sel_names = set(include_names if include_names else ctx.get_state_names())
-    if exclude_names:
-        sel_names = sel_names - set(exclude_names)
-
-    state_dict = {}
-    if ctx_name_to_stat_name is None:
-        ctx_name_to_stat_name = {}
-    for sel_name in sel_names:
-        stat_name = ctx_name_to_stat_name[sel_name] if sel_name in ctx_name_to_stat_name else sel_name
-        if hasattr(stats, stat_name):
-            value = getattr(stats, stat_name)
-            if value is not None:
-                state_dict[sel_name] = value
-    ctx.set_state(**state_dict)
-
 
 # These 3 lists control which common statistics are present for each mode.
 EPS_COMMON_STATS = [
@@ -52,7 +26,12 @@ EPS_COMMON_STATS = [
     "h_index",
     "p_index",
     "g_index",
-    "grad_index",
+    "pathway_integral",
+    "rho_edge",
+    "rho_post",
+    "pathway_label",
+    "separation_step",
+    "segregation_step",
     "event_count",
     "event_step_mean",
     "triads",
@@ -72,7 +51,12 @@ GRAD_COMMON_STATS = [
     "h_index",
     "p_index",
     "g_index",
-    "grad_index",
+    "pathway_integral",
+    "rho_edge",
+    "rho_post",
+    "pathway_label",
+    "separation_step",
+    "segregation_step",
     "event_count",
     "event_step_mean",
     "triads",
@@ -90,7 +74,12 @@ REP_COMMON_STATS = [
     "h_index",
     "p_index",
     "g_index",
-    "grad_index",
+    "pathway_integral",
+    "rho_edge",
+    "rho_post",
+    "pathway_label",
+    "separation_step",
+    "segregation_step",
     "event_count",
     "event_step_mean",
     "triads",
@@ -107,11 +96,11 @@ def _extract_hk_params(scenario_metadata: "cfg.ScenarioMetadata") -> dict:
 
 
 def _skip_if_peak_exists(exist_stats: ScenarioStatistics | None) -> bool:
-    return exist_stats is not None and exist_stats.last_opinion_peak_count is not None
+    return exist_stats is not None and exist_stats.pathway_label is not None and exist_stats.last_opinion_peak_count is not None
 
 
 def _skip_gradation(exist_stats: ScenarioStatistics | None) -> bool:
-    return exist_stats is not None
+    return exist_stats is not None and exist_stats.pathway_label is not None
 
 
 def _extra_stats_none() -> dict[str, object]:
@@ -137,9 +126,14 @@ COMMON_STAT_BUILDERS: dict[str, Callable[[], object]] = {
     "h_index": lambda: c.h_index,
     "p_index": lambda: c.p_index,
     "g_index": lambda: c.g_index,
-    "grad_index": lambda: c.gradation_index_hp,
+    "pathway_integral": lambda: c.gradation_index_hp,
+    "rho_edge": lambda: c.rho_edge,
+    "rho_post": lambda: c.rho_post,
+    "pathway_label": lambda: c.pathway_label,
+    "separation_step": lambda: c.separation_step,
+    "segregation_step": lambda: c.segregation_step,
     "event_count": lambda: c.event_step.size,
-    "event_step_mean": lambda: float(np.mean(c.event_step)),
+    "event_step_mean": lambda: float(np.mean(c.event_step)) if c.event_step.size else None,
     "triads": lambda: c.n_triads,
     "x_mean_vars": lambda: c.x_mean_vars,
     "mean_vars_smpl": lambda: c.mean_vars_smpl,
@@ -213,26 +207,22 @@ def get_statistics_for_mode(
 
     scenario_name = scenario_metadata["UniqueName"]
 
+    if not os.path.isdir(os.path.join(scenario_base_path, scenario_name)):
+        return None
     scenario_record = RawSimulationRecord(scenario_base_path, scenario_metadata)
+    if not scenario_record.is_finished:
+        return None
+    if not scenario_record.is_sanitized:
+        raise ValueError(f"raw record is missing required channels for {scenario_name}")
 
     with scenario_record:
-        if not scenario_record.is_finished:
-            return None
-
-        assert scenario_record.is_sanitized, "non-sanitized scenario"
 
         c.set_state(
             scenario_record=scenario_record,
+            probe_binary=SMP_PROBE_BINARY.resolve(),
             active_threshold=active_threshold,
             min_inactive_value=min_inactive_value,
             opinion_peak_distance=config.opinion_peak_distance,
-        )
-
-        merge_stats_to_context(
-            exist_stats,
-            c,
-            {"total_steps": "step", "gradation_index_hp": "grad_index", "n_triads": "triads"},
-            exclude_names=["id", "name", "origin"],
         )
 
         hk_params = _extract_hk_params(scenario_metadata)
@@ -246,9 +236,9 @@ def get_statistics_for_mode(
             tolerance=hk_params["Tolerance"],
             decay=hk_params["Influence"],
             rewiring=hk_params["RewiringRate"],
-            retweet=hk_params["RepostRate"],
+            repost_rate=hk_params["RepostRate"],
             recsys_type=scenario_metadata["RecsysFactoryType"],
-            tweet_retain_count=scenario_metadata["PostRetainCount"],
+            post_retain_count=scenario_metadata["PostRetainCount"],
             **selected_common_stats,
             **selected_extra_stats,
         )
@@ -268,10 +258,11 @@ def run_mode(mode: str, instance_name: str, concurrency: int):
 
     plot_path = str(STAT_INPUT.resolve())
     os.makedirs(plot_path, exist_ok=True)
-    stats_db_path = os.path.join(plot_path, "stats.db")
+    stats_db_path = str(statistics_database())
 
     scenario_base_path = str(workspace_dir(instance_name))
-    os.makedirs(scenario_base_path, exist_ok=True)
+    if not os.path.isdir(scenario_base_path):
+        raise FileNotFoundError(scenario_base_path)
 
     c.set_state(active_threshold=0.98, min_inactive_value=0.75)
 
@@ -287,6 +278,12 @@ def run_mode(mode: str, instance_name: str, concurrency: int):
         mode=mode,
         protocol={
             "common_statistics": mode_config.common_stats,
+            "metric_revision": 2,
+            "first_passage": {
+                "cadence": OBSERVATION_INTERVAL,
+                "separation": SEPARATION_THRESHOLD,
+                "excess_concordance": EXCESS_THRESHOLD,
+            },
             "opinion_peak_distance": mode_config.opinion_peak_distance,
             "active_threshold": 0.98,
             "min_inactive_value": 0.75,
