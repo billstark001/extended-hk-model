@@ -29,6 +29,24 @@ def fake_statistics(metadata, base, origin, previous):
     )
 
 
+def test_pathway_bars_keep_history_controls_and_match_families(tmp_path):
+    from experiments.paper.pathway_index.plot_raw import evaluate_bar_on_filters, k_filters_1, k_filters_2
+
+    engine, session = create_db_engine_and_session(str(tmp_path / "bars.db"), ScenarioStatistics.Base)
+    try:
+        for history, value in ((0, 1), (2, 3), (6, 5)):
+            row = fake_statistics({"UniqueName": f"s_grad_fixture_{history}"}, "", "fixture", None)
+            row.recsys_type, row.post_retain_count, row.step = "OpinionM9", history, value
+            session.add(row)
+        session.commit()
+        for filters, expected in ((k_filters_1[2], 1), (k_filters_2[1], 3), (k_filters_2[2], 5)):
+            mean, std = evaluate_bar_on_filters(session, list(filters), lambda row: row.step)
+            assert mean == expected and std == 0
+    finally:
+        session.close()
+        engine.dispose()
+
+
 def test_statistics_process_pool_updates_existing_sqlite_rows_and_keeps_origins(tmp_path):
     database = tmp_path / "stats.db"
     scenarios = [{"UniqueName": "existing"}, {"UniqueName": "new"}, {"UniqueName": "failed"}]

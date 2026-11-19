@@ -49,6 +49,7 @@ k_filters_1 = [
     (ScenarioStatistics.recsys_type == "OpinionM9", ScenarioStatistics.repost_rate == 0),
     (ScenarioStatistics.recsys_type == "OpinionM9", ScenarioStatistics.repost_rate != 0),
 ]
+k_filters_1 = [(*filters, ScenarioStatistics.post_retain_count == 0) for filters in k_filters_1]
 
 k_labels_1 = ["St, !R", "St, R", "Op, !R", "Op, R"]
 
@@ -103,7 +104,6 @@ def evaluate_bar_on_filters(
 ):
     full_data: Iterable[ScenarioStatistics] = session.query(ScenarioStatistics).filter(
         ScenarioStatistics.name.startswith("s_grad"),
-        ScenarioStatistics.post_retain_count == 0,
         *filters,
     )
 
