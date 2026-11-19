@@ -4,10 +4,12 @@ from typing import Any, Optional
 import networkx as nx
 import numpy as np
 from numpy.typing import NDArray
+from scipy.signal import find_peaks
 from scipy.stats import norm
 
 from common.numerics.kde import (
     LINSPACE_SMPL_COUNT,
+    fast_trapz,
     get_kde_pdf,
     js_divergence_continuous_fast,
     kl_divergence_continuous_fast,
@@ -41,6 +43,16 @@ def ideal_dist_worst_obj_array(axis: np.ndarray, cl: float, effective_sample_siz
     o_worst_vals = 0.5 * norm.pdf(axis, 0, std_norm) + 0.5 * norm.pdf(axis, cl, std_norm)
 
     return o_worst_vals
+
+
+def opinion_peak_count(opinions: NDArray, min_peak_distance: int = 50) -> int:
+    """Count KDE modes on [-1, 1], including modes at the opinion boundaries."""
+    grid = np.linspace(-1, 1, 1001)
+    density = get_kde_pdf(opinions, 0.1, -1, 1)(grid)
+    peaks, _ = find_peaks(
+        np.pad(density, 1, mode="constant"), height=np.max(density) * 0.1, distance=min_peak_distance
+    )
+    return len(peaks)
 
 
 # Opinion-distance result types
@@ -91,7 +103,7 @@ class DistanceCalculator:
         self.err_range = err_range
         self.axis = np.linspace(0 - err_range, k + err_range, LINSPACE_SMPL_COUNT)
 
-        o_rand_smpl = sample_linear_pdf(int(sample_count**1.75), k)
+        o_rand_smpl = sample_linear_pdf(int(sample_count**1.75), k, random_state=0)
         o_rand_pdf = get_kde_pdf(o_rand_smpl, self.min_bandwidth, 0, k)
         o_rand_vals = o_rand_pdf(self.axis)
 
@@ -108,37 +120,52 @@ class DistanceCalculator:
             self._s_scale_rand = self.div(s_worst_vals, o_rand_vals, **self._params_dict)
             self._s_scale_worst = self.div(o_rand_vals, s_worst_vals, **self._params_dict)
 
-    def calculate(self, digraph: nx.DiGraph, opinion: np.ndarray, t_opinion: float = 0.4) -> DistanceResult:
+    def _relative_js(self, observed, reference, clustered) -> float:
+        def normalize(values):
+            return values / fast_trapz(values, self.axis)
+
+        observed, reference, clustered = map(normalize, (observed, reference, clustered))
+        numerator = self.div(observed, reference, **self._params_dict)
+        denominator = self.div(clustered, reference, **self._params_dict)
+        # The historical numerical helper returns Jensen-Shannon distance.
+        return float((numerator / denominator) ** 2)
+
+    def calculate(
+        self, digraph: nx.DiGraph, opinion: np.ndarray, t_opinion: float = 0.4, *, random_state=None
+    ) -> DistanceResult:
 
         k = self.k
 
         # Compute pairwise differences without allocating a full n-by-n matrix.
-        i_idx, j_idx = self.triu_indices
+        i_idx, j_idx = (
+            self.triu_indices if len(opinion) == self.sample_count else np.triu_indices(len(opinion), k=1)
+        )
 
         o_sample = np.abs(opinion[i_idx] - opinion[j_idx])
         o_sample = np.clip(o_sample, 0, k)
 
-        neighbors = np.array(digraph.edges)
+        neighbors = np.asarray(list(digraph.edges), dtype=int).reshape(-1, 2)
         s_sample = np.abs(opinion[neighbors[:, 1]] - opinion[neighbors[:, 0]])
         s_sample = np.clip(s_sample, 0, k)
 
         # Subsample large inputs to keep KDE fitting tractable.
+        rng = np.random.default_rng(random_state)
         n_max = self.max_kde_samples
         if n_max > 0 and len(o_sample) > n_max:
-            idx = np.random.choice(len(o_sample), n_max, replace=False)
+            idx = rng.choice(len(o_sample), n_max, replace=False)
             o_kde = o_sample[idx]
         else:
             o_kde = o_sample
 
         if n_max > 0 and len(s_sample) > n_max:
-            idx = np.random.choice(len(s_sample), n_max, replace=False)
+            idx = rng.choice(len(s_sample), n_max, replace=False)
             s_kde = s_sample[idx]
         else:
             s_kde = s_sample
 
         # Fit the density to the subsampled values.
-        o_pdf = get_kde_pdf(o_kde, self.min_bandwidth, 0, k)
-        s_pdf = get_kde_pdf(s_kde, self.min_bandwidth, 0, k)
+        o_pdf = get_kde_pdf(o_kde, self.min_bandwidth, 0, k) if len(o_kde) else None
+        s_pdf = get_kde_pdf(s_kde, self.min_bandwidth, 0, k) if len(s_kde) else None
 
         # random cases, use pre-rendered
         axis = self.axis
@@ -161,8 +188,8 @@ class DistanceCalculator:
         if not self.use_js_divergence:
             o_scale_worst = self.div(o_rand_vals, o_worst_vals, **params_dict)
 
-        o_vals = o_pdf(axis)
-        s_vals = s_pdf(axis)
+        o_vals = o_pdf(axis) if o_pdf is not None else np.full_like(axis, np.nan)
+        s_vals = s_pdf(axis) if s_pdf is not None else np.full_like(axis, np.nan)
 
         debug_data = None
         if self.use_debug_data:
@@ -176,8 +203,12 @@ class DistanceCalculator:
                 worst_s_pdf=s_worst_vals,
             )
 
-        rand_o = self.div(o_vals, o_rand_vals, **params_dict) / o_scale_rand
-        rand_s = self.div(s_vals, s_rand_vals, **params_dict) / s_scale_rand
+        if self.use_js_divergence:
+            rand_o = self._relative_js(o_vals, o_rand_vals, o_worst_vals)
+            rand_s = self._relative_js(s_vals, s_rand_vals, s_worst_vals)
+        else:
+            rand_o = self.div(o_vals, o_rand_vals, **params_dict) / o_scale_rand
+            rand_s = self.div(s_vals, s_rand_vals, **params_dict) / s_scale_rand
         worst_o = self.div(o_vals, o_worst_vals, **params_dict) / o_scale_worst
         worst_s = self.div(s_vals, s_worst_vals, **params_dict) / s_scale_worst
 

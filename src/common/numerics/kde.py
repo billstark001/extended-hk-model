@@ -4,7 +4,7 @@ from typing import Tuple, cast
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.integrate import quad
+from scipy.integrate import quad, trapezoid
 from scipy.stats import gaussian_kde, norm
 
 
@@ -83,7 +83,7 @@ def kl_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | i
         p_vals = np.maximum(p_func(xs), t_err)
         q_vals = np.maximum(q_func(xs), t_err)
     integrand = p_vals * (np.log(p_vals) - np.log(q_vals))
-    return np.trapz(integrand, xs)
+    return trapezoid(integrand, xs)
 
 
 def js_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | int = LINSPACE_SMPL_COUNT, t_err=1e-13):
