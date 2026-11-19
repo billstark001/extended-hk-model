@@ -126,6 +126,7 @@ def test_campaign_releases_timing_only_after_stage_gate(tmp_path, monkeypatch, p
     binary = tmp_path / "binary"
     binary.write_bytes(b"frozen binary fixture")
     calls = []
+    monkeypatch.setattr(study, "_preflight", lambda binary, control: None)
 
     def run_one(profile, directory, selected_binary, workers, **kwargs):
         calls.append((profile, directory.name, workers))
@@ -159,6 +160,7 @@ def test_study_validates_raw_cache_and_recovers_missing_summary(smp_binary, tmp_
 def test_campaign_writes_interrupted_status_before_returning_control(tmp_path, monkeypatch):
     binary = tmp_path / "binary"
     binary.write_bytes(b"frozen binary fixture")
+    monkeypatch.setattr(study, "_preflight", lambda binary, control: None)
 
     def interrupted(*args, **kwargs):
         raise KeyboardInterrupt("interruption fixture")
@@ -169,6 +171,35 @@ def test_campaign_writes_interrupted_status_before_returning_control(tmp_path, m
         study.run_campaign(directory, binary, 6)
     status = json.loads((directory / "recommendation_runtime" / "status.json").read_text())
     assert status["state"] == "interrupted" and status["error"] == "interruption fixture"
+
+
+def test_campaign_stops_before_scheduling_when_volume_preflight_fails(tmp_path, monkeypatch):
+    binary = tmp_path / "binary"
+    binary.write_bytes(b"frozen binary fixture")
+
+    def failed_preflight(binary, control):
+        raise RuntimeError("volume persistence failed")
+
+    def unexpected_run(*args, **kwargs):
+        pytest.fail("campaign scheduled experiments after a failed persistence check")
+
+    monkeypatch.setattr(study, "_preflight", failed_preflight)
+    monkeypatch.setattr(study, "run_study", unexpected_run)
+    directory = tmp_path / "campaign"
+    with pytest.raises(RuntimeError, match="volume persistence failed"):
+        study.run_campaign(directory, binary, 6)
+    status = json.loads((directory / "recommendation_runtime" / "status.json").read_text())
+    assert status["state"] == "failed" and status["results"] == {}
+
+
+def test_campaign_preflight_writes_and_reopens_a_small_persistent_run(smp_binary, tmp_path):
+    study._preflight(smp_binary, tmp_path)
+    raw = tmp_path / "preflight" / "storage-check"
+    metadata = json.loads((raw / "metadata.json").read_text())
+    assert metadata["NodeCount"] == 8 and metadata["MaxSimulationStep"] == 2
+    result = json.loads((raw / "observations.json").read_text())
+    assert result["stopped_at"] == 2 and len(result["final_opinions"]) == 8
+    assert np.asarray(TrajectoryReader(str(raw)).channel("opinions")[:]).shape == (3, 8)
 
 
 def test_plan_only_lists_all_designs_without_starting_processes(small_design, monkeypatch, capsys):

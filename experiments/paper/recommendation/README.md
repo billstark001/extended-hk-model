@@ -43,6 +43,8 @@ python -m experiments.paper.recommendation.plot /path/to/dataset
 
 完整 campaign 由一个 Python 调度器依次执行 `staged`、`recommender_variants`，再在门控通过时执行 `staged_timing`；全局最多六个 native worker。输出分别位于工作区下同名目录，campaign 状态写入 `recommendation_runtime/status.json`。也可用 `staged` 等研究名单独运行，但不要同时启动多个六进程调度器。
 
+调度前先在目标卷运行一个 8 节点、2 步的持久化检查，验证原生事件库、轨迹和快照能够写入和重开。检查失败会立即停止，不会继续提交实验任务。SMP 事件库使用 SQLite WAL；运行中的数据库必须连同其 `-wal`、`-shm` 文件保留，正常关闭后再归档。
+
 用 `kill -TERM PID` 中断后，重跑完全相同的命令即可恢复：每臂保留持久快照，已完成且通过记录校验的任务会跳过。恢复必须沿用冻结设计与绑定的二进制 SHA；改变参数或程序后应使用新数据集目录。不要同时对同一数据集启动两个调度器。
 
 分析默认输出到数据目录下的 `analysis/`，生成逐运行指标、轨迹、配对差和逐设定的完成及阶段覆盖率。核心与各敏感性条件的图分别写入 `core_e45_kh0/`、`epsilon_e35_kh0/` 等子目录；不同 `ε` 或 `k_h` 不合并。历史数据可从原始工作区重算到 `stats-v2.db`。旧库由审计命令按场景名和工作区来源读取。

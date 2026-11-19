@@ -188,6 +188,28 @@ def run_study(study, directory, binary, workers, *, stage_evidence=None):
         return workflow.dispatch("run")
 
 
+def _preflight(binary, control):
+    """Check native persistence on the selected volume before scheduling a design."""
+    metadata = {
+        **cfg.generate_tasks("staged")[0]["metadata"],
+        "UniqueName": "storage-check",
+        "NodeCount": 8,
+        "NodeFollowCount": 2,
+        "RecsysCount": 3,
+        "MaxSimulationStep": 2,
+        "CheckpointSteps": [0, 2],
+        "AgentNumber": True,
+        "OpinionSum": True,
+        "RewiringEvent": True,
+        "PostEvent": True,
+        "ViewPostsEvent": False,
+        "ViewPostsDetails": False,
+        "TrajectoryPrecision": {"opinions": "float64", "opinion_sums": "float64"},
+    }
+    for _ in range(2):
+        observe_persistent(binary, control / "preflight", metadata, [0, 2], fixed_horizon=True)
+
+
 def run_campaign(directory, binary, workers):
     """Run both independent designs and release timing only after its evidence gate."""
     from common.io.json import atomic_json
@@ -202,6 +224,8 @@ def run_campaign(directory, binary, workers):
         freeze_manifest(control / "binding.json", {"binary_sha256": sha(binary)})
         outcomes = {}
         try:
+            atomic_json(control / "status.json", {"state": "running", "action": "preflight", "results": outcomes})
+            _preflight(binary, control)
             for study in ("staged", "recommender_variants"):
                 atomic_json(control / "status.json", {"state": "running", "study": study, "results": outcomes})
                 outcomes[study] = run_study(study, directory / study, binary, workers)
