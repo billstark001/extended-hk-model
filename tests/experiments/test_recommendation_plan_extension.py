@@ -1,6 +1,7 @@
 """Plan extension preserves prior task identities, records and recovery files."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -8,7 +9,10 @@ from common.experiments.lifecycle import session_lock
 from common.experiments.plans import freeze_plan, read_plan
 from common.io.json import atomic_json, fingerprint, save_result, sha
 from common.runtime.failures import ProtocolError
-from experiments.paper.recommendation import migrate_plan
+from experiments.paper.recommendation_shared import migration as migrate_plan
+from experiments.paper.recommendation_shared import runtime
+from experiments.paper.recommendation_shared.migration import make_plan
+from experiments.paper.recommender_variants.design import variant_arms
 
 
 def candidate(profile="staged"):
@@ -167,3 +171,141 @@ def test_committed_plan_finishes_a_prepared_receipt_on_retry(tmp_path, monkeypat
     assert next(row for row in result if row["directory"] == str(directory))["state"] == "unchanged"
     assert json.loads(receipt_path.read_text())["state"] == "complete"
     assert (directory / "plan.json").read_bytes() == plan_bytes
+
+
+def test_factorial_extension_preserves_all_existing_tasks_and_records(tmp_path):
+    plan = make_plan("recommender_variants")
+    old_protocol = {key: value for key, value in plan["protocol"].items() if key != "variant_arms"}
+    previous = {**plan, "protocol": old_protocol}
+    saved = freeze_plan(tmp_path / "plan.json", previous)
+    task = previous["tasks"][0]
+    path = tmp_path / "records" / (task["id"] + ".json.gz")
+    save_result(path, {
+        "task_fingerprint": fingerprint(task), "result": {"arms": dict.fromkeys(variant_arms(old_protocol), {})},
+    })
+    original = sha(path)
+    result = migrate_plan.migrate_plans(tmp_path)[0]
+    migrated = read_plan(tmp_path / "plan.json")
+    assert migrated["tasks"] == saved["tasks"] and len(saved["tasks"]) == 496
+    assert result["added_ids"] == [] and result["preserved_records"] == 1
+    assert set(result["added_arms"]) == {
+        "OpinionRandomZeta1Noise0", "OpinionRandomZeta4Noise0", "OpinionRandomZeta4Noise2",
+    }
+    assert sha(path) == original
+    assert len(variant_arms(old_protocol)) == 6 and len(variant_arms(migrated["protocol"])) == 9
+    assert all(migrated["protocol"]["variant_arms"][name] == spec for name, spec in variant_arms(old_protocol).items())
+
+
+@pytest.mark.parametrize("change", ["parameters", "recommender", "removed_arm", "removed_registry"])
+def test_arm_extension_rejects_changes_to_existing_native_jobs(tmp_path, monkeypatch, change):
+    saved = make_plan("recommender_variants")
+    freeze_plan(tmp_path / "plan.json", saved)
+    original = (tmp_path / "plan.json").read_bytes()
+    proposed = make_plan("recommender_variants")
+    arms = proposed["protocol"]["variant_arms"]
+    if change == "parameters":
+        arms["OpinionRandom"]["parameters"]["Steepness"] = 4.0
+    elif change == "recommender":
+        arms["OpinionRandom"]["recommender"] = "StructureRandom"
+    elif change == "removed_arm":
+        arms.pop("OpinionRandomZeta4Noise0")
+    else:
+        proposed["protocol"].pop("variant_arms")
+    monkeypatch.setattr(migrate_plan, "make_plan", lambda profile: proposed)
+    with pytest.raises(ProtocolError, match="arm"):
+        migrate_plan.migrate_plans(tmp_path)
+    assert (tmp_path / "plan.json").read_bytes() == original
+
+
+def bound_variants(tmp_path, monkeypatch):
+    proposed = make_plan("recommender_variants")
+    proposed["tasks"] = proposed["tasks"][:2]
+    original = {**proposed, "protocol": {key: value for key, value in proposed["protocol"].items() if key != "variant_arms"}}
+    directory = tmp_path / "recommender_variants"
+    freeze_plan(directory / "plan.json", original)
+    atomic_json(directory / "runtime" / "binding.json", {"binary_sha256": "old-binary", "stage_evidence": None})
+    for task in original["tasks"]:
+        save_result(directory / "records" / (task["id"] + ".json.gz"), {
+            "task_fingerprint": fingerprint(task), "result": {
+                "arms": {name: {"raw_record": f"raw/{task['id']}/{name}"} for name in variant_arms(original["protocol"])},
+            },
+        })
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.write_bytes(b"paired initialization fixture")
+    monkeypatch.setattr(migrate_plan, "make_plan", lambda profile: proposed)
+    monkeypatch.setattr(runtime, "complete_raw", lambda directory, arm: True)
+    monkeypatch.setattr(runtime, "checkpoint_path", lambda *args: checkpoint)
+    monkeypatch.setattr(runtime, "physical_checkpoint", lambda path: {"state": "same", "rng": "same"})
+    binary = tmp_path / "new-smp"
+    binary.write_bytes(b"new binary fixture")
+    binary.chmod(0o755)
+    return directory, binary
+
+
+def test_binary_migration_preserves_raw_records_and_names_each_generating_binary(tmp_path, monkeypatch):
+    directory, binary = bound_variants(tmp_path, monkeypatch)
+    records = {path: sha(path) for path in (directory / "records").glob("*.json.gz")}
+    with pytest.raises(ProtocolError, match="--smp-binary"):
+        migrate_plan.migrate_plans(directory)
+    changed = migrate_plan.migrate_plans(directory, binary=binary)[0]
+    assert changed["state"] == "updated" and all(sha(path) == digest for path, digest in records.items())
+    binding = json.loads((directory / "runtime" / "binding.json").read_text())
+    assert binding["binary_sha256"] == sha(binary) and binding["stage_evidence"] is None
+    assert {name: digest for name, digest in binding["arm_binary_sha256"].items() if name not in changed["added_arms"]} == {
+        name: "old-binary" for name in variant_arms({"variants": make_plan("recommender_variants")["protocol"]["variants"]})
+    }
+    assert all(binding["arm_binary_sha256"][name] == sha(binary) for name in changed["added_arms"])
+    receipt = json.loads(Path(changed["migration_receipt"]).read_text())
+    assert receipt["old_binding"]["binary_sha256"] == "old-binary" and receipt["new_binding"] == binding
+    assert len(list((directory / "runtime" / "plan_history" / "bindings").glob("*.json"))) == 1
+    assert migrate_plan.migrate_plans(directory, binary=binary)[0]["state"] == "unchanged"
+
+
+@pytest.mark.parametrize("missing", ["record", "raw", "checkpoint", "pairing"])
+def test_binary_replacement_rejects_incomplete_or_unpaired_retained_results(tmp_path, monkeypatch, missing):
+    directory, binary = bound_variants(tmp_path, monkeypatch)
+    if missing == "record":
+        next((directory / "records").glob("*.json.gz")).unlink()
+    elif missing == "raw":
+        monkeypatch.setattr(runtime, "complete_raw", lambda *args: False)
+    elif missing == "checkpoint":
+        monkeypatch.setattr(runtime, "checkpoint_path", lambda *args: tmp_path / "missing")
+    else:
+        states = iter(range(12))
+        monkeypatch.setattr(runtime, "physical_checkpoint", lambda *args: next(states))
+    plan = (directory / "plan.json").read_bytes()
+    binding = (directory / "runtime" / "binding.json").read_bytes()
+    with pytest.raises(ProtocolError):
+        migrate_plan.migrate_plans(directory, binary=binary)
+    assert (directory / "plan.json").read_bytes() == plan
+    assert (directory / "runtime" / "binding.json").read_bytes() == binding
+
+
+@pytest.mark.parametrize("after_write", ["receipt", "plan", "binding"])
+def test_prepared_binary_migration_recovers_both_files_after_interruption(tmp_path, monkeypatch, after_write):
+    directory, binary = bound_variants(tmp_path, monkeypatch)
+    original = migrate_plan.atomic_json
+    interrupted = False
+
+    def failed_write(path, value):
+        nonlocal interrupted
+        original(path, value)
+        selected = (
+            (after_write == "receipt" and value.get("state") == "prepared")
+            or (after_write == "plan" and Path(path) == directory / "plan.json")
+            or (after_write == "binding" and Path(path) == directory / "runtime" / "binding.json")
+        )
+        if selected and not interrupted:
+            interrupted = True
+            raise RuntimeError("migration interruption fixture")
+
+    monkeypatch.setattr(migrate_plan, "atomic_json", failed_write)
+    with pytest.raises(RuntimeError, match="migration interruption fixture"):
+        migrate_plan.migrate_plans(directory, binary=binary)
+    monkeypatch.setattr(migrate_plan, "atomic_json", original)
+    migrate_plan.migrate_plans(directory, binary=binary)
+    binding = json.loads((directory / "runtime" / "binding.json").read_text())
+    assert binding["binary_sha256"] == sha(binary) and len(binding["arm_binary_sha256"]) == 9
+    assert len(read_plan(directory / "plan.json")["protocol"]["variant_arms"]) == 9
+    receipts = (directory / "runtime" / "plan_history").glob("*-to-*.json")
+    assert all(json.loads(path.read_text())["state"] == "complete" for path in receipts)

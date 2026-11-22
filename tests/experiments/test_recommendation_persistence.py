@@ -11,9 +11,12 @@ from smp_bindings.model_state import load_snapshot
 from smp_bindings.trajectory import TrajectoryReader
 
 from common.experiments.plans import freeze_plan
-from common.io.json import fingerprint, read_result, save_result
+from common.io.json import fingerprint, read_result, save_result, sha
 from ehk.micro.scenarios import create_scenario_metadata
 from experiments.paper.recommendation import analysis, design, study
+from experiments.paper.recommendation_shared import runtime
+from experiments.paper.recommender_variants import design as variants_design
+from experiments.paper.recommender_variants import study as variants_study
 
 
 @pytest.fixture(scope="module")
@@ -34,6 +37,7 @@ def small_design(monkeypatch):
         "LATEST_TRIGGER": 16,
     }.items():
         monkeypatch.setattr(design, name, value)
+    monkeypatch.setattr(variants_design, "REFERENCE_HORIZON", 32)
     metadata = create_scenario_metadata(
         "small-paired", influence=0.1, rewiring=0.1, repost_rate=0.1,
         recsys_type=design.REFERENCE, recsys_count=3, post_retain_count=2, max_sim_step=48,
@@ -50,11 +54,16 @@ def _opinion_history(directory, arm):
 
 
 def _render_study(directory, profile, task, result):
-    from experiments.paper.recommendation.plot import analyze
+    if profile == "recommender_variants":
+        from experiments.paper.recommender_variants.plot import analyze
+        protocol = variants_design.design_protocol()
+    else:
+        from experiments.paper.recommendation.plot import analyze
+        protocol = design.design_protocol(profile)
 
     freeze_plan(directory / "plan.json", {
         "schema": design.DESIGN_VERSION, "study": "paper_recommendation", "profile": profile,
-        "protocol": design.design_protocol(profile), "tasks": [task],
+        "protocol": protocol, "tasks": [task],
     })
     save_result(directory / "records" / (task["id"] + ".json.gz"), {
         "task_fingerprint": fingerprint(task), "result": result,
@@ -79,15 +88,15 @@ def test_staged_arms_replay_identical_prefix_and_keep_complete_records(
         start = stage["checkpoint"]["step"]
         expected = {"hold", "switch", "bridge", "hide_reposts"} if phase == "late" else {"hold", "switch"}
         assert set(stage["arms"]) == expected
-        source = study._checkpoint_path(tmp_path, small_design, "reference", "reference", start)
+        source = runtime.checkpoint_path(tmp_path, small_design, "reference", "reference", start)
         source_state = load_snapshot(str(source))
         for name, arm in stage["arms"].items():
             raw = tmp_path / arm["raw_record"]
-            assert study._raw_complete(tmp_path, arm)
+            assert runtime.complete_raw(tmp_path, arm)
             history = _opinion_history(tmp_path, arm)
             assert history.shape == (start + design.FOLLOWUP + 1, 10)
             np.testing.assert_array_equal(history[: start + 1], reference[: start + 1])
-            branch = study._checkpoint_path(tmp_path, small_design, phase, name, start)
+            branch = runtime.checkpoint_path(tmp_path, small_design, phase, name, start)
             assert load_snapshot(str(branch)) == source_state
             assert arm["endpoints"][0]["step"] == start
             assert arm["endpoints"][0]["relative_step"] == 0
@@ -103,13 +112,13 @@ def test_staged_arms_replay_identical_prefix_and_keep_complete_records(
     _render_study(tmp_path, "staged", small_design, result)
 
 
-def test_variants_run_all_six_policies_from_one_initial_state(smp_binary, tmp_path, small_design):
-    result = study.run_task("recommender_variants", smp_binary, tmp_path, small_design)
+def test_variants_and_factorial_arms_share_initial_state_and_rng(smp_binary, tmp_path, small_design):
+    result = variants_study.run_task(smp_binary, tmp_path, small_design)
     arms = result["arms"]
-    assert set(arms) == {"Opinion", "OpinionM9", "OpinionRandom", "Structure", "StructureM9", "StructureRandom"}
+    assert set(arms) == set(variants_design.variant_arms()) and len(arms) == 9
     initial = []
     for policy, arm in arms.items():
-        assert study._raw_complete(tmp_path, arm)
+        assert runtime.complete_raw(tmp_path, arm)
         history = _opinion_history(tmp_path, arm)
         assert history.shape == (33, 10)
         initial.append(history[0])
@@ -117,8 +126,84 @@ def test_variants_run_all_six_policies_from_one_initial_state(smp_binary, tmp_pa
         assert sum(point["exposure"]["updates"] for point in arm["endpoints"]) == 320
         if policy != design.REFERENCE:
             assert arm["switch_step"] == 0
+        parameters = json.loads((tmp_path / arm["raw_record"] / "metadata.json").read_text())["RecSysParams"]
+        assert parameters == {**small_design["metadata"]["RecSysParams"], **variants_design.variant_arms()[policy]["parameters"]}
+        checkpoint = runtime.checkpoint_path(tmp_path, small_design, "full", policy, 0)
+        baseline = runtime.checkpoint_path(tmp_path, small_design, "full", "OpinionRandom", 0)
+        assert load_snapshot(str(checkpoint)) == load_snapshot(str(baseline))
     assert all(np.array_equal(row, initial[0]) for row in initial)
     _render_study(tmp_path, "recommender_variants", small_design, result)
+
+
+def test_factorial_extension_reuses_six_arms_and_saves_partial_progress(
+    smp_binary, tmp_path, small_design, monkeypatch,
+):
+    from experiments.paper.recommendation_shared.migration import migrate_plans
+
+    monkeypatch.setattr(variants_design, "generate_tasks", lambda profile=None: [small_design])
+    original_plan = variants_study.make_plan()
+    original_plan["protocol"].pop("variant_arms")
+    freeze_plan(tmp_path / "plan.json", original_plan)
+    previous = variants_study.run_task(
+        smp_binary, tmp_path, small_design, protocol=original_plan["protocol"],
+    )
+    record_path = tmp_path / "records" / (small_design["id"] + ".json.gz")
+    save_result(record_path, {"task_fingerprint": fingerprint(small_design), "result": previous})
+    original_files = {
+        path: sha(path)
+        for arm in previous["arms"].values()
+        for path in (tmp_path / arm["raw_record"]).iterdir() if path.is_file()
+    }
+    migrate_plans(tmp_path)
+    observe = runtime.observe
+    executed = []
+
+    def interrupted(binary, directory, task, phase, arm, *args, **kwargs):
+        executed.append(arm)
+        if len(executed) == 2:
+            raise KeyboardInterrupt("factorial interruption fixture")
+        return observe(binary, directory, task, phase, arm, *args, **kwargs)
+
+    monkeypatch.setattr(runtime, "observe", interrupted)
+    with pytest.raises(KeyboardInterrupt, match="factorial interruption fixture"):
+        variants_study.run_study(tmp_path, smp_binary, 1)
+    partial = read_result(record_path)["result"]
+    assert len(partial["arms"]) == 7
+    assert all(partial["arms"][arm] == value for arm, value in previous["arms"].items())
+    status = json.loads((tmp_path / "runtime" / "status.json").read_text())
+    assert status["completed"] == 0 and status["missing"] == [small_design["id"]]
+    executed.clear()
+
+    def resumed(binary, directory, task, phase, arm, *args, **kwargs):
+        executed.append(arm)
+        return observe(binary, directory, task, phase, arm, *args, **kwargs)
+
+    monkeypatch.setattr(runtime, "observe", resumed)
+    complete = variants_study.run_study(tmp_path, smp_binary, 1)
+    assert complete["completed"] == 1 and complete["missing"] == []
+    assert executed == ["OpinionRandomZeta4Noise0", "OpinionRandomZeta4Noise2"]
+    assert all(sha(path) == digest for path, digest in original_files.items())
+    assert len(read_result(record_path)["result"]["arms"]) == 9
+    executed.clear()
+    variants_study.run_study(tmp_path, smp_binary, 1)
+    assert executed == []
+
+
+def test_retained_arm_cannot_be_recomputed_with_a_replacement_binary(tmp_path, small_design, monkeypatch):
+    binary = tmp_path / "smp"
+    binary.write_bytes(b"replacement binary fixture")
+    monkeypatch.setattr(runtime, "complete_raw", lambda *args: False)
+
+    def unexpected_native(*args, **kwargs):
+        pytest.fail("retained arm was recomputed with a different native binary")
+
+    monkeypatch.setattr(runtime, "observe", unexpected_native)
+    with pytest.raises(ValueError, match="original binary"):
+        variants_study.run_task(
+            binary, tmp_path, small_design,
+            existing={"arms": {"Opinion": {"raw_record": "raw/missing"}}},
+            arm_binary_sha256=dict.fromkeys(variants_design.variant_arms(), "original-binary"),
+        )
 
 
 @pytest.mark.parametrize("passed", [False, True])
@@ -136,7 +221,7 @@ def test_campaign_releases_timing_only_after_stage_gate(tmp_path, monkeypatch, p
     monkeypatch.setattr(analysis, "read_study", lambda directory, profile: ({"tasks": []}, {}))
     monkeypatch.setattr(analysis, "stage_gate", lambda tasks, records: {"passed": passed})
     result = study.run_campaign(tmp_path / "campaign", binary, 6)
-    assert [row[0] for row in calls] == ["staged", "recommender_variants", *(["staged_timing"] if passed else [])]
+    assert [row[0] for row in calls] == ["staged", *(["staged_timing"] if passed else [])]
     assert all(workers == 6 for _, _, workers in calls)
     assert result["staged_timing"]["state"] == ("complete" if passed else "deferred")
     gate = json.loads((tmp_path / "campaign" / "recommendation_runtime" / "timing_gate.json").read_text())
@@ -144,17 +229,23 @@ def test_campaign_releases_timing_only_after_stage_gate(tmp_path, monkeypatch, p
 
 
 def test_study_validates_raw_cache_and_recovers_missing_summary(smp_binary, tmp_path, small_design, monkeypatch):
-    monkeypatch.setattr(design, "generate_tasks", lambda profile: [small_design])
-    first = study.run_study("recommender_variants", tmp_path, smp_binary, 1)
+    monkeypatch.setattr(variants_design, "generate_tasks", lambda profile=None: [small_design])
+    first = variants_study.run_study(tmp_path, smp_binary, 1)
     assert first["completed"] == 1 and first["missing"] == []
     entry = read_result(tmp_path / "records" / (small_design["id"] + ".json.gz"))
     raw = tmp_path / entry["result"]["arms"]["Opinion"]["raw_record"]
     complete = raw / "observations.json"
     original = complete.read_bytes()
     complete.unlink()
-    second = study.run_study("recommender_variants", tmp_path, smp_binary, 1)
+    second = variants_study.run_study(tmp_path, smp_binary, 1)
     assert second["completed"] == 1 and complete.read_bytes() == original
     assert second["records"][0]["state"] == "complete"
+    entry["result"]["arms"]["Opinion"]["binary_sha256"] = "conflicting-binary-fixture"
+    save_result(tmp_path / "records" / (small_design["id"] + ".json.gz"), entry)
+    rejected = variants_study.run_study(tmp_path, smp_binary, 1)
+    assert rejected["completed"] == 0 and rejected["missing"] == [small_design["id"]]
+    assert rejected["records"][0]["state"] == "failed"
+    assert "binary provenance" in rejected["records"][0]["error"]
 
 
 def test_campaign_writes_interrupted_status_before_returning_control(tmp_path, monkeypatch):

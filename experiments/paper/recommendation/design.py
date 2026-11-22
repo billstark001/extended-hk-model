@@ -5,7 +5,8 @@ from itertools import product
 from ehk.metrics.pathway import EXCESS_THRESHOLD, OBSERVATION_INTERVAL, SEPARATION_THRESHOLD
 from ehk.micro.scenarios import create_scenario_metadata
 
-STUDIES = ("staged", "staged_timing", "recommender_variants")
+STUDIES = ("staged", "staged_timing")
+SEED_NAMESPACES = {"staged": 0, "staged_timing": 1}
 DESIGN_VERSION = 3
 REFERENCE = "OpinionM9"
 SWITCH = "StructureM9"
@@ -35,10 +36,8 @@ STAGE_CHECKPOINTS = (0, 16, 32, 64, 128, 256, 512, 768, 1024, 1536, REFERENCE_HO
 STAGES = ("early", "middle", "late")
 LATE_ACTIVITY = {"opinion_shift": 1e-3, "rewires": 1e-2, "earliest_step": 128, "intervals": 2}
 MIN_STAGE_EFFECT = 0.05
-VARIANTS = {
-    "Opinion": ("Opinion", "OpinionM9", "OpinionRandom"),
-    "Structure": ("Structure", "StructureM9", "StructureRandom"),
-}
+
+
 RECOMMENDER_PARAMS = {
     "MixRate": 0.1,
     "NoiseStd": 0.1,
@@ -58,7 +57,9 @@ def observation_steps(horizon: int) -> list[int]:
 
 
 def generate_tasks(study: str) -> list[dict]:
-    seed_namespace = STUDIES.index(study)
+    if study not in STUDIES:
+        raise ValueError(f"unknown intervention study: {study}")
+    seed_namespace = SEED_NAMESPACES[study]
     tasks = []
     coordinates = [
         (setting, repost, "core", CORE_EPSILON, CORE_HISTORY)
@@ -106,6 +107,9 @@ def generate_tasks(study: str) -> list[dict]:
 
 
 def design_protocol(study: str) -> dict:
+    if study not in STUDIES:
+        raise ValueError(f"unknown intervention study: {study}")
+    # Preserve legacy campaign metadata in frozen plans; it no longer schedules variants.
     common = {
         "replicates": REPLICATES,
         "settings": [list(setting) for setting in SETTINGS],
@@ -142,8 +146,6 @@ def design_protocol(study: str) -> dict:
         "reference_horizon": REFERENCE_HORIZON,
         "terminal_major_mass": 0.02,
     }
-    if study == "recommender_variants":
-        return {**common, "variants": {family: list(arms) for family, arms in VARIANTS.items()}}
     return {
         **common,
         "reference": REFERENCE,

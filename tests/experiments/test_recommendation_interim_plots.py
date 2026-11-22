@@ -8,12 +8,13 @@ import pandas as pd
 import pytest
 
 from experiments.paper.recommendation import plot
-from experiments.paper.recommendation.analysis import EFFECTS
+from experiments.paper.recommendation_shared import plot as shared_plot
+from experiments.paper.recommendation_shared.analysis import EFFECTS
 
 
 def test_coverage_distinguishes_unplanned_and_unfinished_cells(tmp_path, monkeypatch):
     captured = []
-    monkeypatch.setattr(plot, "plt_save_and_close", lambda fig, path: captured.append(fig))
+    monkeypatch.setattr(shared_plot, "plt_save_and_close", lambda fig, path: captured.append(fig))
     coverage = pd.DataFrame([
         {"setting": "a", "influence": 0.01, "rewiring": 0.3, "epsilon": 0.45, "history": 0,
          "repost": p, "planned": 16, "completed": n}
@@ -22,7 +23,7 @@ def test_coverage_distinguishes_unplanned_and_unfinished_cells(tmp_path, monkeyp
         {"setting": "b", "influence": 0.05, "rewiring": 0.05, "epsilon": 0.35, "history": 0,
          "repost": 0.1, "planned": 16, "completed": 2}
     ])
-    plot.plot_coverage(coverage, tmp_path)
+    shared_plot.plot_coverage(coverage, tmp_path)
     fig = captured[0]
     try:
         matrix = fig.axes[0].images[0].get_array()
@@ -59,14 +60,14 @@ def test_exposure_plot_includes_inserted_bridge_slots_and_all_slot_total(tmp_pat
 
 def test_effects_select_one_parameter_cell_without_pooling(tmp_path, monkeypatch):
     captured = []
-    monkeypatch.setattr(plot, "plt_save_and_close", lambda fig, path: captured.append(fig))
+    monkeypatch.setattr(shared_plot, "plt_save_and_close", lambda fig, path: captured.append(fig))
     contrasts = pd.DataFrame([
         {"setting": setting, "repost": repost, "epsilon": 0.45, "history": 0, "stage": "late",
          "arm": "switch", "metric": metric, "n": 16, "mean": mean, "lo": mean - 0.01, "hi": mean + 0.01}
         for setting, repost, mean in (("all", "all", 0.4), ("a", 0.1, -0.2), ("b", 0.1, 0.8))
-        for metric in plot.METRICS
+        for metric in shared_plot.METRICS
     ])
-    plot.plot_effects(contrasts, tmp_path, ("late",), stage_axis=True, setting="a", repost=0.1)
+    shared_plot.plot_effects(contrasts, tmp_path, ("late",), stage_axis=True, setting="a", repost=0.1)
     fig = captured[0]
     try:
         assert float(fig.axes[0].lines[1].get_xdata()[0]) == pytest.approx(-0.2)
@@ -93,9 +94,9 @@ def test_interim_analyze_pools_only_complete_cells_and_keeps_source_hashes(tmp_p
     records = {identifier: {"stages": {"late": {}}} for identifier in ("a0", "a1", "b0")}
     frame = pd.DataFrame(rows)
     monkeypatch.setattr(plot, "read_study", lambda directory: (plan, records))
-    monkeypatch.setattr(plot, "study_tables", lambda plan, records: (frame, frame))
+    monkeypatch.setattr(plot, "study_tables", lambda plan, records, **kwargs: (frame, frame))
     monkeypatch.setattr(plot, "reference_tables", lambda plan, records: (pd.DataFrame(), pd.DataFrame()))
-    monkeypatch.setattr(plot, "plot_coverage", lambda *args: None)
+    monkeypatch.setattr(shared_plot, "plot_coverage", lambda *args: None)
     monkeypatch.setattr(plot, "plot_late_opinions", lambda *args, **kwargs: None)
     scopes = []
     monkeypatch.setattr(plot, "_plot_scope", lambda study, sample, *args, **kwargs:

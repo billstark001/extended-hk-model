@@ -5,8 +5,8 @@ import numpy as np
 
 from common.plotting import plt_figure, plt_save_and_close
 
+from ..recommendation_shared.plot import label, measurement_label
 from . import design as cfg
-from .plot import label, measurement_label
 
 
 def plot_bridge_replicates(runs, output, settings):

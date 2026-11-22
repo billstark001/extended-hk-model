@@ -1,1 +1,1 @@
-"""Paired recommendation interventions and recommender variants."""
+"""Matched checkpoint and online-timing recommendation interventions."""

@@ -1,17 +1,20 @@
-# EHK 推荐实验
+# EHK 分阶段推荐干预实验
+
+本包维护 `staged` 与 `staged_timing` 的设计、调度和分析。完整轨迹的推荐实现比较已独立到 [`recommender_variants`](../recommender_variants/README.md)；持久运行、配对统计和数据包导出等底层代码放在 [`recommendation_shared`](../recommendation_shared/README.md)。
+
+这次拆分只调整代码归属和入口。已有数据目录、计划 schema、task ID、种子及逐臂二进制来源继续沿用。冻结计划中的历史 `campaign.order` 字段保留以维持指纹；实际调度顺序由当前入口决定。
 
 ## 设计
 
 核心设计取九个 `(α, q)` 格点：原有的 `(0.01, 0.30)`、`(0.03, 0.10)`、`(0.05, 0.05)`、`(0.10, 0.03)`、`(0.30, 0.01)`，以及新增的 `(0.01, 0.10)`、`(0.03, 0.30)`、`(0.10, 0.01)`、`(0.30, 0.03)`，各取 `p=0, 0.1, 0.25`。历史主扫描每个独立设定有 12 个重复，本轮每个设定有 16 个独立初态，共 432 组。使用 500 个节点、初始期望出度 15、`ε=0.45`、十个推荐位与 `k_h=0`。组内各臂共享图、意见、帖和初始化 RNG。
 
-`staged` 与 `recommender_variants` 各增加四项单因素敏感性：仅在 `(α,q,p)=(0.05,0.05,0.1)`，分别取 `ε=0.35/0.55`（保留 `k_h=0`）及 `k_h=2/6`（保留 `ε=0.45`）。每项仍有 16 个重复，并沿用对应核心组的初始化种子；不交叉扩展半径和历史长度。两项研究各有 496 组。`staged_timing` 只包含 432 个核心组，使用独立于阶段研究的初始化种子。设定标识、表格和图均区分半径、历史长度及敏感性类别。
+`staged` 增加四项单因素敏感性：仅在 `(α,q,p)=(0.05,0.05,0.1)`，分别取 `ε=0.35/0.55`（保留 `k_h=0`）及 `k_h=2/6`（保留 `ε=0.45`）。每项仍有 16 个重复，并沿用对应核心组的初始化种子；不交叉扩展半径和历史长度，共 496 组。`staged_timing` 只包含 432 个核心组，使用独立于阶段研究的初始化种子。设定标识、表格和图区分半径、历史长度及敏感性类别。
 
 任务按 replicate 外层、参数格点内层排列，先遍历所有格点的第 0 个重复，再遍历第 1 个重复。新增格点追加到原有种子坐标之后，已有任务的全部字段和每臂运行配置不变。恢复时先登记通过原始记录检查的全部缓存，再按新顺序调度未完成任务；并行完成次序仍可因各格点耗时不同而改变。
 
 - `staged` 用 OpinionM9 生成参考轨迹。每 16 步观测一次，在设计表指定的候选步写检查点。早期取两项指标都低于阈值的首个候选点。中期取早期之后至少一项指标过线、且尚未符合晚期判据的首个候选点。晚期从第 128 步起，取最近两个观测间隔的每次更新平均绝对意见位移不超过 0.001、完成换边率不超过 0.01 的首个候选点。每个可用检查点配对比较保持 OpinionM9 和切换到 StructureM9 后的 512 步。两臂请求相同的推荐位与探索位。阶段缺失计入覆盖率。
 - 晚期另有两项诊断。桥接臂在可用时提供一条进入置信范围的跨阵营当前原创帖，可以填空或替换末位。转发抑制臂在 `p>0` 下屏蔽由转发产生的候选展示位置（含用户转发自己的旧帖），继续按相同的 `p` 生成转发。主对照使用各政策自己的候选生成和排序。
 - `staged_timing` 使用独立初态。阶段研究的 432 个核心组全部完成后，只用核心组中同时具有早、晚检查点的同组重复计算「晚期切换效应减早期切换效应」。512 步意见分离效应差的绝对均值至少为 0.05 且 95% t 区间排除零时进入本研究；门控未通过就不运行 timing。敏感性组不进入门控。两种触发均切换到 StructureM9 恰好 512 步，再恢复 OpinionM9。固定触发点为 128 步，状态触发取过量同信首次达到 0.10 的时刻，至 1536 步仍未达线就触发。另有两种一直使用的政策作为对照。状态触发相对于固定触发的主要目标是降低第 2048 步的意见分离。
-- `recommender_variants` 将 Opinion、OpinionM9、OpinionRandom、Structure、StructureM9 和 StructureRandom 从同一个初始检查点分别运行 2048 步。无后缀版本按各自分数排序，M9 请求一个均匀探索位和九个排序位，`Random` 后缀按各自的分数加权抽样。加权版本沿用默认噪声和权重，独立均匀混合权重设为零。图表比较同族版本与 M9 的差异，也比较同后缀的 Opinion 与 Structure。
 
 ## 指标
 
@@ -33,7 +36,6 @@
 ```sh
 python -m experiments.paper.run staged --plan-only
 python -m experiments.paper.run staged_timing --plan-only
-python -m experiments.paper.run recommender_variants --plan-only
 ```
 
 在 SMP 仓库运行 `make build build-probe`，分别构建持久模拟器与离线测量程序。`SMP_BINARY_PATH` 或 `--smp-binary` 配置模拟器，`SMP_PROBE_BINARY` 单独配置离线程序。在 EHK 仓库选用 `sim_ws.json` 里的工作区名。
@@ -43,14 +45,14 @@ python -m experiments.paper.run recommendation --workspace ssd_tmp --concurrency
 python -m experiments.paper.recommendation.plot /path/to/dataset
 ```
 
-完整 campaign 由一个 Python 调度器依次执行 `staged`、`recommender_variants`，再在门控通过时执行 `staged_timing`；全局最多六个 native worker。输出分别位于工作区下同名目录，campaign 状态写入 `recommendation_runtime/status.json`。也可用 `staged` 等研究名单独运行，但不要同时启动多个六进程调度器。
+`recommendation` campaign 由一个 Python 调度器执行 `staged`，再在门控通过时执行 `staged_timing`；全局最多六个 native worker。输出分别位于工作区下同名目录，campaign 状态写入 `recommendation_runtime/status.json`。完整轨迹实现比较通过独立的 `recommender_variants` 入口运行，不参与该 campaign 或时机门控。也可用 `staged` 或 `staged_timing` 研究名单独运行，但不要同时启动多个六进程调度器。
 
 调度前先在目标卷运行一个 8 节点、2 步的持久化检查，验证原生事件库、轨迹和快照能够写入和重开。检查失败会立即停止，不会继续提交实验任务。SMP 事件库使用 SQLite WAL；运行中的数据库必须连同其 `-wal`、`-shm` 文件保留，正常关闭后再归档。
 
-本次从五个核心格点扩为九个格点时，先中断旧调度器，再显式扩展冻结计划。迁移命令会验证每个旧任务及结果指纹，保留旧计划与迁移凭据，不修改结果、原始记录或二进制绑定。普通运行入口仍拒绝未经迁移的设计变化。
+扩展格点时，先确保调度器已经停止，再显式扩展冻结计划。迁移命令会验证每个旧任务及结果指纹，保留旧计划与迁移凭据，结果和原始记录保持原样。普通运行入口仍拒绝未经迁移的设计变化。共享迁移入口支持工作区根目录和单项研究；OpinionRandom 新增臂及二进制来源的迁移见[独立实现比较文档](../recommender_variants/README.md)。
 
 ```sh
-python -m experiments.paper.recommendation.migrate_plan /Volumes/Cache/ehk_cache/run
+python -m experiments.paper.recommendation_shared.migration /Volumes/Cache/ehk_cache/run
 ```
 
 用 `kill -TERM PID` 中断后，重跑完全相同的命令即可恢复：每臂保留持久快照，已完成且通过记录校验的任务会跳过。恢复必须沿用冻结设计与绑定的二进制 SHA；改变参数或程序后应使用新数据集目录。不要同时对同一数据集启动两个调度器。
@@ -71,17 +73,18 @@ python -m experiments.paper.main_scan.plot
 
 持久化 SMP 运行用 `ViewPostsDetails=true` 采集逐槽详情。仅设置 `ViewPostsEvent=true` 时记录原有置信分组。旧 ViewTweets 表先用 `smp-migrate events` 显式迁移。
 
-## Portable manuscript figures
+## 可移植论文图
 
-`python -m experiments.paper.recommendation.manuscript` separates `export`,
-`prepare` and `compose`. Export authenticates completed summaries and computes CSV
-analysis into a separate local bundle; prepare reads only that bundle and saves
-self-contained `plot_data.json` plus an editable `layout.json`. Compose reads only
-these two files, so the source dataset and data disk may be disconnected. The
-completed 496-task study, commands and figure scope are documented in the
-manuscript's `artifacts/ehk_staged_interventions_20261119/README.md`. The same
-export/prepare/compose commands refresh the figures; none launch a
-simulation. Full records remain under model `outputs/`, while the manuscript
-retains the compact plot data, vector figures, layout and provenance. The optional
-`panels` command additionally exports individual SVG/PDF/PNG files; composition
-does not read them. Older directories with `panels/specs.json` remain supported.
+共享导出命令校验并复制已有摘要，在独立本地数据包中计算压缩 CSV 表格；它按冻结计划的 `profile` 选择阶段或实现比较的分析器，不启动模拟。
+
+```sh
+python -m experiments.paper.recommendation_shared.bundle export \
+  --dataset /path/to/staged --output /path/to/bundle --require-complete
+python -m experiments.paper.recommendation.manuscript prepare \
+  --bundle /path/to/bundle --output /path/to/plots
+python -m experiments.paper.recommendation.manuscript compose --directory /path/to/plots
+```
+
+阶段图的 `prepare` 仅从本地数据包生成自包含的 `plot_data.json` 与可编辑 `layout.json`；`compose` 只读取这两个文件，原始数据卷可以断开。`panels` 可额外导出单面板 SVG/PDF/PNG，整图组合不读取面板图片。完整记录保留在模型仓库的 `outputs/`，论文只需紧凑绘图数据、布局、矢量图和来源信息。
+
+阶段 `manuscript` 仅提供 `prepare`、`panels` 和 `compose`。统一导出与迁移入口见 [`recommendation_shared`](../recommendation_shared/README.md)，因子比较图使用 [`recommender_variants`](../recommender_variants/README.md) 的独立命令。

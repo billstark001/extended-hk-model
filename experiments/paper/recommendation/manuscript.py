@@ -1,15 +1,7 @@
-"""Export observations, prepare plot data, and compose portable manuscript figures.
-
-Only export reads the dataset. Preparation authenticates the local bundle;
-composition reads its self-contained plot data and an editable layout.
-"""
+"""Prepare and compose portable figures for staged recommendation interventions."""
 
 import argparse
-import gzip
 import json
-import shutil
-import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -20,11 +12,12 @@ from matplotlib.lines import Line2D
 
 from common.io.json import atomic_json, sha
 from common.plotting import setup_paper_params
-from common.plotting.figures import save
+from experiments.paper.recommendation_shared import analysis as shared_analysis
+from experiments.paper.recommendation_shared import bundle as shared_bundle
+from experiments.paper.recommendation_shared import plot as shared_plot
 
 from .analysis import coverage_by_setting, read_study
 from .design import CROSS_SETTINGS
-from .plot import analyze, label
 
 SCHEMA = 1
 CASES = (
@@ -43,121 +36,18 @@ INSERTED_COLOR = "#2171b5"
 ZERO_INSERTION_COLOR = "#777777"
 
 
-def _compress_csv(path):
-    with path.open("rb") as source, path.with_suffix(".csv.gz").open("wb") as target:
-        with gzip.GzipFile(filename="", mode="wb", fileobj=target, mtime=0) as stream:
-            shutil.copyfileobj(source, stream)
-
-
-def _recover_data(output):
-    current, backup = output / "data", output / ".previous-data"
-    if not backup.exists():
-        return
-    if current.exists():
-        manifest = json.loads((current / "manifest.json").read_text())
-        if manifest["schema"] != SCHEMA or any(sha(current / name) != expected for name, expected in manifest["files"].items()):
-            raise ValueError("interrupted portable-data replacement requires inspection")
-        shutil.rmtree(backup)
-    else:
-        backup.rename(current)
-
-
-def export_bundle(dataset, output):
-    """Copy authenticated completed summaries, then calculate local figure tables."""
-    dataset, output = Path(dataset).resolve(), Path(output).resolve()
-    if dataset == output or dataset in output.parents or output in dataset.parents:
-        raise ValueError("the portable bundle must be separate from the source dataset")
-    plan, records = read_study(dataset, "staged")
-    if not records:
-        raise ValueError("no completed staged records")
-    output.mkdir(parents=True, exist_ok=True)
-    _recover_data(output)
-    stage = Path(tempfile.mkdtemp(prefix=".export-", dir=output))
-    try:
-        study = stage / "study"
-        (study / "records").mkdir(parents=True)
-        shutil.copy2(dataset / "plan.json", study / "plan.json")
-        for identifier in records:
-            shutil.copy2(dataset / "records" / f"{identifier}.json.gz", study / "records" / f"{identifier}.json.gz")
-        for relative in ("snapshot.json", "runtime/binding.json"):
-            source = dataset / relative
-            if source.is_file():
-                (study / relative).parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, study / relative)
-        tables = stage / "tables"
-        analyze(study, tables, make_figures=False)
-        for path in tables.glob("*.csv"):
-            _compress_csv(path)
-            path.unlink()
-        manifest = {
-            "schema": SCHEMA, "exported_at_utc": datetime.now(timezone.utc).isoformat(),
-            "source_dataset": str(dataset), "plan_fingerprint": plan["plan_fingerprint"],
-            "completed": len(records), "planned": len(plan["tasks"]),
-            "files": {str(path.relative_to(stage)): sha(path) for path in sorted(stage.rglob("*")) if path.is_file()},
-        }
-        atomic_json(stage / "manifest.json", manifest)
-        backup = output / ".previous-data"
-        current = output / "data"
-        if current.exists():
-            current.rename(backup)
-        try:
-            stage.rename(current)
-        except BaseException:
-            if backup.exists():
-                backup.rename(current)
-            raise
-        shutil.rmtree(backup, ignore_errors=True)
-    finally:
-        if stage.exists():
-            shutil.rmtree(stage)
-    return manifest
-
-
-def _bundle_manifest(bundle):
-    _recover_data(bundle)
-    manifest = json.loads((bundle / "data/manifest.json").read_text())
-    if manifest["schema"] != SCHEMA:
-        raise ValueError("unsupported manuscript data schema")
-    for relative, expected in manifest["files"].items():
-        path = bundle / "data" / relative
-        if not path.resolve().is_relative_to((bundle / "data").resolve()) or sha(path) != expected:
-            raise ValueError(f"portable data changed: {relative}")
-    return manifest
-
-
-def paired_effects(runs, arm, control):
-    """Join within task and checkpoint, rejecting ambiguous or mismatched pairs."""
-    selected = runs[runs["arm"].isin((arm, control))]
-    keys = ["task_id", "stage"]
-    if selected.duplicated([*keys, "arm"]).any():
-        raise ValueError("duplicate task/stage/arm observations")
-    left, right = (selected[selected["arm"] == name].set_index(keys) for name in (arm, control))
-    joined = left.join(right, how="inner", lsuffix="_arm", rsuffix="_control")
-    for name in ("start_step", "start_separation", "start_excess"):
-        a, b = joined[name + "_arm"], joined[name + "_control"]
-        if not ((a == b) | (a.isna() & b.isna())).all():
-            raise ValueError(f"paired branches have different {name}")
-    result = joined[[name + "_arm" for name in (
-        "setting", "sensitivity", "influence", "rewiring", "repost", "replicate", "epsilon", "history",
-        "bridge_shown", "cross_confident", "updates",
-    )]].rename(columns=lambda name: name.removesuffix("_arm"))
-    for name in ("separation", "excess"):
-        result["delta_" + name] = joined["end_" + name + "_arm"] - joined["end_" + name + "_control"]
-    return result.reset_index()
-
-
 def _rows(frame):
     return frame.astype(object).where(pd.notna(frame), None).to_dict(orient="records")
 
 
 def panel_specifications(bundle):
-    manifest = _bundle_manifest(bundle)
+    manifest = shared_bundle._bundle_manifest(bundle)
     plan, records = read_study(bundle / "data/study", "staged")
     thresholds = {"separation": plan["protocol"]["separation_threshold"],
                   "excess_concordance": plan["protocol"]["excess_threshold"]}
     runs = pd.read_csv(bundle / "data/tables/runs.csv.gz", float_precision="round_trip")
     core = runs[runs["sensitivity"] == "core"]
-    native, bridge = paired_effects(core, "switch", "hold"), paired_effects(core, "bridge", "switch")
+    native, bridge = shared_analysis.paired_effects(core, "switch", "hold"), shared_analysis.paired_effects(core, "bridge", "switch")
     settings = sorted({
         (task["metadata"]["HKParams"]["Influence"], task["metadata"]["HKParams"]["RewiringRate"])
         for task in plan["tasks"] if task["sensitivity"] == "core"
@@ -388,7 +278,7 @@ def _draw_panel(fig, ax, spec, style, *, compact=False):
             if arm not in spec["arms"]:
                 continue
             data = spec["arms"][arm]
-            ax.plot(data["step"], data["value"], label=label(arm), color=style["colors"][arm],
+            ax.plot(data["step"], data["value"], label=shared_plot.label(arm), color=style["colors"][arm],
                     **CASE_STYLES[arm], markersize=2.8, markeredgewidth=0.65,
                     markerfacecolor="white" if arm == "hold" else style["colors"][arm])
         ax.axhline(spec["threshold"], color="0.6", ls=":", lw=0.8)
@@ -403,12 +293,6 @@ def _draw_panel(fig, ax, spec, style, *, compact=False):
             ax.legend(fontsize=7)
         _decorate(ax)
     ax.set_title(spec["title"], fontsize=8)
-
-
-def _save_panel(fig, path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path.with_suffix(".svg"), bbox_inches="tight")
-    save(fig, path)
 
 
 def prepare(bundle, output):
@@ -435,7 +319,7 @@ def render_panels(bundle, output):
     for name, spec in specs["panels"].items():
         fig, ax = plt.subplots(figsize=(4.0, 4.8 if spec["kind"] == "policy" else 2.8), layout="constrained")
         _draw_panel(fig, ax, spec, style)
-        _save_panel(fig, output / "panels" / name)
+        shared_plot._save_panel(fig, output / "panels" / name)
     atomic_json(output / "panels/manifest.json", {
         "schema": SCHEMA, "data_manifest_sha256": specs["data_manifest_sha256"],
         "specifications_sha256": sha(output / "panels/specs.json"), "renderer_sha256": sha(__file__),
@@ -500,9 +384,9 @@ def compose(directory):
             handles = [Line2D([], [], color=style["colors"][arm],
                               **{key: value for key, value in CASE_STYLES[arm].items() if key != "markevery"},
                               markersize=3, markerfacecolor="white" if arm == "hold" else style["colors"][arm],
-                              label=label(arm)) for arm in CASE_ARMS]
+                              label=shared_plot.label(arm)) for arm in CASE_ARMS]
             fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.01), ncol=3, fontsize=7)
-        _save_panel(fig, directory / "figures" / name)
+        shared_plot._save_panel(fig, directory / "figures" / name)
     atomic_json(directory / "figure_manifest.json", {
         "schema": SCHEMA, "completed": specs["completed"], "planned": specs["planned"],
         "data_manifest_sha256": specs["data_manifest_sha256"],
@@ -517,9 +401,6 @@ def compose(directory):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    export = commands.add_parser("export", help="Freeze completed summaries into a local portable bundle")
-    export.add_argument("--dataset", type=Path, required=True)
-    export.add_argument("--output", type=Path, required=True)
     preparation = commands.add_parser("prepare", help="Save compact plot data and layout without independent panel files")
     preparation.add_argument("--bundle", type=Path, required=True)
     preparation.add_argument("--output", type=Path, required=True)
@@ -529,9 +410,7 @@ def main(argv=None):
     composition = commands.add_parser("compose", help="Compose figures from panel data and layout only")
     composition.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args(argv)
-    if args.command == "export":
-        export_bundle(args.dataset, args.output)
-    elif args.command == "prepare":
+    if args.command == "prepare":
         prepare(args.bundle, args.output)
     elif args.command == "panels":
         render_panels(args.bundle, args.output)

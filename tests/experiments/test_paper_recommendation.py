@@ -9,12 +9,24 @@ from common.io.json import fingerprint
 from ehk.metrics.homophily import mean_followee_edge_concordance, uniform_concordance_probability
 from ehk.metrics.pathway import first_passage
 from ehk.micro.observables import get_gradation_index_hp
-from experiments.paper.recommendation.analysis import (
-    EFFECTS, EXPOSURE_COUNTS, SLOT_MEASURES, SLOT_SOURCES, completed_cell_task_ids, contrast_table,
-    coverage_by_setting, exposure_columns, stage_gate, stage_interactions, summarize_arm,
-)
 from experiments.paper.recommendation import design as cfg
+from experiments.paper.recommendation.analysis import (
+    completed_cell_task_ids,
+    contrast_table,
+    coverage_by_setting,
+    stage_gate,
+    stage_interactions,
+)
 from experiments.paper.recommendation.design import generate_tasks, select_stages
+from experiments.paper.recommendation_shared.analysis import (
+    EFFECTS,
+    EXPOSURE_COUNTS,
+    SLOT_MEASURES,
+    SLOT_SOURCES,
+    exposure_columns,
+    summarize_arm,
+)
+from experiments.paper.recommender_variants import design as variants_design
 
 
 def test_consensus_and_separated_opinions_have_different_passages():
@@ -73,7 +85,8 @@ def test_timing_gate_uses_same_seed_stage_contrasts_and_complete_evidence():
 
 
 def test_design_covers_core_cells_and_paired_single_factor_sensitivities():
-    staged, timing, variants = (generate_tasks(name) for name in ("staged", "staged_timing", "recommender_variants"))
+    staged, timing = (generate_tasks(name) for name in ("staged", "staged_timing"))
+    variants = variants_design.generate_tasks()
     assert len(staged) == len(variants) == 496 and len(timing) == 432
     assert cfg.SETTINGS == [
         (0.01, 0.30), (0.03, 0.10), (0.05, 0.05), (0.10, 0.03), (0.30, 0.01),
@@ -109,7 +122,7 @@ def test_design_covers_core_cells_and_paired_single_factor_sensitivities():
 ])
 def test_extension_preserves_every_existing_task_field(study, expected_count, expected_hash):
     existing_settings = {(0.01, 0.30), (0.03, 0.10), (0.05, 0.05), (0.10, 0.03), (0.30, 0.01)}
-    tasks = generate_tasks(study)
+    tasks = variants_design.generate_tasks() if study == "recommender_variants" else generate_tasks(study)
     existing = [task for task in tasks if (
         task["metadata"]["HKParams"]["Influence"], task["metadata"]["HKParams"]["RewiringRate"]
     ) in existing_settings]
@@ -188,16 +201,21 @@ def test_new_exposure_protocol_requires_actual_counters():
         exposure_columns({"updates": 5})
 
 
-def test_new_analysis_rejects_old_design_schema(tmp_path, monkeypatch):
+def test_new_analysis_rejects_old_design_schema(tmp_path):
+    from common.experiments.plans import freeze_plan
     from experiments.paper.recommendation import analysis
 
-    monkeypatch.setattr(analysis, "read_plan", lambda path: {"study": "paper_recommendation", "profile": "staged", "schema": 1})
+    freeze_plan(tmp_path / "plan.json", {
+        "study": "paper_recommendation", "profile": "staged", "schema": 1,
+        "tasks": [{"id": "old-design-fixture"}],
+    })
     with pytest.raises(ValueError, match="unsupported recommendation design version"):
         analysis.read_study(tmp_path)
 
 
 def test_late_exposure_plot_covers_every_repost_setting(tmp_path, monkeypatch):
     import matplotlib.pyplot as plt
+
     from experiments.paper.recommendation import plot
 
     captured = []

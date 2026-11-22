@@ -10,8 +10,16 @@ import pytest
 from common.experiments.plans import freeze_plan
 from common.io.json import atomic_json, fingerprint, save_result, sha
 from experiments.paper.recommendation import manuscript
-from experiments.paper.recommendation.analysis import EXPOSURE_COUNTS, SLOT_MEASURES, SLOT_SOURCES
 from experiments.paper.recommendation.design import DESIGN_VERSION, generate_tasks
+from experiments.paper.recommendation_shared import bundle as shared_bundle
+from experiments.paper.recommendation_shared.analysis import (
+    EXPOSURE_COUNTS,
+    SLOT_MEASURES,
+    SLOT_SOURCES,
+    paired_effects,
+)
+from experiments.paper.recommender_variants import design as variants_design
+from experiments.paper.recommender_variants.design import variant_arms
 
 
 def _point(step, start):
@@ -43,7 +51,7 @@ def test_export_then_compose_without_source_bundle_or_panel_images(tmp_path, mon
                                   "arms": {name: _arm(start) for name in ("hold", "switch", "bridge")}}
     save_result(source / "records" / f"{task['id']}.json.gz",
                 {"task_fingerprint": fingerprint(task), "result": record})
-    manifest = manuscript.export_bundle(source, bundle)
+    manifest = shared_bundle.export_bundle(source, bundle)
     assert manifest["completed"] == manifest["planned"] == 1
     shutil.rmtree(source)
     monkeypatch.setattr(manuscript, "CASES", (("fixture", task["id"], "late", "fixture"),))
@@ -90,18 +98,18 @@ def _runs():
 
 def test_pairs_exclude_unmatched_arms_and_reject_checkpoint_mismatch():
     runs = _runs()
-    paired = manuscript.paired_effects(runs, "switch", "hold")
+    paired = paired_effects(runs, "switch", "hold")
     assert len(paired) == 1
     assert paired.iloc[0]["delta_separation"] == pytest.approx(-0.6)
     runs.loc[runs["arm"] == "switch", "start_step"] = 256
     with pytest.raises(ValueError, match="different start_step"):
-        manuscript.paired_effects(runs, "switch", "hold")
+        paired_effects(runs, "switch", "hold")
 
 
 def test_pairs_reject_duplicates():
     runs = _runs()
     with pytest.raises(ValueError, match="duplicate"):
-        manuscript.paired_effects(pd.concat([runs, runs.iloc[:1]]), "switch", "hold")
+        paired_effects(pd.concat([runs, runs.iloc[:1]]), "switch", "hold")
 
 
 def test_unsupported_layout_schema_is_rejected(tmp_path):
@@ -121,28 +129,107 @@ def test_manifest_failure_keeps_previous_bundle_readable(tmp_path, monkeypatch):
     (source / "plan.json").write_text("{}")
     (source / "records").mkdir()
     (source / "records/task.json.gz").write_bytes(b"new observations")
-    monkeypatch.setattr(manuscript, "read_study", lambda *args: ({"plan_fingerprint": "new", "tasks": [{}]}, {"task": {}}))
-    monkeypatch.setattr(manuscript, "analyze", lambda source, output, **kwargs: output.mkdir())
-    write_json = manuscript.atomic_json
+    monkeypatch.setattr(shared_bundle, "read_study", lambda *args: (
+        {"plan_fingerprint": "new", "profile": "staged", "tasks": [{}]}, {"task": {}},
+    ))
+
+    def analyze_fixture(source, output, **kwargs):
+        output.mkdir()
+        return {"source_plan": "new", "complete": True, "available_records": 1, "completed": 1, "planned": 1}
+
+    monkeypatch.setattr(shared_bundle, "analyze_study", analyze_fixture)
+    write_json = shared_bundle.atomic_json
 
     def fail_manifest(path, content):
         if path.name == "manifest.json":
             raise OSError("injected manifest write failure")
         write_json(path, content)
 
-    monkeypatch.setattr(manuscript, "atomic_json", fail_manifest)
+    monkeypatch.setattr(shared_bundle, "atomic_json", fail_manifest)
     with pytest.raises(OSError, match="injected"):
-        manuscript.export_bundle(source, output)
+        shared_bundle.export_bundle(source, output)
     assert (output / "data/old.txt").read_text() == "previous observations"
-    assert manuscript._bundle_manifest(output)["schema"] == 1
+    assert shared_bundle._bundle_manifest(output)["schema"] == 1
     assert not (output / ".previous-data").exists()
+
+
+def test_shared_export_cli_accepts_study_data_without_a_manuscript_wrapper(tmp_path, monkeypatch, capsys):
+    dataset, output = tmp_path / "dataset", tmp_path / "bundle"
+    calls = []
+
+    def export(source, destination, *, require_complete):
+        calls.append((source, destination, require_complete))
+        return {"profile": "recommender_variants", "completed": 1}
+
+    monkeypatch.setattr(shared_bundle, "export_bundle", export)
+    shared_bundle.main(["export", "--dataset", str(dataset), "--output", str(output), "--require-complete"])
+    assert calls == [(dataset, output, True)]
+    assert json.loads(capsys.readouterr().out) == {"profile": "recommender_variants", "completed": 1}
+
+
+def test_stage_manuscript_cli_rejects_the_removed_export_entry(tmp_path, capsys):
+    with pytest.raises(SystemExit) as error:
+        manuscript.main(["export", "--dataset", str(tmp_path), "--output", str(tmp_path / "bundle")])
+    assert error.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+    assert not (tmp_path / "bundle").exists()
+
+
+def test_variant_export_counts_complete_arms_and_keeps_previous_generation(tmp_path):
+    source, bundle = tmp_path / "source", tmp_path / "bundle"
+    task = variants_design.generate_tasks()[0]
+    protocol = variants_design.design_protocol()
+    freeze_plan(source / "plan.json", {
+        "schema": DESIGN_VERSION, "study": "paper_recommendation", "profile": "recommender_variants",
+        "protocol": protocol, "tasks": [task],
+    })
+    original = [arm for family in protocol["variants"].values() for arm in family]
+    path = source / "records" / f"{task['id']}.json.gz"
+    record = {"task_fingerprint": fingerprint(task), "result": {"arms": {arm: _arm(0) for arm in original}}}
+    save_result(path, record)
+    manifest = shared_bundle.export_bundle(source, bundle)
+    assert manifest["profile"] == "recommender_variants"
+    assert manifest["available_records"] == 1 and manifest["completed"] == 0
+    previous = sha(bundle / "data/manifest.json")
+    with pytest.raises(ValueError, match="incomplete: 0/1"):
+        shared_bundle.export_bundle(source, bundle, require_complete=True)
+    assert sha(bundle / "data/manifest.json") == previous
+    record["result"]["arms"].update({arm: _arm(0) for arm in variant_arms(protocol)})
+    save_result(path, record)
+    complete = shared_bundle.export_bundle(source, bundle, require_complete=True)
+    assert complete["completed"] == complete["planned"] == 1
+
+
+def test_export_counts_the_copied_generation_when_a_record_advances(tmp_path, monkeypatch):
+    source, bundle = tmp_path / "source", tmp_path / "bundle"
+    task = variants_design.generate_tasks()[0]
+    protocol = variants_design.design_protocol()
+    freeze_plan(source / "plan.json", {
+        "schema": DESIGN_VERSION, "study": "paper_recommendation", "profile": "recommender_variants",
+        "protocol": protocol, "tasks": [task],
+    })
+    original = [arm for family in protocol["variants"].values() for arm in family]
+    path = source / "records" / f"{task['id']}.json.gz"
+    record = {"task_fingerprint": fingerprint(task), "result": {"arms": {arm: _arm(0) for arm in original}}}
+    save_result(path, record)
+    copy = shared_bundle.shutil.copy2
+
+    def copy_advancing_record(src, dest, **kwargs):
+        if src == path:
+            record["result"]["arms"].update({arm: _arm(0) for arm in variant_arms(protocol)})
+            save_result(path, record)
+        return copy(src, dest, **kwargs)
+
+    monkeypatch.setattr(shared_bundle.shutil, "copy2", copy_advancing_record)
+    manifest = shared_bundle.export_bundle(source, bundle, require_complete=True)
+    assert manifest["completed"] == manifest["planned"] == 1
 
 
 def test_interrupted_old_generation_rename_is_recovered(tmp_path):
     backup = tmp_path / ".previous-data"
     backup.mkdir()
     atomic_json(backup / "manifest.json", {"schema": 1, "files": {}})
-    assert manuscript._bundle_manifest(tmp_path)["schema"] == 1
+    assert shared_bundle._bundle_manifest(tmp_path)["schema"] == 1
     assert (tmp_path / "data/manifest.json").is_file()
     assert not backup.exists()
 
