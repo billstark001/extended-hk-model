@@ -12,4 +12,4 @@ ILLUSTRATION_OUTPUT = register_path("EHK_ILLUSTRATION_OUTPUT_DIR", "outputs/expe
 
 
 def statistics_database():
-    return STAT_INPUT.resolve() / "stats-v2.db"
+    return STAT_INPUT.resolve() / "stats-v3.sqlite"

@@ -2,13 +2,18 @@ from typing import Callable, Dict, Iterable, List, Tuple, TypeVar
 
 import numpy as np
 from matplotlib.axes import Axes
-from sqlalchemy import ColumnExpressionArgument
-from sqlalchemy.orm import Session
 
 import experiments.paper.scenarios as cfg
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
-from common.storage.sqlite import create_db_engine_and_session
 from experiments.paper.analysis.records import ScenarioStatistics
+from experiments.paper.analysis.selection import (
+    StatisticFilter,
+    descriptive_iw_cutoff,
+    is_high_iw,
+    is_low_iw,
+    read_statistics,
+    select_statistics,
+)
 from experiments.paper.paths import PATHWAY_OUTPUT, statistics_database
 from experiments.paper.pathway_index.data_utils import piecewise_linear_integral_trapz
 
@@ -44,67 +49,63 @@ for i, rw in enumerate(cfg.REWIRING_AXIS):
     bc_inst_orig.append(lst)
 
 k_filters_1 = [
-    (ScenarioStatistics.recsys_type == "StructureM9", ScenarioStatistics.repost_rate == 0),
-    (ScenarioStatistics.recsys_type == "StructureM9", ScenarioStatistics.repost_rate != 0),
-    (ScenarioStatistics.recsys_type == "OpinionM9", ScenarioStatistics.repost_rate == 0),
-    (ScenarioStatistics.recsys_type == "OpinionM9", ScenarioStatistics.repost_rate != 0),
+    (lambda row: row.recsys_type == "StructureM9", lambda row: row.repost_rate == 0),
+    (lambda row: row.recsys_type == "StructureM9", lambda row: row.repost_rate != 0),
+    (lambda row: row.recsys_type == "OpinionM9", lambda row: row.repost_rate == 0),
+    (lambda row: row.recsys_type == "OpinionM9", lambda row: row.repost_rate != 0),
 ]
-k_filters_1 = [(*filters, ScenarioStatistics.post_retain_count == 0) for filters in k_filters_1]
+k_filters_1 = [(*filters, lambda row: row.post_retain_count == 0) for filters in k_filters_1]
 
 k_labels_1 = ["St, !R", "St, R", "Op, !R", "Op, R"]
 
 k_filters_2 = [
     (
-        ScenarioStatistics.recsys_type == "OpinionM9",
-        ScenarioStatistics.post_retain_count == 0,
-        ScenarioStatistics.repost_rate == 0,
+        lambda row: row.recsys_type == "OpinionM9",
+        lambda row: row.post_retain_count == 0,
+        lambda row: row.repost_rate == 0,
     ),
     (
-        ScenarioStatistics.recsys_type == "OpinionM9",
-        ScenarioStatistics.post_retain_count == 2,
-        ScenarioStatistics.repost_rate == 0,
+        lambda row: row.recsys_type == "OpinionM9",
+        lambda row: row.post_retain_count == 2,
+        lambda row: row.repost_rate == 0,
     ),
     (
-        ScenarioStatistics.recsys_type == "OpinionM9",
-        ScenarioStatistics.post_retain_count == 6,
-        ScenarioStatistics.repost_rate == 0,
+        lambda row: row.recsys_type == "OpinionM9",
+        lambda row: row.post_retain_count == 6,
+        lambda row: row.repost_rate == 0,
     ),
     (
-        ScenarioStatistics.recsys_type == "OpinionM9",
-        ScenarioStatistics.post_retain_count == 0,
-        ScenarioStatistics.repost_rate != 0,
+        lambda row: row.recsys_type == "OpinionM9",
+        lambda row: row.post_retain_count == 0,
+        lambda row: row.repost_rate != 0,
     ),
     (
-        ScenarioStatistics.recsys_type == "OpinionM9",
-        ScenarioStatistics.post_retain_count == 2,
-        ScenarioStatistics.repost_rate != 0,
+        lambda row: row.recsys_type == "OpinionM9",
+        lambda row: row.post_retain_count == 2,
+        lambda row: row.repost_rate != 0,
     ),
     (
-        ScenarioStatistics.recsys_type == "OpinionM9",
-        ScenarioStatistics.post_retain_count == 6,
-        ScenarioStatistics.repost_rate != 0,
+        lambda row: row.recsys_type == "OpinionM9",
+        lambda row: row.post_retain_count == 6,
+        lambda row: row.repost_rate != 0,
     ),
 ]
 
 k_labels_2 = ["k=0, !R", "k=2", "k=6", "k=0, R", "k=2", "k=6"]
 
 
-m_filters = [
-    (ScenarioStatistics.pathway_label == "PbS",),
-    (ScenarioStatistics.pathway_label == "SbP",),
-]
+m_filters = [(is_low_iw,), (is_high_iw,)]
 
-m_labels = ["PbS", "SbP"]
+m_labels = [r"low $I_w$", r"high $I_w$"]
 
 m_colors = ["tab:blue", "tab:red"]
 
 
 def evaluate_bar_on_filters(
-    session: Session, filters: List[ColumnExpressionArgument[bool]], f_ext: Callable[[ScenarioStatistics], float]
+    session: Iterable[ScenarioStatistics], filters: List[StatisticFilter], f_ext: Callable[[ScenarioStatistics], float]
 ):
-    full_data: Iterable[ScenarioStatistics] = session.query(ScenarioStatistics).filter(
-        ScenarioStatistics.name.startswith("s_grad"),
-        *filters,
+    full_data: Iterable[ScenarioStatistics] = select_statistics(
+        session, lambda row: row.name.startswith("s_grad"), *filters
     )
 
     data_arr: List[float] = []
@@ -170,7 +171,8 @@ def plot_bar(ax: Axes, f: Callable[[ScenarioStatistics], float], compare_op=Fals
 
 
 if __name__ == "__main__":
-    engine, session = create_db_engine_and_session(stats_db_path, ScenarioStatistics.Base)
+    session = read_statistics(stats_db_path, mode="gradation")
+    cutoff = descriptive_iw_cutoff()
 
     # Create figure with 2 rows: first row with 2 subplots, second row with 3 subplots
     fig, axes = plt_figure(n_row=2, n_col=3)
@@ -238,14 +240,13 @@ if __name__ == "__main__":
     ax5.set_ylim(1000, 200000)
 
     # Save the combined figure
+    fig.text(0.5, 0.002, rf"Descriptive $I_w$ split at {cutoff:g}", ha="center", fontsize=7)
     fig.tight_layout()
     figure_dir = PATHWAY_OUTPUT.resolve() / "figures"
     figure_dir.mkdir(parents=True, exist_ok=True)
     plt_save_and_close(fig, str(figure_dir / "f_grad_index_interpret_raw"))
 
     with (figure_dir / "f_grad_index_interpret_raw_data.txt").open("w") as f:
+        f.write(f"Descriptive I_w cutoff: {cutoff:g}\n")
         for line in data_1 + data_2 + data_3 + data_4 + data_5:
             f.write(line + "\n")
-
-    session.close()
-    engine.dispose()

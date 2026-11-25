@@ -1,18 +1,82 @@
-"""SQLite statistics adapter for the common experiment runner."""
+"""Recoverable per-task analysis with immutable protocol and raw-source identities."""
 
+import sys
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from types import SimpleNamespace
-
-from sqlalchemy.orm import undefer
 
 from common.experiments.execution import TaskAdapter, execute_tasks
 from common.experiments.lifecycle import TaskJournal, Workflow, interruptible, session_lock
 from common.experiments.plans import freeze_plan
-from common.io.json import fingerprint
-from common.storage.sqlite import create_db_engine_and_session, sync_sqlite_table
+from common.io.json import fingerprint, sha
+from ehk.metrics.protocol import METRIC_PROTOCOL, METRIC_REVISION
 
-from .records import ScenarioStatistics
+from .records import StatisticsStore
+
+
+def source_identity(directory):
+    """Snapshot input identities without rereading large trajectories on each resume."""
+    directory = Path(directory)
+    files = []
+    if directory.is_dir():
+        for path in sorted(directory.rglob("*")):
+            if not path.is_file() or path.name.endswith((".log", "-shm")) or path.name.startswith("."):
+                continue
+            if path.name in ("session.lock", "active.lock", "job.lock", "logfile.log"):
+                continue
+            info = path.stat()
+            if path.name.endswith("-wal") and info.st_size == 0:
+                continue  # SQLite may create an empty read-side WAL when opening events.db.
+            item = {"path": str(path.relative_to(directory)), "size": info.st_size, "mtime_ns": info.st_mtime_ns}
+            if path.name in ("metadata.json", "trajectory.json", "finished.txt") or path.name.startswith("finished-"):
+                item["sha256"] = sha(path)
+            files.append(item)
+    return {
+        "directory": str(directory.resolve()),
+        "files": files,
+        "fingerprint": fingerprint(files),
+        "identity_method": "SHA256 metadata/trajectory manifest/completion; size+mtime_ns for bulk raw files",
+    }
+
+
+def analysis_protocol(protocol=None):
+    import smp_bindings
+
+    root = Path(__file__).resolve().parents[3]
+    sources = [
+        root / "src/ehk/metrics/protocol.py",
+        root / "src/ehk/metrics/polarization.py",
+        root / "src/ehk/metrics/homophily.py",
+        root / "src/ehk/micro/observables.py",
+        Path(__file__).with_name("tasks.py"),
+        root / "src/common/numerics/adaptive.py",
+        root / "src/common/numerics/arrays.py",
+        root / "src/common/numerics/kde.py",
+        root / "src/common/pipeline.py",
+        Path(__file__),
+        Path(__file__).with_name("records.py"),
+        root / "src/common/storage/documents.py",
+    ]
+    versions = {"python": sys.version.split()[0]}
+    for package in ("numpy", "scipy", "networkx", "igraph", "leidenalg"):
+        try:
+            versions[package] = version(package)
+        except PackageNotFoundError:
+            versions[package] = "unavailable"
+    binding_root = Path(smp_bindings.__file__).resolve().parent
+    evidence = {
+        "metrics": METRIC_PROTOCOL,
+        **(protocol or {}),
+        "analysis_sources": {str(path.relative_to(root)): sha(path) for path in sources},
+        "binding_sources": {path.name: sha(path) for path in sorted(binding_root.glob("*.py"))},
+        "versions": versions,
+    }
+    if evidence.get("first_passage"):
+        from experiments.paths import SMP_PROBE_BINARY
+
+        binary = SMP_PROBE_BINARY.resolve()
+        evidence["native_probe"] = {"path": str(binary), "sha256": sha(binary)}
+    return evidence
 
 
 @dataclass
@@ -26,41 +90,42 @@ class StatisticsCompute:
 
 
 class StatisticsAdapter(TaskAdapter):
-    def __init__(self, session, getter, scenario_path, origin, ignore_existing, is_complete=None):
-        self.session = session
+    def __init__(
+        self, store, getter, scenario_path, origin, analysis_id, mode, protocol, ignore_existing, is_complete=None
+    ):
+        self.store, self.analysis_id, self.mode, self.protocol = store, analysis_id, mode, protocol
         self.ignore_existing = ignore_existing
         super().__init__(
-            lambda t: t["id"],
-            lambda t: (
-                t["previous"] is not None
-                and (ignore_existing or (is_complete is not None and is_complete(t["previous"])))
+            lambda task: task["id"],
+            lambda task: (
+                task["previous"] is not None
+                and getattr(task["previous"], "complete", False)
+                and not getattr(task["previous"], "stale", False)
+                and (ignore_existing or (is_complete is not None and is_complete(task["previous"])))
             ),
             StatisticsCompute(getter, scenario_path, origin),
             self.persist,
         )
 
-    def previous(self, name, origin):
-        row = (
-            self.session.query(ScenarioStatistics)
-            .filter(ScenarioStatistics.name == name, ScenarioStatistics.origin == origin)
-            .options(undefer("*"))
-            .first()
-        )
-        return (
-            None
-            if row is None
-            else SimpleNamespace(**{c.key: getattr(row, c.key) for c in ScenarioStatistics.__mapper__.column_attrs})
-        )
-
     def persist(self, job, result):
         if result is None:
-            return False  # Incomplete source or a study-specific skip; no fabricated result.
-        try:
-            self.session.merge(result)
-            self.session.commit()
-        except Exception:
-            self.session.rollback()
-            raise
+            return False
+        source = source_identity(Path(job["source"]["directory"]))
+        if source != job["source"]:
+            raise RuntimeError(f"raw inputs changed during analysis: {job['id']}")
+        result.metric_revision = METRIC_REVISION
+        result.task_fingerprint = job["task_fingerprint"]
+        result.complete = True
+        result.stale = False
+        self.store.put(
+            result,
+            analysis_id=self.analysis_id,
+            mode=self.mode,
+            metadata=getattr(result, "metadata", job["metadata"]),
+            protocol=self.protocol,
+            source=source,
+        )
+        return True
 
 
 def analyze_statistics(
@@ -72,59 +137,90 @@ def analyze_statistics(
     *,
     mode,
     protocol=None,
-    is_complete=None,
     ignore_exist=True,
+    is_complete=None,
     concurrency=1,
+    force=False,
 ):
-    tasks = [{"id": m["UniqueName"], "metadata": m} for m in scenarios]
+    protocol = analysis_protocol(protocol)
+    analysis_id = fingerprint({"mode": mode, "protocol": protocol})
+    tasks = [{"id": metadata["UniqueName"], "metadata": metadata} for metadata in scenarios]
     database = Path(stats_db_path).resolve()
     control = (
-        database.parent / "runtime" / fingerprint({"database": str(database), "origin": origin, "mode": mode})[:20]
+        database.parent
+        / "runtime"
+        / fingerprint(
+            {
+                "database": str(database),
+                "origin": origin,
+                "mode": mode,
+                "analysis_id": analysis_id,
+                "selection": fingerprint(tasks),
+            }
+        )[:20]
     )
     with session_lock(control), interruptible():
-        workflow = Workflow(
+        workflow = Workflow({}, control / "attempt.json")
+        workflow.stages["plan"] = lambda: freeze_plan(
+            control / "plan.json",
             {
-                "plan": lambda: freeze_plan(
-                    control / "plan.json",
-                    {
-                        "schema": 1,
-                        "study": "paper_statistics",
-                        "profile": mode,
-                        "origin": origin,
-                        "workspace": str(Path(scenario_base_path).resolve()),
-                        "analysis_protocol": protocol,
-                        "tasks": tasks,
-                    },
-                )
+                "schema": 3,
+                "study": "paper_statistics",
+                "profile": mode,
+                "workspace": str(Path(scenario_base_path).resolve()),
+                "analysis_id": analysis_id,
+                "analysis_protocol": protocol,
+                "tasks": tasks,
             },
-            control / "attempt.json",
         )
         workflow.dispatch("plan")
-        engine, session = create_db_engine_and_session(str(database), ScenarioStatistics.Base)
         journal = TaskJournal(control)
         state = "complete"
         try:
-            sync_sqlite_table(engine, ScenarioStatistics, extra_columns="error")
-            adapter = StatisticsAdapter(session, getter, scenario_base_path, origin, ignore_exist, is_complete)
-            jobs = [{**t, "previous": adapter.previous(t["id"], origin)} for t in tasks]
-
-            def execute():
-                execute_tasks(
-                    jobs,
-                    adapter,
-                    workers=max(1, concurrency),
-                    executor="process",
-                    journal=journal,
-                    raise_failures=False,
+            with StatisticsStore(database) as store:
+                jobs = []
+                for task in tasks:
+                    source = source_identity(Path(scenario_base_path) / task["id"])
+                    task_fingerprint = fingerprint({"metadata": task["metadata"], "source": source})
+                    previous = store.get(task["id"], origin, analysis_id)
+                    if previous is not None and getattr(previous, "task_fingerprint", None) != task_fingerprint:
+                        store.invalidate(
+                            task["id"],
+                            origin,
+                            analysis_id,
+                            reason="raw input or requested metadata identity changed",
+                            current_source=source,
+                        )
+                        previous = None
+                    elif previous is not None and force:
+                        store.invalidate(
+                            task["id"],
+                            origin,
+                            analysis_id,
+                            reason="forced recomputation pending",
+                            current_source=source,
+                        )
+                    jobs.append({**task, "previous": previous, "source": source, "task_fingerprint": task_fingerprint})
+                adapter = StatisticsAdapter(
+                    store, getter, scenario_base_path, origin, analysis_id, mode, protocol, ignore_exist, is_complete
                 )
-                return journal.finish(tasks)
 
-            workflow.stages["analyze"] = execute
-            return workflow.dispatch("analyze")
+                def execute():
+                    execute_tasks(
+                        jobs,
+                        adapter,
+                        workers=max(1, concurrency),
+                        executor="process",
+                        journal=journal,
+                        raise_failures=False,
+                        force=force,
+                    )
+                    return {**journal.finish(tasks), "analysis_id": analysis_id, "database": str(database)}
+
+                workflow.stages["analyze"] = execute
+                return workflow.dispatch("analyze")
         except BaseException as error:
             state = "interrupted" if isinstance(error, KeyboardInterrupt) else "failed"
             raise
         finally:
             journal.finish(tasks, state)
-            session.close()
-            engine.dispose()

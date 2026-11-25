@@ -5,8 +5,14 @@ from matplotlib.axes import Axes
 
 from common.numerics import adaptive_moving_stats, get_kde_pdf
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
-from common.storage.sqlite import create_db_engine_and_session
 from experiments.paper.analysis.records import ScenarioStatistics
+from experiments.paper.analysis.selection import (
+    descriptive_iw_cutoff,
+    is_high_iw,
+    is_low_iw,
+    read_statistics,
+    select_statistics,
+)
 from experiments.paper.paths import MECHANISM_OUTPUT, statistics_database
 
 stats_db_path = str(statistics_database())
@@ -80,11 +86,14 @@ def plot_bar(
 
 
 if __name__ == "__main__":
-    engine, session = create_db_engine_and_session(stats_db_path, ScenarioStatistics.Base)
+    session = read_statistics(stats_db_path, mode="gradation")
+    cutoff = descriptive_iw_cutoff()
+
+    session = select_statistics(session, lambda row: row.post_retain_count == 0)
 
     # Load cluster data.
-    stats_f1 = session.query(ScenarioStatistics).filter(
-        ScenarioStatistics.pathway_integral.is_not(None), ScenarioStatistics.last_opinion_peak_count.is_not(None)
+    stats_f1 = select_statistics(
+        session, lambda row: row.pathway_integral is not None, lambda row: row.last_opinion_peak_count is not None
     )
 
     stats_grad, stats_peak, stats_retweet = np.array(
@@ -97,10 +106,11 @@ if __name__ == "__main__":
     x_axis = np.linspace(x_min, x_max, 400)
 
     # Load repost data.
-    stats_raw = session.query(ScenarioStatistics).filter(
-        ScenarioStatistics.pathway_integral.is_not(None),
-        ScenarioStatistics.opinion_diff_seg_mean.is_not(None),
-        ScenarioStatistics.opinion_diff_seg_std.is_not(None),
+    stats_raw = select_statistics(
+        session,
+        lambda row: row.pathway_integral is not None,
+        lambda row: row.opinion_diff_seg_mean is not None,
+        lambda row: row.opinion_diff_seg_std is not None,
     )
 
     def _filter(f: Callable[[ScenarioStatistics], bool]):
@@ -122,10 +132,10 @@ if __name__ == "__main__":
 
         return opinion_diff_mean, opinion_diff_std
 
-    od_p2_r_mean, od_p2_r_std = _filter(lambda x: x.pathway_label == "PbS" and x.repost_rate != 0)
-    od_p2_nr_mean, od_p2_nr_std = _filter(lambda x: x.pathway_label == "PbS" and x.repost_rate == 0)
-    od_p1_r_mean, od_p1_r_std = _filter(lambda x: x.pathway_label == "SbP" and x.repost_rate != 0)
-    od_p1_nr_mean, od_p1_nr_std = _filter(lambda x: x.pathway_label == "SbP" and x.repost_rate == 0)
+    od_p2_r_mean, od_p2_r_std = _filter(lambda x: is_low_iw(x) and x.repost_rate != 0)
+    od_p2_nr_mean, od_p2_nr_std = _filter(lambda x: is_low_iw(x) and x.repost_rate == 0)
+    od_p1_r_mean, od_p1_r_std = _filter(lambda x: is_high_iw(x) and x.repost_rate != 0)
+    od_p1_nr_mean, od_p1_nr_std = _filter(lambda x: is_high_iw(x) and x.repost_rate == 0)
 
     # Compare repost conditions.
     x1, y1, y_std_1 = np.array(
@@ -154,15 +164,7 @@ if __name__ == "__main__":
     # First row: cluster panels.
     ax1, ax2, ax3 = axes[0]
 
-    draw_prob(
-        stats_peak == 1,
-        stats_peak == 2,
-        stats_peak > 2,
-        stats_peak.size,
-        ax1,
-        stats_grad,
-        x_axis,
-    )
+    draw_prob(stats_peak == 1, stats_peak == 2, stats_peak > 2, stats_peak.size, ax1, stats_grad, x_axis)
     draw_prob(
         np.logical_and(stats_peak == 1, stats_retweet == 0),
         np.logical_and(stats_peak == 2, stats_retweet == 0),
@@ -228,8 +230,8 @@ if __name__ == "__main__":
 
     ax4.set_ylabel("mean opinion difference")
 
-    ax4.set_title("(d) PbS", loc="left")
-    ax5.set_title("(e) SbP", loc="left")
+    ax4.set_title(rf"(d) $I_w < {cutoff:g}$", loc="left")
+    ax5.set_title(rf"(e) $I_w \geq {cutoff:g}$", loc="left")
     ax6.set_title(r"(f) mean op. diff. ($t_n \in [0.2, 0.4)$)", loc="left")
 
     ax4.set_ylim(0, 0.6)
@@ -238,6 +240,3 @@ if __name__ == "__main__":
     figure_dir = MECHANISM_OUTPUT.resolve() / "figures"
     figure_dir.mkdir(parents=True, exist_ok=True)
     plt_save_and_close(fig, str(figure_dir / "f_cluster_and_retweet"))
-
-    session.close()
-    engine.dispose()

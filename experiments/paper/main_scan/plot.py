@@ -4,13 +4,12 @@ from typing import Callable, Dict, Iterable, List, Sequence, Tuple, TypeVar
 import numpy as np
 from matplotlib.axes import Axes
 from numpy.typing import NDArray
-from sqlalchemy.orm import Session
 from tqdm import tqdm
 
 import experiments.paper.scenarios as cfg
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
-from common.storage.sqlite import create_db_engine_and_session
 from experiments.paper.analysis.records import ScenarioStatistics
+from experiments.paper.analysis.selection import read_statistics, select_statistics
 from experiments.paper.paths import MAIN_SCAN_OUTPUT, statistics_database
 
 T = TypeVar("T")
@@ -77,29 +76,28 @@ def _create_evaluator(full_data_selector: Iterable[ScenarioStatistics]):
     return eval_func
 
 
-def create_heatmap_evaluator(session: Session, rs_key: str, opinion_peak_count: int | None = None):
-    full_data_selector: Iterable[ScenarioStatistics] = session.query(ScenarioStatistics).filter(
-        *(
-            (ScenarioStatistics.last_opinion_peak_count == opinion_peak_count,)
-            if opinion_peak_count is not None
-            else ()
-        ),
-        ScenarioStatistics.name.startswith("s_grad"),
-        ScenarioStatistics.recsys_type == rs_key,
-        ScenarioStatistics.post_retain_count == 0,
-        ScenarioStatistics.pathway_integral.is_not(None),
+def create_heatmap_evaluator(session: Iterable[ScenarioStatistics], rs_key: str, opinion_peak_count: int | None = None):
+    full_data_selector: Iterable[ScenarioStatistics] = select_statistics(
+        session,
+        *((lambda row: row.last_opinion_peak_count == opinion_peak_count,) if opinion_peak_count is not None else ()),
+        lambda row: row.name.startswith("s_grad"),
+        lambda row: row.recsys_type == rs_key,
+        lambda row: row.post_retain_count == 0,
+        lambda row: row.pathway_integral is not None,
     )
     return _create_evaluator(full_data_selector)
 
 
-def create_heatmap_evaluator_retweet(session: Session, retweet_rate: float, rs_key: str | None = None):
-    full_data_selector: Iterable[ScenarioStatistics] = session.query(ScenarioStatistics).filter(
-        ScenarioStatistics.name.startswith("s_grad"),
-        *((ScenarioStatistics.recsys_type == rs_key,
-        ScenarioStatistics.post_retain_count == 0,) if rs_key else ()),
-        ScenarioStatistics.repost_rate == retweet_rate,
-        ScenarioStatistics.post_retain_count == 0,
-        ScenarioStatistics.pathway_integral.is_not(None),
+def create_heatmap_evaluator_retweet(
+    session: Iterable[ScenarioStatistics], retweet_rate: float, rs_key: str | None = None
+):
+    full_data_selector: Iterable[ScenarioStatistics] = select_statistics(
+        session,
+        lambda row: row.name.startswith("s_grad"),
+        *((lambda row: row.recsys_type == rs_key, lambda row: row.post_retain_count == 0) if rs_key else ()),
+        lambda row: row.repost_rate == retweet_rate,
+        lambda row: row.post_retain_count == 0,
+        lambda row: row.pathway_integral is not None,
     )
     return _create_evaluator(full_data_selector)
 
@@ -169,7 +167,7 @@ def plot_combined_heatmaps(
       with_diff: Whether to show difference plots
       with_std: Whether to show standard deviation circles
     """
-    engine, session = create_db_engine_and_session(stats_db_path, ScenarioStatistics.Base)
+    session = read_statistics(stats_db_path, mode="gradation")
 
     # Calculate data for all metrics
     all_data = []
@@ -259,9 +257,6 @@ def plot_combined_heatmaps(
     _setup_heatmap_axes(axes, layout="2row")
     fig.tight_layout()
 
-    session.close()
-    engine.dispose()
-
     return fig
 
 
@@ -271,7 +266,7 @@ def plot_heatmap_by_retweet(
     heatmap_min=0,
     heatmap_max=1,
 ):
-    engine, session = create_db_engine_and_session(stats_db_path, ScenarioStatistics.Base)
+    session = read_statistics(stats_db_path, mode="gradation")
 
     evaluators = [
         create_heatmap_evaluator_retweet(session, r, k)
@@ -307,9 +302,6 @@ def plot_heatmap_by_retweet(
             ax.set_yticklabels([])
 
     fig.tight_layout()
-
-    session.close()
-    engine.dispose()
 
     return fig
 

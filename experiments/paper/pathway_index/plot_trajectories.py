@@ -8,8 +8,8 @@ from sklearn.cluster import KMeans
 
 import experiments.paper.scenarios as cfg
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
-from common.storage.sqlite import create_db_engine_and_session
 from experiments.paper.analysis.records import ScenarioStatistics
+from experiments.paper.analysis.selection import read_statistics, select_statistics
 from experiments.paper.paths import PATHWAY_OUTPUT, statistics_database
 
 stats_db_path = str(statistics_database())
@@ -169,13 +169,14 @@ def summary_curves_clustered(
 def plot_p_h_index_trajectories() -> Figure:
     setup_paper_params()
 
-    engine, session = create_db_engine_and_session(stats_db_path, ScenarioStatistics.Base)
+    session = read_statistics(stats_db_path, mode="gradation")
 
-    full_data: Iterable[ScenarioStatistics] = session.query(ScenarioStatistics).filter(
-        ScenarioStatistics.name.startswith("s_grad"),
-        ScenarioStatistics.p_index.is_not(None),
-        ScenarioStatistics.h_index.is_not(None),
-        ScenarioStatistics.pathway_integral.is_not(None),
+    full_data: Iterable[ScenarioStatistics] = select_statistics(
+        session,
+        lambda row: row.name.startswith("s_grad"),
+        lambda row: row.p_index is not None,
+        lambda row: row.h_index is not None,
+        lambda row: row.pathway_integral is not None,
     )
 
     grouped = _group_data(full_data)
@@ -199,7 +200,12 @@ def plot_p_h_index_trajectories() -> Figure:
             density_img = _density_image(curves, cmap, norm, p_max)
             if density_img is not None:
                 ax.imshow(
-                    density_img, extent=(0, p_max, 0, 1), origin="lower", interpolation="bilinear", aspect="auto", zorder=1
+                    density_img,
+                    extent=(0, p_max, 0, 1),
+                    origin="lower",
+                    interpolation="bilinear",
+                    aspect="auto",
+                    zorder=1,
                 )
 
             for points, grad, _ in summary_curves_clustered(curves):
@@ -239,8 +245,6 @@ def plot_p_h_index_trajectories() -> Figure:
     cbar = fig.colorbar(sm, cax=cax)
     cbar.set_label(r"mean $I_w$")
 
-    session.close()
-    engine.dispose()
     return fig
 
 

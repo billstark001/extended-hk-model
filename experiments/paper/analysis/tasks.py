@@ -1,6 +1,8 @@
+import json
 import os
 from dataclasses import dataclass
 from functools import partial
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -8,6 +10,7 @@ import numpy as np
 import experiments.paper.scenarios as cfg
 from common.experiments.registry import TaskRegistry
 from ehk.metrics.pathway import EXCESS_THRESHOLD, OBSERVATION_INTERVAL, SEPARATION_THRESHOLD
+from ehk.metrics.protocol import METRIC_REVISION
 from ehk.micro.observables import c
 from experiments.paper.analysis.records import ScenarioStatistics
 from experiments.paper.analysis.statistics import analyze_statistics
@@ -29,9 +32,6 @@ EPS_COMMON_STATS = [
     "pathway_integral",
     "rho_edge",
     "rho_post",
-    "pathway_label",
-    "separation_step",
-    "segregation_step",
     "event_count",
     "event_step_mean",
     "triads",
@@ -54,9 +54,6 @@ GRAD_COMMON_STATS = [
     "pathway_integral",
     "rho_edge",
     "rho_post",
-    "pathway_label",
-    "separation_step",
-    "segregation_step",
     "event_count",
     "event_step_mean",
     "triads",
@@ -77,9 +74,6 @@ REP_COMMON_STATS = [
     "pathway_integral",
     "rho_edge",
     "rho_post",
-    "pathway_label",
-    "separation_step",
-    "segregation_step",
     "event_count",
     "event_step_mean",
     "triads",
@@ -96,11 +90,17 @@ def _extract_hk_params(scenario_metadata: "cfg.ScenarioMetadata") -> dict:
 
 
 def _skip_if_peak_exists(exist_stats: ScenarioStatistics | None) -> bool:
-    return exist_stats is not None and exist_stats.pathway_label is not None and exist_stats.last_opinion_peak_count is not None
+    return _skip_gradation(exist_stats) and exist_stats.last_opinion_peak_count is not None
 
 
 def _skip_gradation(exist_stats: ScenarioStatistics | None) -> bool:
-    return exist_stats is not None and exist_stats.pathway_label is not None
+    return (
+        exist_stats is not None
+        and getattr(exist_stats, "complete", False)
+        and getattr(exist_stats, "metric_revision", None) == METRIC_REVISION
+        and exist_stats.pathway_integral is not None
+        and exist_stats.x_indices is not None
+    )
 
 
 def _extra_stats_none() -> dict[str, object]:
@@ -198,25 +198,30 @@ def get_statistics_for_mode(
     mode: str,
     active_threshold=0.98,
     min_inactive_value=0.75,
+    include_pathway_probe=False,
+    include_metric_audit=True,
 ):
     from smp_bindings import RawSimulationRecord
 
     config = MODE_CONFIGS[mode]
-    if config.skip_exist(exist_stats):
-        return
-
     scenario_name = scenario_metadata["UniqueName"]
 
     if not os.path.isdir(os.path.join(scenario_base_path, scenario_name)):
         return None
-    scenario_record = RawSimulationRecord(scenario_base_path, scenario_metadata)
+    metadata_path = Path(scenario_base_path) / scenario_name / "metadata.json"
+    actual_metadata = json.loads(metadata_path.read_text()) if metadata_path.is_file() else scenario_metadata
+    if actual_metadata.get("UniqueName") != scenario_name:
+        raise ValueError(f"raw metadata scenario name differs: {scenario_name}")
+    for key in ("HKParams", "NodeCount", "RecsysFactoryType", "PostRetainCount", "RecsysCount", "RecSysParams"):
+        if key in actual_metadata and key in scenario_metadata and actual_metadata[key] != scenario_metadata[key]:
+            raise ValueError(f"raw metadata differs from requested {key}: {scenario_name}")
+    scenario_record = RawSimulationRecord(scenario_base_path, actual_metadata)
     if not scenario_record.is_finished:
         return None
     if not scenario_record.is_sanitized:
         raise ValueError(f"raw record is missing required channels for {scenario_name}")
 
     with scenario_record:
-
         c.set_state(
             scenario_record=scenario_record,
             probe_binary=SMP_PROBE_BINARY.resolve(),
@@ -225,20 +230,34 @@ def get_statistics_for_mode(
             opinion_peak_distance=config.opinion_peak_distance,
         )
 
-        hk_params = _extract_hk_params(scenario_metadata)
+        hk_params = _extract_hk_params(actual_metadata)
         selected_common_stats = _build_common_stats(config.common_stats)
         selected_extra_stats = config.extra_stats_builder()
+        if include_metric_audit:
+            selected_extra_stats.update(c.metric_audit)
+        if include_pathway_probe:
+            selected_extra_stats.update(
+                {
+                    "pathway_label": c.pathway_label,
+                    "separation_step": c.separation_step,
+                    "segregation_step": c.segregation_step,
+                }
+            )
 
         return ScenarioStatistics(
-            id=exist_stats.id if exist_stats else None,
             name=scenario_name,
             origin=origin,
+            metadata=actual_metadata,
+            requested_metadata=scenario_metadata,
+            rng_provenance="recorded"
+            if actual_metadata.get("RNG") or actual_metadata.get("RNGSeed")
+            else "unavailable in raw metadata",
             tolerance=hk_params["Tolerance"],
             decay=hk_params["Influence"],
             rewiring=hk_params["RewiringRate"],
             repost_rate=hk_params["RepostRate"],
-            recsys_type=scenario_metadata["RecsysFactoryType"],
-            post_retain_count=scenario_metadata["PostRetainCount"],
+            recsys_type=actual_metadata["RecsysFactoryType"],
+            post_retain_count=actual_metadata["PostRetainCount"],
             **selected_common_stats,
             **selected_extra_stats,
         )
@@ -251,39 +270,79 @@ def get_mode_names() -> list[str]:
     return sorted(STATISTICS.names)
 
 
-def run_mode(mode: str, instance_name: str, concurrency: int):
+def run_mode(
+    mode: str,
+    instance_name: str | None,
+    concurrency: int,
+    *,
+    database=None,
+    limit=None,
+    force=False,
+    include_pathway_probe=False,
+    include_metric_audit=True,
+    plan_only=False,
+    raw_root=None,
+    origin=None,
+):
     if mode not in MODE_CONFIGS:
         valid = ", ".join(get_mode_names())
         raise ValueError(f"Unsupported mode: {mode}. expected one of: {valid}")
 
     plot_path = str(STAT_INPUT.resolve())
     os.makedirs(plot_path, exist_ok=True)
-    stats_db_path = str(statistics_database())
+    stats_db_path = str(database or statistics_database())
 
-    scenario_base_path = str(workspace_dir(instance_name))
-    if not os.path.isdir(scenario_base_path):
+    if raw_root is None and instance_name is None:
+        raise ValueError("provide an instance_name or --raw-root")
+    scenario_base_path = str(Path(raw_root).resolve() if raw_root else workspace_dir(instance_name))
+    if not os.path.isdir(scenario_base_path) and not plan_only:
         raise FileNotFoundError(scenario_base_path)
 
     c.set_state(active_threshold=0.98, min_inactive_value=0.75)
 
     mode_config = STATISTICS.select(mode)[0]
-    get_statistics = partial(get_statistics_for_mode, mode=mode)
+    get_statistics = partial(
+        get_statistics_for_mode,
+        mode=mode,
+        include_pathway_probe=include_pathway_probe,
+        include_metric_audit=include_metric_audit,
+    )
+    scenarios = mode_config.scenarios()
+    if limit is not None:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        scenarios = scenarios[:limit]
+    if plan_only:
+        return {
+            "mode": mode,
+            "database": stats_db_path,
+            "workspace": scenario_base_path,
+            "planned": len(scenarios),
+            "workspace_available": os.path.isdir(scenario_base_path),
+            "metric_revision": METRIC_REVISION,
+            "include_pathway_probe": include_pathway_probe,
+            "include_metric_audit": include_metric_audit,
+            "tasks": scenarios,
+        }
 
-    analyze_statistics(
+    return analyze_statistics(
         get_statistics,
         scenario_base_path,
         stats_db_path,
-        resolve_instance_name(instance_name),
-        mode_config.scenarios(),
+        origin or (str(Path(scenario_base_path).resolve()) if raw_root else resolve_instance_name(instance_name)),
+        scenarios,
         mode=mode,
         protocol={
             "common_statistics": mode_config.common_stats,
-            "metric_revision": 2,
+            "metric_revision": METRIC_REVISION,
+            "metric_audit": include_metric_audit,
             "first_passage": {
                 "cadence": OBSERVATION_INTERVAL,
                 "separation": SEPARATION_THRESHOLD,
                 "excess_concordance": EXCESS_THRESHOLD,
-            },
+            }
+            if include_pathway_probe
+            else None,
             "opinion_peak_distance": mode_config.opinion_peak_distance,
             "active_threshold": 0.98,
             "min_inactive_value": 0.75,
@@ -293,4 +352,5 @@ def run_mode(mode: str, instance_name: str, concurrency: int):
         ignore_exist=False,
         is_complete=mode_config.skip_exist,
         concurrency=concurrency,
+        force=force,
     )

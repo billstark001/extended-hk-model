@@ -1,12 +1,11 @@
 from typing import Iterable, TypeVar
 
 import numpy as np
-from sqlalchemy.orm import Session
 
 import experiments.paper.scenarios as cfg
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
-from common.storage.sqlite import create_db_session
 from experiments.paper.analysis.records import ScenarioStatistics
+from experiments.paper.analysis.selection import read_statistics, select_statistics
 from experiments.paper.paths import REPLICATE_OUTPUT, statistics_database
 
 T = TypeVar("T")
@@ -30,16 +29,20 @@ short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
 
 def get_random_stats(
-    session: Session, decay: float | None = None, rewiring: float | None = None, retweet: float | None = None
+    session: Iterable[ScenarioStatistics],
+    decay: float | None = None,
+    rewiring: float | None = None,
+    retweet: float | None = None,
 ):
-    full_data_selector: Iterable[ScenarioStatistics] = session.query(ScenarioStatistics).filter(
-        ScenarioStatistics.name.startswith("s_rep"),
+    full_data_selector: Iterable[ScenarioStatistics] = select_statistics(
+        session,
+        lambda row: row.name.startswith("s_rep"),
         *(
             x
             for x in (
-                (ScenarioStatistics.decay == decay) if decay is not None else None,
-                (ScenarioStatistics.rewiring == rewiring) if rewiring is not None else None,
-                (ScenarioStatistics.repost_rate == retweet) if retweet is not None else None,
+                (lambda row: row.decay == decay) if decay is not None else None,
+                (lambda row: row.rewiring == rewiring) if rewiring is not None else None,
+                (lambda row: row.repost_rate == retweet) if retweet is not None else None,
             )
             if x is not None
         ),
@@ -66,7 +69,7 @@ def piecewise_linear_integral_trapz(x: np.ndarray, y: np.ndarray, a: float, b: f
 
 
 if __name__ == "__main__":
-    stats_session = create_db_session(stats_db_path, ScenarioStatistics.Base)
+    stats_session = read_statistics(stats_db_path, mode="replicate")
 
     stats = get_random_stats(stats_session)
 

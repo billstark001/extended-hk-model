@@ -2,13 +2,18 @@ from typing import Callable, Dict, Iterable, List, Tuple, TypeVar
 
 import numpy as np
 from matplotlib.axes import Axes
-from sqlalchemy import ColumnExpressionArgument
-from sqlalchemy.orm import Session
 
 import experiments.paper.scenarios as cfg
 from common.plotting import PAPER_WIDTH, plt_figure, plt_save_and_close, setup_paper_params
-from common.storage.sqlite import create_db_engine_and_session
 from experiments.paper.analysis.records import ScenarioStatistics
+from experiments.paper.analysis.selection import (
+    StatisticFilter,
+    descriptive_iw_cutoff,
+    is_high_iw,
+    is_low_iw,
+    read_statistics,
+    select_statistics,
+)
 from experiments.paper.paths import PATHWAY_OUTPUT, statistics_database
 from experiments.paper.pathway_index.data_utils import piecewise_linear_integral_trapz
 
@@ -44,36 +49,28 @@ for i, rw in enumerate(cfg.REWIRING_AXIS):
     bc_inst_orig.append(lst)
 
 # First row filters: distinguish by recommendation strategy (St vs Op), ignore retweet status
-k_filters_recsys = [
-    (ScenarioStatistics.recsys_type == "StructureM9",),
-    (ScenarioStatistics.recsys_type == "OpinionM9",),
-]
+k_filters_recsys = [(lambda row: row.recsys_type == "StructureM9",), (lambda row: row.recsys_type == "OpinionM9",)]
 
 k_labels_recsys = ["St.", "Op."]
 
 # Second row filters: distinguish by retweet status (!R vs R), ignore recommendation strategy
-k_filters_retweet = [(ScenarioStatistics.repost_rate == 0,), (ScenarioStatistics.repost_rate != 0,)]
+k_filters_retweet = [(lambda row: row.repost_rate == 0,), (lambda row: row.repost_rate != 0,)]
 
 k_labels_retweet = ["!R", "R"]
 
 
-m_filters = [
-    (ScenarioStatistics.pathway_label == "PbS",),
-    (ScenarioStatistics.pathway_label == "SbP",),
-]
+m_filters = [(is_low_iw,), (is_high_iw,)]
 
-m_labels = ["PbS", "SbP"]
+m_labels = [r"low $I_w$", r"high $I_w$"]
 
 m_colors = ["tab:blue", "tab:red"]
 
 
 def evaluate_bar_on_filters(
-    session: Session, filters: List[ColumnExpressionArgument[bool]], f_ext: Callable[[ScenarioStatistics], float]
+    session: Iterable[ScenarioStatistics], filters: List[StatisticFilter], f_ext: Callable[[ScenarioStatistics], float]
 ):
-    full_data: Iterable[ScenarioStatistics] = session.query(ScenarioStatistics).filter(
-        ScenarioStatistics.name.startswith("s_grad"),
-        ScenarioStatistics.post_retain_count == 0,
-        *filters,
+    full_data: Iterable[ScenarioStatistics] = select_statistics(
+        session, lambda row: row.name.startswith("s_grad"), lambda row: row.post_retain_count == 0, *filters
     )
 
     data_arr: List[float] = []
@@ -141,9 +138,10 @@ def plot_bar(
 
 
 if __name__ == "__main__":
-    engine, session = create_db_engine_and_session(stats_db_path, ScenarioStatistics.Base)
+    session = read_statistics(stats_db_path, mode="gradation")
 
     # Create figure with 2 rows, 4 columns for 8 subplots (a-h)
+    cutoff = descriptive_iw_cutoff()
     fig, axes = plt_figure(n_row=2, n_col=4, total_width=PAPER_WIDTH * 0.8, hw_ratio=4 / 3, constrained_layout=False)
 
     def f_ev_count(x: ScenarioStatistics) -> float:
@@ -247,14 +245,13 @@ if __name__ == "__main__":
 
     # Optimize layout before saving
     # Save the combined figure
+    fig.text(0.5, 0.002, rf"Descriptive $I_w$ split at {cutoff:g}", ha="center", fontsize=7)
     fig.tight_layout()
     figure_dir = PATHWAY_OUTPUT.resolve() / "figures"
     figure_dir.mkdir(parents=True, exist_ok=True)
     plt_save_and_close(fig, str(figure_dir / "f_grad_index_interpret"))
 
     with (figure_dir / "f_grad_index_interpret_data.txt").open("w") as f:
+        f.write(f"Descriptive I_w cutoff: {cutoff:g}\n")
         for line in data_a + data_b + data_c + data_d + data_e + data_f + data_g + data_h:
             f.write(line + "\n")
-
-    session.close()
-    engine.dispose()
