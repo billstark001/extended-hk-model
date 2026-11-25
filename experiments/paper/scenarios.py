@@ -8,7 +8,9 @@ study is an explicit case list, rather than a Cartesian parameter sweep.
 from itertools import product
 
 from common.experiments.registry import TaskRegistry
-from ehk.micro.scenarios import ScenarioMetadata, create_scenario_metadata
+from ehk.micro.scenarios import ScenarioMetadata, create_scenario_metadata, reproducible_metadata
+
+SEED_NAMESPACE = "ehk-paper-recalculation-v1"
 
 INFLUENCE_AXIS = (0.005, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0)
 REWIRING_AXIS = (0.005, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0)
@@ -121,3 +123,26 @@ TASKS = TaskRegistry(
 def generate_tasks(name: str) -> list[ScenarioMetadata]:
     """Return the selected study's original ordered metadata, without shared mutations."""
     return TASKS.select(name)[0]()
+
+
+def execution_tasks(name: str, *, seed_namespace: str = SEED_NAMESPACE) -> list[dict]:
+    """New-run metadata with stable independent seeds and explicit axis values.
+
+    Historical ``generate_tasks`` remains byte-for-byte compatible with old
+    inputs. UniqueName is retained; use a fresh workspace for seeded reruns.
+    """
+    if not isinstance(seed_namespace, str) or not seed_namespace.strip():
+        raise ValueError("seed_namespace must be a nonempty string")
+    axes = SCENARIO_AXES[name]
+    tasks = []
+    for metadata, values in zip(generate_tasks(name), product(*axes.values()), strict=True):
+        coordinates = dict(zip(axes, values, strict=True))
+        identity = {"namespace": seed_namespace, "study": name, "coordinates": coordinates}
+        tasks.append(
+            {
+                "id": metadata["UniqueName"],
+                "coordinates": coordinates,
+                "metadata": reproducible_metadata(metadata, identity),
+            }
+        )
+    return tasks

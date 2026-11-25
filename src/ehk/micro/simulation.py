@@ -1,5 +1,6 @@
 """Single-simulation SMP protocol adapter; scheduling belongs to common.experiments."""
 
+import json
 import sys
 import threading
 from copy import deepcopy
@@ -22,8 +23,9 @@ class SimulationAdapter(TaskAdapter):
     # reporting only after the SMP binding exposes compatible cancellation and
     # completion evidence. Preserve directory/SQLite completion and isolated
     # batch ownership rather than replacing this adapter with lifted requests.
-    def __init__(self, binary, workspace, *, binding_batch=False):
+    def __init__(self, binary, workspace, *, binding_batch=False, strict_metadata=False):
         self.binary, self.workspace = Path(binary), Path(workspace)
+        self.strict_metadata = strict_metadata
         self.print_lock, self.active_lock = threading.Lock(), threading.Lock()
         self.active_processes: set = set()
         super().__init__(
@@ -38,11 +40,32 @@ class SimulationAdapter(TaskAdapter):
     def is_cached(self, task):
         from smp_bindings.simulation import is_simulation_finished
 
+        self.validate_existing(task)
         return is_simulation_finished(str(self.workspace), task["metadata"])
+
+    def validate_existing(self, task):
+        """Prevent a seeded recalculation from adopting unrelated legacy output."""
+        if not self.strict_metadata:
+            return
+        directory = self.workspace / task["metadata"]["UniqueName"]
+        path = directory / "metadata.json"
+        if not path.exists():
+            if directory.exists() and any(directory.iterdir()):
+                raise ValueError(f"existing output has no reproducible metadata: {directory}; use a new workspace")
+            return
+        saved = json.loads(path.read_text())
+        changed = [
+            key
+            for key, value in task["metadata"].items()
+            if saved.get(key, False if key == "ViewPostsDetails" else None) != value
+        ]
+        if changed:
+            raise ValueError(f"existing simulation differs in {', '.join(changed)}: {directory}; use a new workspace")
 
     def run_one(self, task):
         from smp_bindings.simulation import run_simulation
 
+        self.validate_existing(task)
         return run_simulation(
             str(self.binary),
             str(self.workspace),

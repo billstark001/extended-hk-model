@@ -2,9 +2,54 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, TypeAlias
 
+from common.io.json import fingerprint
+
 ScenarioMetadata: TypeAlias = dict[str, Any]
+
+RECOMMENDER_DEFAULTS = {
+    "NoiseStd": 0.1,
+    "OpRandomNoiseStd": 2.0,
+    "UseCache": True,
+    "Tolerance": 0.4,
+    "Steepness": 1.0,
+    "RandomRatio": 0.0,
+    "MixRate": 0.1,
+    "LogRecommendations": False,
+}
+
+
+def reproducible_metadata(
+    metadata: ScenarioMetadata, seed_identity: Any, *, node_count: int = 500, follow_count: int = 15
+) -> ScenarioMetadata:
+    """Resolve new-run defaults without changing historical scenario dictionaries.
+
+    The identity is a frozen experimental coordinate, not a process/thread ID.
+    Identical identities deliberately share initialization and process RNG streams.
+    Old unseeded records are never assigned these seeds retrospectively.
+    """
+    if type(node_count) is not int or type(follow_count) is not int or not 1 <= follow_count < node_count:
+        raise ValueError("require integer 1 <= follow_count < node_count")
+    digest = fingerprint({"rng_protocol": "ehk-independent-pcg-v1", "identity": seed_identity})
+    result = deepcopy(metadata)
+    result.update(
+        DataVersion=2,
+        NodeCount=node_count,
+        NodeFollowCount=follow_count,
+        NetworkType="Random",
+        RNG={"Algorithm": "pcg64-dxsm-v1", "Seed1": "0x" + digest[:16], "Seed2": "0x" + digest[16:32]},
+        RecSysParams={**RECOMMENDER_DEFAULTS, **result.get("RecSysParams", {})},
+        AgentNumber=True,
+        OpinionSum=True,
+        RewiringEvent=True,
+        PostEvent=True,
+        ViewPostsEvent=False,
+        ViewPostsDetails=False,
+        TrajectoryPrecision={"opinions": "float64", "opinion_sums": "float64"},
+    )
+    return result
 
 
 def create_scenario_metadata(
