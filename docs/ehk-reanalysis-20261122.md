@@ -84,3 +84,5 @@ python -m experiments.paper.run gradation \
 ```
 
 `epsilon`、`replicate`、`mech` 使用相同入口。全部使用新的 raw 目录，任务名称和历史轴顺序不变；新运行显式记录独立 PCG 双种子、坐标、模型/推荐参数、采集设置、float64 精度和二进制/源码身份。不要用新种子身份续写旧无种子的同名模拟。完成代码修改后再冻结正式实验。
+
+过程控制及网络图源采用独立模块，完整命令见 [控制实验说明](../experiments/paper/pathway_controls/README.md)。三臂 full、`q=0`、`alpha=0` 检查完整初始状态和 RNG 相同，导出实际有向边、意见及原帖；不需要 P/E 或路径阈值。小规模试跑只检查工作流，代表性正文图须从完成的科学规模轨迹选择。
