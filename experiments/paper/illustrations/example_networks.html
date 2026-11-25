@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>五种网络状态的可配置示例</title>
+  <title>Configurable examples of five network states</title>
   <meta name="crisprender-selector" content="#main-container">
   <meta name="crisprender-scale" content="1">
   <meta name="crisprender-format" content="None">
@@ -73,7 +73,6 @@
       position: relative;
     }
 
-
     #graph1 {
       grid-column: 1;
       grid-row: 1 / 3;
@@ -99,7 +98,6 @@
       grid-column: 3;
       grid-row: 2;
     }
-
 
     .arrow {
       position: absolute;
@@ -134,15 +132,15 @@
 <body>
   <div class="control-panel">
     <div style="margin-bottom: 15px;">
-      <button class="regenerate-btn" onclick="regenerateGraph('random')">重新生成随机网络</button>
-      <button class="regenerate-btn" onclick="regenerateGraph('homogenized')">重新生成同质化网络</button>
-      <button class="regenerate-btn" onclick="regenerateGraph('polarized')">重新生成极化网络</button>
-      <button class="regenerate-btn" onclick="regenerateGraph('consensual')">重新生成共识网络</button>
-      <button class="regenerate-btn" onclick="regenerateGraph('furtherPolarized')">重新生成进一步极化网络</button>
+      <button class="regenerate-btn" onclick="regenerateGraph('random')">Regenerate random network</button>
+      <button class="regenerate-btn" onclick="regenerateGraph('homogenized')">Regenerate homogeneous network</button>
+      <button class="regenerate-btn" onclick="regenerateGraph('polarized')">Regenerate polarized network</button>
+      <button class="regenerate-btn" onclick="regenerateGraph('consensual')">Regenerate consensus network</button>
+      <button class="regenerate-btn" onclick="regenerateGraph('furtherPolarized')">Regenerate further-polarized network</button>
     </div>
-    <button class="save-btn" onclick="saveToPDF()">保存为 PDF</button>
-    <button class="save-btn" onclick="saveToSVG()">保存为 SVG</button>
-    <button class="save-btn" onclick="saveMultiple()">保存多种格式</button>
+    <button class="save-btn" onclick="saveToPDF()">Save as PDF</button>
+    <button class="save-btn" onclick="saveToSVG()">Save as SVG</button>
+    <button class="save-btn" onclick="saveMultiple()">Save multiple formats</button>
   </div>
 
   <div class="container" id="main-container">
@@ -226,7 +224,6 @@
           return;
         }
 
-
         const dx = toCenter.x - fromCenter.x;
         const dy = toCenter.y - fromCenter.y;
         const length = Math.sqrt(dx * dx + dy * dy);
@@ -237,7 +234,6 @@
         const startY = fromCenter.y + unitY * offset;
         const endX = toCenter.x - unitX * offset;
         const endY = toCenter.y - unitY * offset;
-
 
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
         line.setAttribute('x1', startX);
@@ -255,9 +251,7 @@
         const existingLines = this.arrowsSvg.querySelectorAll('line');
         existingLines.forEach(line => line.remove());
 
-
         this.setupSvg();
-
 
         connections.forEach(([from, to, dashed]) => {
           this.drawArrow(from, to, dashed, offset);
@@ -291,11 +285,9 @@
 
         this.arrowDrawer = new ArrowDrawer('main-container', 'arrows-svg');
 
-
         setTimeout(() => {
           this.drawArrows();
         }, 200);
-
 
         window.addEventListener('resize', () => {
           setTimeout(() => this.drawArrows(), 100);
@@ -327,10 +319,9 @@
         const svgElements = document.querySelectorAll('svg');
 
         if (svgElements.length === 0) {
-          alert('未找到SVG元素');
+          alert('SVG element not found.');
           return;
         }
-
 
         const containerSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         containerSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
@@ -338,13 +329,11 @@
         containerSvg.setAttribute('height', '800');
         containerSvg.setAttribute('viewBox', '0 0 1200 800');
 
-
         const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         background.setAttribute('width', '1200');
         background.setAttribute('height', '800');
         background.setAttribute('fill', '#ffffff');
         containerSvg.appendChild(background);
-
 
         let yOffset = 0;
         let xOffset = 0;
@@ -356,14 +345,12 @@
 
           const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
 
-
           const col = index % 3;
           const row = Math.floor(index / 3);
           xOffset = col * svgWidth;
           yOffset = row * svgHeight;
 
           group.setAttribute('transform', `translate(${xOffset}, ${yOffset})`);
-
 
           const clonedContent = svg.cloneNode(true);
           Array.from(clonedContent.children).forEach(child => {
@@ -373,19 +360,17 @@
           containerSvg.appendChild(group);
         });
 
-
         const tempId = 'temp-combined-svg';
         containerSvg.id = tempId;
         document.body.appendChild(containerSvg);
 
         await window.exportUtils.exportToSVG(tempId, 'f_example_networks.svg');
 
-
         document.body.removeChild(containerSvg);
 
       } catch (error) {
-        console.error('SVG导出失败:', error);
-        alert('SVG导出失败，将使用HTML截图方式导出');
+        console.error('SVG export failed:', error);
+        alert('SVG export failed. Using an HTML screenshot instead.');
 
         await window.exportUtils.exportToPDF('main-container', 'f_example_networks_fallback.pdf');
       }
@@ -401,8 +386,6 @@
     const width = 400;
     const height = 400;
 
-
-
     const nodes = 40;
     const edges = 80;
     const graphConfigs = {
@@ -414,14 +397,11 @@
       furtherPolarized: { nodes, edges: edges - 2, interLinks: 2, colorGap: 0.8 }
     };
 
-
     const red = "#d62728";
     const blue = "#1f77b4";
     const grey = "#aaaaaa";
 
     const customColorScale = d3.scaleLinear().domain([0, 0.5, 1]).range([red, grey, blue]);
-
-
 
     function stripSmallComponents({ nodes, links }) {
 
@@ -431,7 +411,6 @@
         adjacencyList[link.source].push(link.target);
         adjacencyList[link.target].push(link.source);
       });
-
 
       const visited = new Set();
       const components = [];
@@ -454,17 +433,14 @@
         }
       });
 
-
       const largeComponents = components.filter(c => c.length >= 3);
       const largeNodeIds = new Set(largeComponents.flat());
-
 
       const filteredNodes = nodes.filter(node => largeNodeIds.has(node.id));
       const filteredLinks = links.filter(link => largeNodeIds.has(link.source) && largeNodeIds.has(link.target));
 
       return { nodes: filteredNodes, links: filteredLinks };
     }
-
 
     function generateRandomData(config) {
       const nodes = Array.from({ length: config.nodes }, (_, i) => ({
@@ -477,7 +453,6 @@
       }));
       return { nodes, links };
     }
-
 
     function generateHomogenizedData(config) {
       const nodes = Array.from({ length: config.nodes }, (_, i) => ({
@@ -495,7 +470,6 @@
       }
       return { nodes, links };
     }
-
 
     function generatePolarizedData(config) {
       const group1_size = Math.floor(config.nodes / 2);
@@ -529,7 +503,6 @@
       return { nodes, links };
     }
 
-
     function generateConsensualData(config) {
       const nodes = Array.from({ length: config.nodes }, (_, i) => ({
         id: i,
@@ -554,13 +527,11 @@
       return d;
     });
 
-
     const NODE_RADIUS = 10;
     const ARROW_SIZE = 6;
     const ARROW_DISTANCE = NODE_RADIUS * 2 + 1;
     function createGraph(containerId, graphData, linkDist, isRegeneration = false) {
       const svg = d3.select(`${containerId} svg`);
-
 
       if (isRegeneration) {
         svg.selectAll("*").remove();
@@ -607,7 +578,6 @@
         .attr("stroke-width", 1.5)
         .call(drag(simulation));
 
-
       function updateViewBox() {
         const padding = 5;
         const nodeRadius = 8;
@@ -639,14 +609,11 @@
           .attr("cx", d => d.x)
           .attr("cy", d => d.y);
 
-
         updateViewBox();
       });
 
-
       simulation.on("end", updateViewBox);
     }
-
 
     function regenerateGraph(type) {
       let data, linkDistance, containerId;
@@ -681,13 +648,11 @@
           return;
       }
 
-
       const datasetIndex = datasets.findIndex(d => d.id === containerId);
       if (datasetIndex !== -1) {
         datasets[datasetIndex].data = data;
         datasets[datasetIndex].linkDistance = linkDistance;
       }
-
 
       createGraph(containerId, data, linkDistance, true);
     }
@@ -713,9 +678,7 @@
         .on("end", dragended);
     }
 
-
     datasets.forEach(d => createGraph(d.id, d.data, d.linkDistance));
-
 
     setTimeout(() => {
       const app = new NetworkVisualizationApp();

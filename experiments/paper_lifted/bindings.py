@@ -13,10 +13,6 @@ from .evidence.protocol import MODEL_ROOT, sources
 def build(root, *, backend, micro_root, meso_root, calibration=None, binding_sources=None):
     """Reuse theory's initialization instrumentation; build only a thin lifted continuation adapter."""
     selected = {
-        # TODO(runtime-initialization): extract the shared fixed-degree/uniform
-        # initializer with theory.runtime.population into a model-runtime owner
-        # when both studies migrate their schemas. Keep the existing Go source,
-        # seed policy and authenticated binaries unchanged in this refactor.
         "initial": MODEL_ROOT / "experiments/paper_theory/runtime/engine",
         "lifted": MODEL_ROOT / "src/lifted/runtime/engine",
     }

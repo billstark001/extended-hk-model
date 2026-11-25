@@ -130,7 +130,7 @@ func helperArgs(args ...string) []string {
 
 func TestRunCommandPreservesArgumentsAndExitStatus(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "output")
-	values := []string{"a b", "", "$()", "&&", "中文"}
+	values := []string{"a b", "", "$()", "&&", "naïve"}
 	args := helperArgs(append([]string{"record", output}, values...)...)
 	if code := runCommand(context.Background(), os.Args[0], args, cancelCode); code != 0 {
 		t.Fatal(code)

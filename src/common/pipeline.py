@@ -73,7 +73,6 @@ class Context:
             raise ValueError(f"Selector '{name}' is already defined in the context")
         self.selectors[name] = (tuple(deps), func)
 
-        # invalidate graph cache
         self._dep_graph = None
         self._dep_cyclic = False
 
@@ -86,7 +85,6 @@ class Context:
         for sel, (msel, _) in self.multi_selectors.items():
             G.add_edge(msel, sel)
 
-        # calculate states
         state_vars: List[str] = [node for node in G.nodes() if G.in_degree(node) == 0]
         cycles: List[List[str]] = list(nx.simple_cycles(G))
 
@@ -142,17 +140,14 @@ class Context:
         if not recursive:
             return
 
-        # get or create graph
         if self._dep_graph is None:
             self._dep_graph, _, _c = self.get_dep_graph()
             self._dep_cyclic = len(_c) > 0
 
-        # if name is from multi selector,
-        # invalidate the multi selector itself
+        # Invalidate the owning selector when one of its outputs changes.
         if multi and name in self.multi_selectors:
             name = self.multi_selectors[name][0]
 
-        # find nodes and delete them
         nodes_to_delete: Iterable[str] = nx.dfs_preorder_nodes(
             self._dep_graph, name, len(self.selectors) + len(self.multi_selectors)
         )
@@ -216,20 +211,18 @@ class Context:
                 if param.kind in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.KEYWORD_ONLY)
             ]
 
-            # auto parse return name if not assigned
             nonlocal output_var
             if output_var is None:
                 output_var = analyze_last_return(func)
                 if output_var is None:
                     output_var = func.__name__
 
-            # ensure it is a string tuple with length more than 2 or a string
+            # Normalize one-element output declarations to a single name.
             if isinstance(output_var, list):
                 output_var = tuple(output_var)
             if isinstance(output_var, tuple) and len(output_var) == 1:
                 output_var = output_var[0]
 
-            # ignore_prefix
             if self.ignore_prefix and isinstance(output_var, str) and output_var.startswith(self.ignore_prefix):
                 output_var = output_var[len(self.ignore_prefix) :]
 

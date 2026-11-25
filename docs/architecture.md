@@ -4,17 +4,7 @@
 
 `src/common` owns model-independent settings, I/O and hashes, numerical/statistical tools, plotting primitives and process/build/environment services. `src/ehk` owns microscopic observables, geometry and model-specific visualizations. Both `experiments/paper` and `experiments/paper_theory` use `common.experiments` for their durable task lifecycle. Scientific observable definitions, statistical choices and figure selection remain study-owned.
 
-`src/lifted` owns finite-population conditional probabilities, all-agent outcome
-handling, commitment-time bounds and joint increment diagnostics. Its runtime
-adapters reuse public theory initialization/transport interfaces and the two Go
-libraries. `experiments/paper_lifted` owns its named validation/calibration/formal
-designs, data-dependent follow-up plans and CSV-only figures, using the same
-`common.experiments` lifecycle and `RunStorage`. Lifted-specific estimators do not
-belong to `theory`. Shared code remains in its actual owning package; no study
-imports another study's Python implementation. The existing theory Go
-instrumentation source is explicitly selected by both builds for initialization.
-The lifted continuation adapter implements instrumentation, not model stepping.
-See the [commitment study](../experiments/paper_lifted/README.md).
+`src/lifted` owns finite-population conditional probabilities, all-agent outcome handling, commitment-time bounds and joint increment diagnostics. Its runtime adapters reuse public theory initialization/transport interfaces and the two Go libraries. `experiments/paper_lifted` owns its named validation/calibration/formal designs, data-dependent follow-up plans and CSV-only figures, using the same `common.experiments` lifecycle and `RunStorage`. Lifted-specific estimators do not belong to `theory`. Shared code remains in its actual owning package; no study imports another study's Python implementation. The existing theory Go instrumentation source is explicitly selected by both builds for initialization. The lifted continuation adapter implements instrumentation, not model stepping. See the [commitment study](../experiments/paper_lifted/README.md).
 
 `src/theory` owns parameters, energies, finite exposure probabilities, recommendation/rewiring operators, transport, distribution/trajectory comparisons and release observables. `release/` includes restricted means, T50/other first-crossing quantiles, plateau diagnostics, conditional statistics and empirical survival/mixture fits. T50 remains available as a sensitivity diagnostic. `runtime/` owns public request schemas, JSONL/binary execution, result identity/completion checks and verified micro/pair references. It does not implement a kinetic/PDE solver. Model-independent binary codecs, array conversion/comparison, subprocess cancellation, retry and local storage staging belong in `src/common`.
 
@@ -62,63 +52,18 @@ Type declarations do not coerce data or add defaults. Dynamic decoding, dataclas
 
 Large inputs stay outside Git; generated builds, raw records, tables and figures stay ignored. Historical paper artifacts are optional provenance/data inputs, never code dependencies. `evidence` does not read them. CAS 2026 remains external empirical motivation; this repository does not recreate a CAS dataset. See the [study guide](../experiments/paper_theory/README.md) and [three-repository installation](runtime-dependencies.md).
 
-The shared lifecycle has one named-task registry, immutable plan/manifest binding,
-coverage calculation, exclusive session/active locks, stage dispatcher and durable
-journal. It delegates bounded execution and recovery to `common.runtime`, retaining
-`common.pipeline.Context` as the in-process observable cache. Study stages supply
-their designs and analyses; adapters supply scientific validation, completion checks
-and NPZ, binary/pair, SMP-directory or SQLite persistence. SQLite writes stay in the
-parent process while workers compute picklable statistics results.
+The shared lifecycle has one named-task registry, immutable plan/manifest binding, coverage calculation, exclusive session/active locks, stage dispatcher and durable journal. It delegates bounded execution and recovery to `common.runtime`, retaining `common.pipeline.Context` as the in-process observable cache. Study stages supply their designs and analyses; adapters supply scientific validation, completion checks and NPZ, binary/pair, SMP-directory or SQLite persistence. SQLite writes stay in the parent process while workers compute picklable statistics results.
 
-A generic optional batch callback lets each adapter choose native runtime batching.
-Only `theory.runtime.task_adapters` imports the mesoscopic batch API; only
-`ehk.micro.simulation` imports SMP simulation APIs. `common.experiments` imports
-neither runtime. `common.runtime.process.run_isolated` executes an opaque callable
-in a separate process group so interruption also cancels native descendants.
-Completion reports expose elapsed time and throughput-based ETA; committed/cache
-successes, failures and deferred analysis are tracked separately.
+A generic optional batch callback lets each adapter choose native runtime batching. Only `theory.runtime.task_adapters` imports the mesoscopic batch API; only `ehk.micro.simulation` imports SMP simulation APIs. `common.experiments` imports neither runtime. `common.runtime.process.run_isolated` executes an opaque callable in a separate process group so interruption also cancels native descendants. Completion reports expose elapsed time and throughput-based ETA; committed/cache successes, failures and deferred analysis are tracked separately.
 
-Replaced executors, design dispatchers and forwarding modules are deleted. Frozen
-historical jobs use `theory.runtime.historical` for authenticated read-only access.
-Their saved scientific protocols and current study protocols retain their own
-meaning. The [study guide](../experiments/paper_theory/README.md#shared-experiment-lifecycle)
-documents CLI, storage and native batch behavior. No Python code aliases preserve
-the removed orchestration APIs; binary formats and supported CLI routes remain the
-compatibility boundaries.
+Replaced executors, design dispatchers and forwarding modules are deleted. Frozen historical jobs use `theory.runtime.historical` for authenticated read-only access. Their saved scientific protocols and current study protocols retain their own meaning. The [study guide](../experiments/paper_theory/README.md#shared-experiment-lifecycle) documents CLI, storage and native batch behavior. No Python code aliases preserve the removed orchestration APIs; binary formats and supported CLI routes remain the compatibility boundaries.
 
-Original-paper `scenarios.py` exposes `generate_tasks(name)` and four lazy study
-generators. `SCENARIO_AXES` records ordered Cartesian axes; mechanism scenarios
-use an explicit case axis with physical parameters. Golden fingerprints verify
-all 14,099 original metadata dictionaries and their order. Plot and statistics
-callers use the same definitions without import-time scenario generation.
+Original-paper `scenarios.py` exposes `generate_tasks(name)` and four lazy study generators. `SCENARIO_AXES` records ordered Cartesian axes; mechanism scenarios use an explicit case axis with physical parameters. Golden fingerprints verify all 14,099 original metadata dictionaries and their order. Plot and statistics callers use the same definitions without import-time scenario generation.
 
-`experiments/drift_probe` is a separate temporary study, moved out of `paper`.
-Its eleven cases and `all` aggregate use the shared `TaskRegistry`; execution,
-frozen per-attempt plans, completion journals and timing also use the common
-lifecycle. The explicit module move replaces the old probe command path. Its
-record schema, probe options and existing environment setting names are retained.
+`experiments/drift_probe` is a separate temporary study, moved out of `paper`. Its eleven cases and `all` aggregate use the shared `TaskRegistry`; execution, frozen per-attempt plans, completion journals and timing also use the common lifecycle. The explicit module move replaces the old probe command path. Its record schema, probe options and existing environment setting names are retained.
 
-Theory analysis uses `common.experiments.artifacts.ArtifactCache` for immutable
-derived blocks, with scientific dependencies declared by the study. Raw extraction
-reuses unchanged CSV records. Summary blocks are scoped by physical comparison
-group; bootstrap curves, representative fields and CDF variation have independent
-keys. The source-free CSV bundle includes all recorded scalar series/native grids,
-analysis protocols, coverage and hashes. `--force` bypasses analysis caches.
-The legacy binary schemas, frozen identities and default CLI orchestration remain
-unchanged; `--phase` selects computational stages without introducing another
-executor. Original-paper/drift-probe stage boundaries are not changed here.
+Theory analysis uses `common.experiments.artifacts.ArtifactCache` for immutable derived blocks, with scientific dependencies declared by the study. Raw extraction reuses unchanged CSV records. Summary blocks are scoped by physical comparison group; bootstrap curves, representative fields and CDF variation have independent keys. The source-free CSV bundle includes all recorded scalar series/native grids, analysis protocols, coverage and hashes. `--force` bypasses analysis caches. The legacy binary schemas, frozen identities and default CLI orchestration remain unchanged; `--phase` selects computational stages without introducing another executor. Original-paper/drift-probe stage boundaries are not changed here.
 
-Lifted execution additionally supports a dependency-ready stream through the same
-`TaskAdapter` lifecycle. `common.experiments.scheduling.ReadyTasks` handles ready
-tasks and worker acknowledgements; the study supplies family/ratio fairness.
-Scientific task identity and raw bindings remain fixed while execution attempts
-record concurrency, scheduling, explicit cumulative limit changes and operational
-source revisions separately. Live progress uses journal increments and metadata
-cost samples; it does not replace the authenticated scientific export path.
+Lifted execution additionally supports a dependency-ready stream through the same `TaskAdapter` lifecycle. `common.experiments.scheduling.ReadyTasks` handles ready tasks and worker acknowledgements; the study supplies family/ratio fairness. Scientific task identity and raw bindings remain fixed while execution attempts record concurrency, scheduling, explicit cumulative limit changes and operational source revisions separately. Live progress uses journal increments and metadata cost samples; it does not replace the authenticated scientific export path.
 
-The [lifted module audit](lifted-architecture-audit.md) records the current owning
-modules and deferred ehk/theory migrations. Shared journal indexing, ready-stream
-execution, stage coverage, receipt archival, wall-limit extension and adapter
-restoration live in `common`. Lifted forecasting is a source-library algorithm
-with injected metadata; experiment modules own file selection, fairness policy,
-engine selection and separately frozen adaptive designs.
+Shared journal indexing, ready-stream execution, stage coverage, receipt archival, wall-limit extension and adapter restoration belong to `common`. Lifted cost models and forecasting belong to `src/lifted/runtime`, using injected metadata readers rather than importing study modules. `experiments/paper_lifted` owns file selection, fairness policy, engine selection and separately frozen adaptive designs. The shared executor releases dependent tasks only after validated cache reuse or a successful commit; deferred persistence does not release children. Stage coverage includes records committed in earlier attempts.

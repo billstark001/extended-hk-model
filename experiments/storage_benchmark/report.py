@@ -24,15 +24,15 @@ ACTIONS = (
 )
 QUERY_ACTIONS = {"selective_metadata", "scan_metadata", "scan_full", "nested_metadata", "scope_metadata", "scope_full"}
 ACTION_NAMES = {
-    "load": "载入 put / 文档",
-    "point_metadata": "按键仅元数据 / 次",
-    "point_full": "按键完整文档 / 次",
-    "selective_metadata": "条件筛选元数据 / 查询",
-    "scan_metadata": "扫描元数据 / 查询",
-    "scan_full": "扫描完整文档 / 查询",
-    "nested_metadata": "嵌套条件元数据 / 查询",
-    "state_update": "状态更新 / 文档",
-    "replace_full": "完整文档覆盖 / 次",
+    "load": "Load put / document",
+    "point_metadata": "Key read: metadata / operation",
+    "point_full": "Key read: full document / operation",
+    "selective_metadata": "Filtered metadata / query",
+    "scan_metadata": "Metadata scan / query",
+    "scan_full": "Full-document scan / query",
+    "nested_metadata": "Nested metadata filter / query",
+    "state_update": "State update / document",
+    "replace_full": "Full-document replacement / operation",
 }
 PLOT_NAMES = {
     "load": "Load: put/document",
@@ -87,11 +87,11 @@ def _cell(value):
 
 
 def _kind(info):
-    kind = info.get("data_kind", "未提供")
+    kind = info.get("data_kind", "not provided")
     if "synthetic" in kind:
-        return "校准合成数据，数值不是模型模拟结果"
+        return "Calibrated synthetic data; values are not simulation results"
     if "transformed_actual" in kind:
-        return "真实已完成摘要的转换，保留原数值"
+        return "Transformed completed summaries with original values preserved"
     return str(kind)
 
 
@@ -107,7 +107,7 @@ def _read_records(directory):
             continue
         record = {**record, "_file": path.name}
         if any(not record.get(key) for key in ("backend", "profile", "action")):
-            warnings.append(f"{path.name}: 缺少 backend/profile/action，未进入汇总")
+            warnings.append(f"{path.name}: missing backend/profile/action; excluded from the summary")
             continue
         if record.get("status") != "ok":
             excluded.append(record)
@@ -121,7 +121,10 @@ def _read_records(directory):
         identities.setdefault(key, []).append(record)
     duplicates = {key for key, items in identities.items() if len(items) > 1}
     if duplicates:
-        warnings.extend(f"重复 worker 身份 {_cell(key)}，相关文件均未进入数值汇总" for key in sorted(duplicates))
+        warnings.extend(
+            f"Duplicate worker identity {_cell(key)}; all corresponding files were excluded from numeric summaries"
+            for key in sorted(duplicates)
+        )
         records = [
             r
             for r in records
@@ -364,7 +367,7 @@ def _recovery_rows(plan, directory):
                 )
             )
         except (OSError, TypeError, ValueError) as error:
-            rows.append((backend, None, None, "未读取", str(error)))
+            rows.append((backend, None, None, "not read", str(error)))
     return rows
 
 
@@ -396,21 +399,26 @@ def render(run_dir):
     _figures(directory, rows, records, profiles, backends)
 
     lines = [
-        "# 隔离存储基准结果",
+        "# Isolated storage benchmark results",
         "",
-        "本报告仅汇总已有 worker JSON，没有执行新的性能测量。数值仅取 status=ok 的结果；不适用和失败项单列。",
+        "This report summarizes saved worker JSON without running new measurements. Numeric summaries include only status=ok results; failed and inapplicable workers are listed separately.",
         "",
     ]
     if smoke:
-        lines.extend(["本目录是小规模或单重复流程验证，不能作为正式全规模、多独立进程重复的性能结论。", ""])
+        lines.extend(
+            [
+                "This is a limited or single-repetition workflow check, not a full-scale comparison with independent process repetitions.",
+                "",
+            ]
+        )
     lines.extend(
         [
-            f"计划每项 {repetitions} 个独立进程重复，同进程条件查询计划重复 {plan.get('query_repetitions', '未提供')} 次。"
-            f"已读取 {len(records)} 个成功 worker、{len(excluded)} 个非成功 worker；计划中尚缺 {len(missing)} 个完成或不适用结果。",
+            f"Planned independent process repetitions per action: {repetitions}; queries per process: {plan.get('query_repetitions', 'not provided')}. "
+            f"Read {len(records)} successful workers and {len(excluded)} non-successful workers; {len(missing)} planned results are still missing.",
             "",
-            "## 数据与配置",
+            "## Data and configuration",
             "",
-            "| profile | 原任务规模 | 本次实测文档数 | 数据性质 |",
+            "| profile | Original task count | Measured document count | Data type |",
             "| --- | ---: | ---: | --- |",
         ]
     )
@@ -422,15 +430,15 @@ def render(run_dir):
     lines.extend(
         [
             "",
-            "full_paper 和 versioned_2x 的校准合成规模不是恢复得到的真实全量论文统计；实际研究来源及合成假设见 [plan.json](plan.json)。",
+            "full_paper and versioned_2x are calibrated synthetic workloads, not recovered full-paper statistics. See [plan.json](plan.json) for sources and assumptions.",
             "",
-            "本轮所选方案的底层都是 SQLite。这里比较文档接口、索引、编码和数组布局。WAL 与 synchronous=FULL 是本次受控配置，不能当作第三方库未配置时的默认承诺。",
+            "All selected backends use SQLite. The comparison covers document interfaces, indexes, codecs, and array layouts. WAL and synchronous=FULL are controlled benchmark settings, not claims about unconfigured library defaults.",
             "",
-            "每项在新进程中运行，但操作系统 page cache 未受控，因此 first 不是冷盘测量。first 是进程内第一次同类条件查询，steady 是同一进程的后续查询；默认两次查询时只有一个后续样本。没有原始 operation_seconds 的记录仅列 unpartitioned，不重建 first/steady。",
+            "Each action uses a fresh process, but the OS page cache is uncontrolled. first denotes its first query and steady denotes subsequent queries, not cold-disk reads. The default two-query run has one subsequent sample. Records without raw operation_seconds remain unpartitioned.",
             "",
-            "## 延迟",
+            "## Latency",
             "",
-            "表格给出各进程操作 p50 的中位数，单位 ms；括号是成功独立进程数。summary.csv 保留各进程 p50 的最小/最大值和各进程 p95 的中位数。未合并操作样本来伪增独立重复次数。默认条件查询中，每个进程的 first 和 steady 各只有一个观测值；此时 p95/p99 不是尾延迟估计，应比较各阶段独立进程重复的中位数和实测范围。",
+            "Tables report the median process-level operation p50 in ms; parentheses show successful independent process counts. summary.csv also records process p50 ranges and median process p95 values. Operation samples are not pooled as independent repetitions. With one query sample per phase and process, p95/p99 do not estimate tail latency; compare independent process medians and observed ranges.",
             "",
         ]
     )
@@ -440,7 +448,7 @@ def render(run_dir):
             [
                 f"### {_cell(profile)}",
                 "",
-                "| 操作与阶段 | " + " | ".join(backends) + " |",
+                "| Operation and phase | " + " | ".join(backends) + " |",
                 "| --- | " + " | ".join("---:" for _ in backends) + " |",
             ]
         )
@@ -459,15 +467,15 @@ def render(run_dir):
         lines.append("")
     lines.extend(
         [
-            "![操作延迟](performance.png)",
+            "![Operation latency](performance.png)",
             "",
-            "图中横线是独立进程 p50 的实测最小至最大范围，不是置信区间。对数坐标只绘制正延迟。",
+            "Whiskers show the observed process p50 minimum and maximum, not confidence intervals. Log axes show positive latency values only.",
             "",
-            "## 载入和文件体积",
+            "## Loading and file size",
             "",
-            "put 总耗时是逐文档 adapter 调用耗时之和，包含编码、压缩和提交，排除输入生成与 hash。载入循环端到端耗时另含流式生成和输入 hash，结束于载入循环，不含之后的抽查与 checkpoint，不与 put 总耗时混用。文件体积按 worker 实际返回值汇总，不从逻辑数组大小推算。",
+            "Total put time sums per-document adapter calls, including encoding, compression, and commit but excluding input generation and hashing. Load-loop elapsed time also includes streamed generation and input hashes; it ends before spot checks and checkpointing. File sizes use worker measurements rather than estimates from logical array sizes.",
             "",
-            "| profile / backend | put 总秒 | 载入循环端到端秒 | checkpoint 秒 | 文件逻辑 MiB | 文件分配 MiB |",
+            "| profile / backend | Total put seconds | Load-loop elapsed seconds | Checkpoint seconds | Apparent file MiB | Allocated file MiB |",
             "| --- | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
@@ -479,11 +487,11 @@ def render(run_dir):
     lines.extend(
         [
             "",
-            "## 内存",
+            "## Memory",
             "",
-            "action 峰值来自 worker 的 psutil RSS 采样，当前间隔为 10ms；基线单列。整个进程的 ru_maxrss 可能包含初始化或其他阶段，不能替代 action 峰值，也不能把 action 内存分摊给 first/steady。采样窗口覆盖整个 action，含计时外校验；load 还含生成和 checkpoint，state_update 还含 get(full) 内容验证，因此其 RSS 不是纯状态修改的占用。主要内存对照应看 metadata scan 和 full scan。所有值为 MiB，跨进程重复取中位数。",
+            "Action peaks use psutil RSS sampled every 10 ms, with a separate baseline. Process ru_maxrss includes initialization and other work and does not replace the action peak. Memory is not split between first and steady. Sampling includes untimed validation; load also includes generation and checkpointing, and state_update includes full-read validation. State-update RSS therefore measures the whole action, not the update alone. Metadata and full scans provide the main memory comparison. Values are process-repetition medians in MiB.",
             "",
-            "| profile / backend / action | 基线 | action 峰值 | 超出基线 | 进程 ru_maxrss |",
+            "| profile / backend / action | Baseline | Action peak | Above baseline | Process ru_maxrss |",
             "| --- | ---: | ---: | ---: | ---: |",
         ]
     )
@@ -511,47 +519,49 @@ def render(run_dir):
     lines.extend(
         [
             "",
-            "![action 内存](memory.png)",
+            "![Action memory](memory.png)",
             "",
-            "## 不适用、失败与缺失",
+            "## Inapplicable, failed, and missing results",
             "",
-            "| profile / backend / action | status | 文件 | 原因 |",
+            "| profile / backend / action | status | File | Reason |",
             "| --- | --- | --- | --- |",
         ]
     )
     for record in excluded:
-        reason = record.get("reason", record.get("error", "未提供"))
+        reason = record.get("reason", record.get("error", "not provided"))
         lines.append(
-            f"| {_cell(record['profile'])} / {_cell(record['backend'])} / {_cell(record['action'])} | {_cell(record.get('status', '未提供'))} | {_cell(record['_file'])} | {_cell(reason)} |"
+            f"| {_cell(record['profile'])} / {_cell(record['backend'])} / {_cell(record['action'])} | {_cell(record.get('status', 'not provided'))} | {_cell(record['_file'])} | {_cell(reason)} |"
         )
     if not excluded:
-        lines.append("| — | — | — | 无非成功结果 |")
+        lines.append("| — | — | — | No non-successful results |")
     if missing:
-        lines.extend(["", f"还有 {len(missing)} 个计划 worker 缺少完成结果，当前汇总为部分结果。"])
+        lines.extend(
+            ["", f"There are {len(missing)} planned workers without completed results; this summary is partial."]
+        )
     if warnings:
-        lines.extend(["", "读取问题：", "", *[f"- {_cell(item)}" for item in warnings]])
+        lines.extend(["", "Read errors:", "", *[f"- {_cell(item)}" for item in warnings]])
     recovery = _recovery_rows(plan, directory)
     lines.extend(
         [
             "",
-            "## 独立恢复验证",
+            "## Independent recovery validation",
             "",
-            "恢复验证与性能计时分开。它只针对 writer 子进程 SIGKILL，不模拟断电。",
+            "Recovery validation is separate from performance timing. It tests writer-process SIGKILL, not power loss.",
             "",
-            "| backend | 通过轮数 | 计划轮数 | all_passed |",
+            "| backend | Passed rounds | Planned rounds | all_passed |",
             "| --- | ---: | ---: | --- |",
         ]
     )
     for backend, passed, planned, all_passed, source in recovery:
         lines.append(f"| {_cell(backend)} | {_format(passed, 0)} | {_format(planned, 0)} | {_cell(all_passed)} |")
     if not recovery:
-        lines.append("| — | — | — | plan 未附恢复结果 |")
+        lines.append("| — | — | — | No recovery results attached to the plan |")
     lines.extend(
         [
             "",
-            "外部恢复报告路径及源码身份保留在 plan 的 recovery 字段；本渲染器没有重新运行恢复测试。",
+            "The plan recovery field retains report paths and source identities. Rendering does not rerun recovery tests.",
             "",
-            "[完整汇总 CSV](summary.csv) · [延迟 PDF](performance.pdf) · [内存 PDF](memory.pdf)",
+            "[Complete summary CSV](summary.csv) · [Latency PDF](performance.pdf) · [Memory PDF](memory.pdf)",
             "",
         ]
     )

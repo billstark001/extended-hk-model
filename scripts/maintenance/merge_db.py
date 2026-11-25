@@ -25,7 +25,6 @@ def get_data(conn: sqlite3.Connection, table_name: str, columns: List[str]) -> T
 
 def merge_tables(db_paths: List[str], merged_db_path: str, table_name: str) -> None:
     """Merge the same table from multiple SQLite databases into a new database"""
-    # Connect to the first database to get the table schema
     conn1 = sqlite3.connect(db_paths[0])
     schema = get_table_schema(conn1, table_name)
     if not schema:
@@ -35,21 +34,15 @@ def merge_tables(db_paths: List[str], merged_db_path: str, table_name: str) -> N
 
     column_names = get_column_names(conn1, table_name)
     columns_without_id = [col for col in column_names if col.lower() != "id"]
-    # column_names_map = {c: i for i, c in enumerate(columns_without_id)}
     placeholder = ", ".join("?" for _ in columns_without_id)
     insert_sql = f"INSERT INTO {table_name} ({', '.join(columns_without_id)}) VALUES ({placeholder})"
 
     keys = set()
-    # for row in get_data(conn1, table_name, columns_without_id)[0]:
-    #   key = (row[column_names_map['name']], row[column_names_map['origin']])
-    #   keys.add(key)
 
-    # Create the merged database
     merged_conn = sqlite3.connect(merged_db_path)
     merged_conn.execute(f"DROP TABLE IF EXISTS {table_name}")
     merged_conn.execute(schema)
 
-    # Merge data from each database
     for db_path in db_paths:
         conn = sqlite3.connect(db_path)
 
@@ -98,9 +91,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-# python merge_db.py
-#   db1.sqlite db2.sqlite db3.sqlite
-#   --merged-db merged.sqlite
-#   --table your_table

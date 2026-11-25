@@ -12,7 +12,6 @@ T = TypeVar("T")
 T1 = TypeVar("T1")
 T2 = TypeVar("T2")
 
-# parameters
 
 stats_db_path = str(statistics_database())
 
@@ -22,9 +21,7 @@ tw_keys = list(cfg.REPOST_AXIS)
 
 setup_paper_params()
 
-# utilities
 
-# build scenario
 short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
 

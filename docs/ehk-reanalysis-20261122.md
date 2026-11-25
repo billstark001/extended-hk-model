@@ -1,88 +1,71 @@
-# EHK 指标重算与第3.1节图源
+# Original-paper reanalysis and trajectory figures
 
-这次改动准备原论文的完整重新分析和带种子的新运行。论文正文未改；第3.1节候选稿保存在 paper 仓库的 `artifacts/ehk_section31_draft_20261122/`。已有原始模拟继续可读，旧统计宽表不迁移、不覆盖。
+This guide covers reanalysis of existing microscopic records and reproducible new runs. Existing raw simulations remain readable. Archived wide-table statistics are preserved separately from the new document database.
 
-## 指标和统计存储
+## Indices and statistics storage
 
-- `I_p,I_s` 使用正文约定的 random-reference JS divergence 比值。历史 JS distance、clustered-reference 补量分别进入审计。`I_p` 衡量意见距离分布偏离初始随机参照的程度，共识也能使其上升；它不保证在 `[0,1]` 内。
-- `I_h` 使用关注边两端的当前意见，先计算每个正出度节点的同信关注比例，再取节点平均。置信条件严格为 `distance < epsilon`，均匀基线为 `epsilon-epsilon**2/4`。关注帖同信率独立保存。
-- `I_w` 沿时间顺序积有符号梯形，不加终点补项，不裁剪到 `[0,1]`。它是连续轨迹摘要。
-- `0.6` 只作为待核对的历史分组值。分组图必须显式设置 `EHK_IW_CUTOFF`，图中称 low/high `I_w`，不会自动解释为严格 PbS/SbP 分类。
-- 默认重新分析不调用 P/E probe。只有显式加入 `--include-pathway-probe` 才计算独立的 P/E 首达标签。
+- `I_p,I_s` use random-reference Jensen–Shannon divergence ratios. Historical JS distance and clustered-reference complements are reconstructed separately in the audit. `I_p` measures departure of the opinion-distance distribution from the random reference; it can rise under consensus and is not bounded by one.
+- `I_h` uses the current opinions at directed follow-edge endpoints. Concordance is averaged equally over nodes with positive out-degree and normalized against the uniform baseline `epsilon-epsilon**2/4`. The confidence condition is strictly `distance < epsilon`. Concordance of received followee posts is stored separately.
+- `I_w` is the chronological signed trapezoidal integral, without an endpoint complement or clipping to `[0,1]`. It summarizes a trajectory continuously.
+- The historical `0.6` cutoff is an unvalidated descriptive split. Grouped plots require an explicit `EHK_IW_CUTOFF` and use low/high `I_w` labels.
+- Reanalysis does not call the P/E probe by default. `--include-pathway-probe` adds its independent first-passage labels.
 
-新统计库默认是 `outputs/experiments/paper/stats-v3.sqlite`，使用标准库 SQLite 文档存储。元数据、指标协议、原始输入身份和数组一起保存，增加统计字段无需修改宽表。NumPy 数组无 pickle，压缩后嵌入文档；每个任务事务写入。
+The default statistics database is `outputs/experiments/paper/stats-v3.sqlite`. Standard-library SQLite stores metadata, metric protocols, raw-source identities and arrays in one document per task. Typed NumPy arrays use compressed NPY with pickle disabled. Each document commits in one transaction; adding a statistic does not require a wide-table migration.
 
-任务的参数、真实 raw metadata、RNG 可得性、指标源码和输入文件身份共同约束缓存。旧 raw 缺种子时明确记录为不可得，不回填新任务的种子。输入改变或强制重算后，旧文档持久失效；失败任务不能继续向绘图提供旧结果。多个指标版本或 raw 来源共存时，绘图要求明确选择。
+Cache identity binds task parameters, recorded raw metadata, available RNG provenance, metric source code and input-file identities. Historical records without seeds retain that missing provenance. Changed inputs and forced reanalysis invalidate previous documents persistently; a failed retry cannot supply an old complete result to plotting. Readers require an explicit selection when multiple metric revisions or raw sources coexist.
 
-## 从现有 raw 重新分析
+## Reanalyze existing raw records
 
-以下命令在 model 仓库执行。把路径替换为包含 `s_grad_*` 等场景目录的实际 raw 根目录。当前历史工作区所指的外接卷未挂载；本轮没有完成历史全量重算。
-
-```sh
-python -m experiments.paper.analysis.run gradation \
-  --raw-root /path/to/existing/raw --origin original-paper \
-  --database /path/to/reanalysis/stats-v3.sqlite --plan-only
-
-python -m experiments.paper.analysis.run gradation \
-  --raw-root /path/to/existing/raw --origin original-paper \
-  --database /path/to/reanalysis/stats-v3.sqlite --limit 1 --concurrency 1
-
-python -m experiments.paper.analysis.run gradation \
-  --raw-root /path/to/existing/raw --origin original-paper \
-  --database /path/to/reanalysis/stats-v3.sqlite --concurrency 6
-```
-
-`--limit 1` 的成功文档可在全量运行时复用。再分别用 `epsilon` 和 `replicate` 运行同样命令；三个模式可以写入同一个新统计库。已有的 `MODE INSTANCE_NAME` 调用仍读取 `sim_ws.json`。`--force` 使当前修订下的文档重新计算。失败或缺失任务列在运行状态中，成功条目可恢复，不把 partial 称为完整重算。
-
-默认重算还在同一原始轨迹上重建历史口径，依次区分基线、帖子/边、JS 参考方向、distance/divergence、终点补项和采样覆盖的变化。重建使用本轮确定性采样，不保证与未保留采样信息的旧成品数值完全相同；缺失的帖子观察不补造。`--skip-metric-audit` 仅适合不需要该历史比较的独立分析。
-
-## 核对分组及依赖分组的数字
+Run these commands from the model repository. Replace the paths with a raw root containing scenario directories such as `s_grad_*` and a separate destination database:
 
 ```sh
-python -m experiments.paper.pathway_index.audit \
-  --database /path/to/reanalysis/stats-v3.sqlite \
-  --origin original-paper --analysis-id ANALYSIS_ID --cutoff 0.6 \
-  --output /path/to/reanalysis/audit
+python -m experiments.paper.analysis.run gradation --raw-root /path/to/existing/raw --origin original-paper --database /path/to/reanalysis/stats-v3.sqlite --plan-only
 
-python -m experiments.paper.pathway_index.grouped_summary \
-  --database /path/to/reanalysis/stats-v3.sqlite \
-  --origin original-paper --analysis-id ANALYSIS_ID --cutoff 0.6 \
-  --output /path/to/reanalysis/audit
+python -m experiments.paper.analysis.run gradation --raw-root /path/to/existing/raw --origin original-paper --database /path/to/reanalysis/stats-v3.sqlite --limit 1 --concurrency 1
+
+python -m experiments.paper.analysis.run gradation --raw-root /path/to/existing/raw --origin original-paper --database /path/to/reanalysis/stats-v3.sqlite --concurrency 6
 ```
 
-`ANALYSIS_ID` 来自 gradation 分析命令的返回值。audit 输出逐运行口径变化、0.6 分组迁移表和边/帖同信轨迹。可用 `--legacy /path/to/old/stats.db` 增加旧成品的只读对照；不要求旧统计库存在。
+A successful limited run can be reused by a later full selection. Run `epsilon` and `replicate` similarly; all three modes may share the new statistics database. The positional `MODE INSTANCE_NAME` interface still reads `sim_ws.json`. `--force` recomputes documents under the current metric revision. Missing and failed tasks remain visible in the run status, while successful records can resume independently.
 
-grouped_summary 只比较匹配的 `k_h=0` 两种 M9，输出逐运行值、组均值/标准差及有明确参照分母的百分比变化。指标覆盖换边数、归一化换边时刻、`I_s` 面积和闭合三元组数。它们是分组描述，不是配对干预效应。先查看样本数、缺失量和迁移结果，再判断旧分界及原论文百分比是否仍可使用。
+By default, reanalysis also reconstructs historical conventions on the same raw trajectory: the uniform baseline, post versus edge concordance, JS reference direction, distance versus divergence, endpoint complement and sampling coverage. Reconstruction uses deterministic current sampling; exact agreement with old products lacking sampling provenance is not guaranteed. Missing post observations are retained as missing. Use `--skip-metric-audit` for an analysis that does not need this comparison.
 
-## 绘图
+## Audit groups and dependent numerical claims
 
-旧的七个统计绘图入口均读取新文档库。使用默认 `stats-v3.sqlite`，或将 `SIMULATION_STAT_DIR` 指向包含该文件的目录。`EHK_ANALYSIS_ID` 可在同一模式存在多个分析版本时选择；`EHK_STATS_ORIGIN` 选择 raw 来源。不同模式的 analysis ID 不必相同。
+```sh
+python -m experiments.paper.pathway_index.audit --database /path/to/reanalysis/stats-v3.sqlite --origin original-paper --analysis-id ANALYSIS_ID --cutoff 0.6 --output /path/to/reanalysis/audit
+
+python -m experiments.paper.pathway_index.grouped_summary --database /path/to/reanalysis/stats-v3.sqlite --origin original-paper --analysis-id ANALYSIS_ID --cutoff 0.6 --output /path/to/reanalysis/audit
+```
+
+Use the `ANALYSIS_ID` returned by gradation analysis. The audit exports per-run convention changes, group migrations at the selected cutoff, and edge/post concordance trajectories. `--legacy /path/to/old/stats.db` adds a read-only comparison with archived scores; an archived statistics database is optional.
+
+`grouped_summary` compares the two M9 policies at matched `k_h=0`. It exports run-level observations, group means and standard deviations, and percentage changes with explicit reference-group denominators. Metrics cover rewiring counts, normalized rewiring times, `I_s` area and closed triads. These are descriptive group comparisons. Inspect sample counts, missingness and group migration before reusing a historical cutoff or reported percentage.
+
+## Plotting
+
+The seven original statistics-plot entry points read the document database. Use the default `stats-v3.sqlite`, or set `SIMULATION_STAT_DIR` to its containing directory. `EHK_ANALYSIS_ID` selects a metric revision within a mode, and `EHK_STATS_ORIGIN` selects a raw source. Different modes may have different analysis IDs.
 
 ```sh
 EHK_STATS_ORIGIN=original-paper python -m experiments.paper.main_scan.plot
 EHK_STATS_ORIGIN=original-paper python -m experiments.paper.pathway_index.plot_trajectories
-EHK_STATS_ORIGIN=original-paper EHK_IW_CUTOFF=0.6 \
-  python -m experiments.paper.pathway_index.plot
-EHK_STATS_ORIGIN=original-paper EHK_IW_CUTOFF=0.6 \
-  python -m experiments.paper.pathway_index.plot_raw
-EHK_STATS_ORIGIN=original-paper EHK_IW_CUTOFF=0.6 \
-  python -m experiments.paper.mechanism_cases.plot_cluster_and_repost
+EHK_STATS_ORIGIN=original-paper EHK_IW_CUTOFF=0.6 python -m experiments.paper.pathway_index.plot
+EHK_STATS_ORIGIN=original-paper EHK_IW_CUTOFF=0.6 python -m experiments.paper.pathway_index.plot_raw
+EHK_STATS_ORIGIN=original-paper EHK_IW_CUTOFF=0.6 python -m experiments.paper.mechanism_cases.plot_cluster_and_repost
 EHK_STATS_ORIGIN=original-paper python -m experiments.paper.epsilon_scan.plot
 EHK_STATS_ORIGIN=original-paper python -m experiments.paper.replicate.plot
 ```
 
-主要算法比较固定 `k_h=0`；原始历史长度分组图仍保留单独的历史对照。图读取拒绝失效文档，不合并不同来源或指标修订。
+The main algorithm comparisons use `k_h=0`; the raw history-group plot retains separate history controls. Readers reject stale documents and do not pool different raw sources or metric revisions.
 
-## 若需要重新运行模拟
+## Run new simulations
 
 ```sh
 python -m experiments.paper.run gradation --plan-only
-python -m experiments.paper.run gradation \
-  --run-dir /path/to/new/raw --freeze-only
-python -m experiments.paper.run gradation \
-  --run-dir /path/to/new/raw --concurrency 4
+python -m experiments.paper.run gradation --run-dir /path/to/new/raw --freeze-only
+python -m experiments.paper.run gradation --run-dir /path/to/new/raw --concurrency 4
 ```
 
-`epsilon`、`replicate`、`mech` 使用相同入口。全部使用新的 raw 目录，任务名称和历史轴顺序不变；新运行显式记录独立 PCG 双种子、坐标、模型/推荐参数、采集设置、float64 精度和二进制/源码身份。不要用新种子身份续写旧无种子的同名模拟。完成代码修改后再冻结正式实验。
+The same interface supports `epsilon`, `replicate` and `mech`. Use new raw directories. Historical task names and axis order are retained, while new runs record independent PCG root seeds, coordinates, model/recommender parameters, collection settings, float64 precision and executable/source identities. Freeze a formal run after completing code changes; an old unseeded same-name simulation cannot be resumed under a new seed identity.
 
-过程控制及网络图源采用独立模块，完整命令见 [控制实验说明](../experiments/paper/pathway_controls/README.md)。三臂 full、`q=0`、`alpha=0` 检查完整初始状态和 RNG 相同，导出实际有向边、意见及原帖；不需要 P/E 或路径阈值。小规模试跑只检查工作流，代表性正文图须从完成的科学规模轨迹选择。
+The independent [process-control workflow](../experiments/paper/pathway_controls/README.md) compares full, `q=0` and `alpha=0` arms from the same complete initial state and RNG. It exports actual directed edges, opinions and posts without requiring P/E thresholds. Small smoke runs check the workflow; representative manuscript figures require completed scientific-scale trajectories.

@@ -19,10 +19,6 @@ def simulation_batch(binary, workspace, scenarios, workers):
 
 
 class SimulationAdapter(TaskAdapter):
-    # TODO(runtime-observability): adopt shared journal/ETA and budget-deferred
-    # reporting only after the SMP binding exposes compatible cancellation and
-    # completion evidence. Preserve directory/SQLite completion and isolated
-    # batch ownership rather than replacing this adapter with lifted requests.
     def __init__(self, binary, workspace, *, binding_batch=False, strict_metadata=False):
         self.binary, self.workspace = Path(binary), Path(workspace)
         self.strict_metadata = strict_metadata

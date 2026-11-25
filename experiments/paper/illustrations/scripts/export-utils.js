@@ -1,5 +1,4 @@
 /**
- * 
  * const exporter = new ExportUtils();
  * exporter.exportToPDF('main-container', 'my-file.pdf');
  * exporter.exportToSVG('mainSVG', 'my-file.svg');
@@ -10,9 +9,7 @@ class ExportUtils {
         this.loadingButtons = new Set();
     }
 
-    /**
-     */
-    setButtonLoading(buttonSelector, loading, loadingText = '处理中...') {
+    setButtonLoading(buttonSelector, loading, loadingText = 'Processing...') {
         const button = document.querySelector(buttonSelector);
         if (!button) return;
 
@@ -30,23 +27,21 @@ class ExportUtils {
         }
     }
 
-    /**
-     */
     async exportToPDF(elementId, filename = 'export.pdf', options = {}) {
         if (this.isLoading) {
-            console.warn('PDF导出正在进行中，请稍候...');
+            console.warn('PDF export is already in progress. Please wait.');
             return;
         }
 
         const element = document.getElementById(elementId);
         if (!element) {
-            console.error('找不到要导出的元素:', elementId);
-            alert('找不到要导出的内容');
+            console.error('Export element not found:', elementId);
+            alert('Export content not found.');
             return;
         }
 
         this.isLoading = true;
-        this.setButtonLoading('.save-btn, .export-button, [onclick*="PDF"], [onclick*="pdf"]', true, '导出PDF中...');
+        this.setButtonLoading('.save-btn, .export-button, [onclick*="PDF"], [onclick*="pdf"]', true, 'Exporting PDF...');
 
         try {
 
@@ -64,7 +59,6 @@ class ExportUtils {
 
             const finalOptions = { ...defaultOptions, ...options };
 
-
             const canvas = await html2canvas(element, {
                 scale: finalOptions.scale,
                 useCORS: finalOptions.useCORS,
@@ -73,14 +67,12 @@ class ExportUtils {
                 logging: finalOptions.logging
             });
 
-
             const { jsPDF } = window.jspdf;
             const pdf = new jsPDF({
                 orientation: finalOptions.orientation,
                 unit: finalOptions.unit,
                 format: finalOptions.format
             });
-
 
             const pageWidth = finalOptions.format === 'a4' && finalOptions.orientation === 'landscape' ? 297 : 210;
             const pageHeight = finalOptions.format === 'a4' && finalOptions.orientation === 'landscape' ? 210 : 297;
@@ -96,7 +88,6 @@ class ExportUtils {
             }
 
             const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
 
             if (imgHeight > maxHeight && finalOptions.multiPage) {
                 let position = 0;
@@ -127,40 +118,36 @@ class ExportUtils {
             console.log(`PDF exported successfully: ${filename}`);
 
         } catch (error) {
-            console.error('PDF导出失败:', error);
-            alert('PDF导出失败，请查看控制台了解详细错误信息。');
+            console.error('PDF export failed:', error);
+            alert('PDF export failed. See the console for details.');
         } finally {
             this.setButtonLoading('.save-btn, .export-button, [onclick*="PDF"], [onclick*="pdf"]', false);
             this.isLoading = false;
         }
     }
 
-    /**
-     */
     async exportToSVG(svgElementId, filename = 'export.svg', options = {}) {
         if (this.isLoading) {
-            console.warn('SVG导出正在进行中，请稍候...');
+            console.warn('SVG export is already in progress. Please wait.');
             return;
         }
 
         const svgElement = document.getElementById(svgElementId);
         if (!svgElement || svgElement.tagName.toLowerCase() !== 'svg') {
-            console.error('找不到SVG元素或元素不是SVG:', svgElementId);
-            alert('找不到要导出的SVG内容');
+            console.error('SVG element is missing or invalid:', svgElementId);
+            alert('SVG export content not found.');
             return;
         }
 
         this.isLoading = true;
-        this.setButtonLoading('[onclick*="SVG"], [onclick*="svg"]', true, '导出SVG中...');
+        this.setButtonLoading('[onclick*="SVG"], [onclick*="svg"]', true, 'Exporting SVG...');
 
         try {
 
             const clonedSvg = svgElement.cloneNode(true);
-            
 
             clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
             clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
-            
 
             if (!clonedSvg.getAttribute('viewBox')) {
                 const width = clonedSvg.getAttribute('width') || svgElement.getBoundingClientRect().width;
@@ -168,13 +155,10 @@ class ExportUtils {
                 clonedSvg.setAttribute('viewBox', `0 0 ${width} ${height}`);
             }
 
-
             this.inlineStyles(clonedSvg);
-
 
             const svgString = new XMLSerializer().serializeToString(clonedSvg);
             const fullSvgString = `<?xml version="1.0" encoding="UTF-8"?>\n${svgString}`;
-
 
             const blob = new Blob([fullSvgString], { type: 'image/svg+xml;charset=utf-8' });
             const url = URL.createObjectURL(blob);
@@ -185,23 +169,20 @@ class ExportUtils {
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            
 
             URL.revokeObjectURL(url);
             
             console.log(`SVG exported successfully: ${filename}`);
 
         } catch (error) {
-            console.error('SVG导出失败:', error);
-            alert('SVG导出失败，请查看控制台了解详细错误信息。');
+            console.error('SVG export failed:', error);
+            alert('SVG export failed. See the console for details.');
         } finally {
             this.setButtonLoading('[onclick*="SVG"], [onclick*="svg"]', false);
             this.isLoading = false;
         }
     }
 
-    /**
-     */
     inlineStyles(element) {
         const computedStyle = window.getComputedStyle(element);
         const styleString = Array.from(computedStyle).reduce((str, property) => {
@@ -210,27 +191,23 @@ class ExportUtils {
         
         element.setAttribute('style', styleString);
 
-
         Array.from(element.children).forEach(child => {
             this.inlineStyles(child);
         });
     }
 
-    /**
-     */
     async exportSVGToPDF(svgElementId, filename = 'export.pdf', options = {}) {
         if (this.isLoading) {
-            console.warn('SVG转PDF正在进行中，请稍候...');
+            console.warn('SVG-to-PDF export is already in progress. Please wait.');
             return;
         }
 
         const svgElement = document.getElementById(svgElementId);
         if (!svgElement || svgElement.tagName.toLowerCase() !== 'svg') {
-            console.error('找不到SVG元素或元素不是SVG:', svgElementId);
-            alert('找不到要导出的SVG内容');
+            console.error('SVG element is missing or invalid:', svgElementId);
+            alert('SVG export content not found.');
             return;
         }
-
 
         if (typeof window.svg2pdf === 'undefined') {
             console.warn('svg2pdf.js not available, falling back to html2canvas method');
@@ -238,7 +215,7 @@ class ExportUtils {
         }
 
         this.isLoading = true;
-        this.setButtonLoading('[onclick*="PDF"], [onclick*="pdf"]', true, '导出PDF中...');
+        this.setButtonLoading('[onclick*="PDF"], [onclick*="pdf"]', true, 'Exporting PDF...');
 
         try {
             const { jsPDF } = window.jspdf;
@@ -261,19 +238,17 @@ class ExportUtils {
             console.log(`SVG to PDF exported successfully: ${filename}`);
 
         } catch (error) {
-            console.error('SVG转PDF失败:', error);
-            alert('SVG转PDF失败，请查看控制台了解详细错误信息。');
+            console.error('SVG-to-PDF export failed:', error);
+            alert('SVG-to-PDF export failed. See the console for details.');
         } finally {
             this.setButtonLoading('[onclick*="PDF"], [onclick*="pdf"]', false);
             this.isLoading = false;
         }
     }
 
-    /**
-     */
     async exportMultipleFormats(elementId, baseName = 'export', formats = ['pdf', 'svg'], options = {}) {
         if (this.isLoading) {
-            console.warn('批量导出正在进行中，请稍候...');
+            console.warn('Batch export is already in progress. Please wait.');
             return;
         }
 
@@ -292,7 +267,6 @@ class ExportUtils {
                     default:
                         console.warn(`Unsupported format: ${format}`);
                 }
-                
 
                 await new Promise(resolve => setTimeout(resolve, 500));
             } catch (error) {
@@ -301,8 +275,6 @@ class ExportUtils {
         }
     }
 
-    /**
-     */
     checkDependencies() {
         const dependencies = {
             jsPDF: typeof window.jspdf !== 'undefined',
@@ -315,8 +287,6 @@ class ExportUtils {
     }
 }
 
-
 window.ExportUtils = ExportUtils;
-
 
 window.exportUtils = new ExportUtils();

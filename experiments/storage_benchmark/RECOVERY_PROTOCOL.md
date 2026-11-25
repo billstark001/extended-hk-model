@@ -1,6 +1,6 @@
 # Writer process interruption and recovery protocol
 
-This is an isolated correctness test for the `current`, `tinymongo` and `indexed_split` benchmark adapters. It kills only a writer subprocess with POSIX `SIGKILL`. The benchmark coordinator remains alive. It does not simulate an operating system crash, power loss or an unplugged drive, and its runtime is not a throughput measurement.
+This is an isolated correctness test for the `current`, `tinymongo`, `indexed_split` and opt-in `sqlite_optimized` benchmark adapters. It kills only a writer subprocess with POSIX `SIGKILL`. The benchmark coordinator remains alive. It does not simulate an operating system crash, power loss or an unplugged drive, and its runtime is not a throughput measurement.
 
 All adapters must use SQLite WAL with `synchronous=FULL`. The runner reads their actual settings and rejects a different configuration. It does not disable syncing or change the production analysis store.
 
@@ -42,14 +42,14 @@ After the writer has exited with `-SIGKILL`, the coordinator opens a new backend
 
 An operation with no confirmed ACK may be absent or present as the next complete version. The runner does not infer durability from whether that unconfirmed operation happened to survive. Application-specific read-only behavior of an adapter, including any third-party catalog initialization, belongs in the broader benchmark report.
 
-The evidence directory preserves the parent ACK journal, per-round result and hashes, and the recovered database. Each round records SHA256 identities of `backends.py` and `recovery.py` and fails if either source changes during the round. A failed or timed-out round stays a failure in the overall report; a partially successful run is not labelled complete and passing.
+The evidence directory preserves the parent ACK journal, per-round result and hashes, and the recovered database. Each round records SHA-256 identities of `backends.py` and `recovery.py`, plus `sqlite_optimized.py` for that backend, and fails if any recorded source changes during the round. A failed or timed-out round stays a failure in the overall report; a partially successful run is not labelled complete and passing.
 
 ## Running separately from performance timing
 
 Use a new empty output directory and the benchmark's isolated dependency path, for example:
 
 ```sh
-PYTHONPATH=outputs/benchmarks/storage_20261122/vendor:src:. .venv/bin/python -m experiments.storage_benchmark.recovery --backend current --directory outputs/benchmarks/storage_20261122/recovery/current --rounds 6
+PYTHONPATH=outputs/benchmarks/storage/vendor:src:. .venv/bin/python -m experiments.storage_benchmark.recovery --backend current --directory outputs/benchmarks/storage/recovery/current --rounds 6
 ```
 
 Run the same command for the other adapters with separate directories. At least five independent rounds are required; six exercise the entire default schedule. Do not run these tests in the background while measuring storage performance. This protocol retains the workflow's single writer; a two- or four-writer contention experiment would be a separate interface test, not part of its recovery result.

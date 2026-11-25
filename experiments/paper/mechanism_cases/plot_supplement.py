@@ -48,9 +48,6 @@ class ParsedRecord:
     knr_seq: np.ndarray
 
 
-# region Data Loading and Caching
-
-
 def load_cache() -> dict:
     if CACHE_FILE_PATH.exists():
         try:
@@ -123,11 +120,6 @@ def get_basic_data(rec: RawSimulationRecord, force_reload=False) -> ParsedRecord
     return record
 
 
-# endregion
-
-# region Data Processing
-
-
 def resample_sequence(seq: np.ndarray, num_points: int) -> np.ndarray:
     xx = np.linspace(0, seq.shape[0] - 1, num=num_points)
     return interp1d(np.arange(seq.shape[0]), seq, axis=0, kind="linear", fill_value=EXTRAPOLATE_FILL)(xx)
@@ -180,7 +172,6 @@ def compute_segmented_potentials(
         dx_data, x_data = dx_seq[1:, :], x_seq[:-1, :]
     else:
         t_seq, x_seq, dx_seq = compute_trajectory_differentials(rec_parsed)
-        # dx_data, x_data = dx_seq, x_seq[:-1, :]
         dx_data, x_data = dx_seq[1:, :], x_seq[:-1, :]
 
     t_normalized = np.clip(t_seq[:-1], 0, 1)
@@ -207,11 +198,6 @@ def compute_segmented_potentials(
         V_segments.append(V_grid)
 
     return x_grid, F_segments, V_segments
-
-
-# endregion
-
-# region Plotting
 
 
 def plot_colorbar(fig: Figure, axes: List[Axes], pad=0.01):
@@ -251,7 +237,6 @@ def eval_rec_k_map(ax_k: Axes, r: ParsedRecord):
 
 def eval_rec_dx_r_map(ax_x: Axes, rec_parsed: ParsedRecord):
     t_seq_resampled, x_seq_resampled, dx_r_seq_resampled = compute_trajectory_differentials(rec_parsed)
-    # x_map = seq_to_map(x_seq_resampled, diff=True)
     dx_r_map = np.array([x_seq_resampled[:-1], dx_r_seq_resampled[1:]]).transpose((2, 1, 0))
     plot_trajectory_map(ax_x, dx_r_map, t_seq_resampled)
 
@@ -281,13 +266,12 @@ def plot_group(
     fig, axes_all = plt_figure(n_row=4, n_col=n_col, total_width=n_col * 3)
     axes_r1, axes_r1_v, axes_r2, axes_r2_v = axes_all
 
-    # Collect all potential values to determine unified y-axis ranges
     all_V_x = []
     all_V_dx = []
 
     for i, rec in enumerate(recs):
-        set_ax_format(axes_r1[i], xlabel=False, ylabel=(i == 0), dt="n")  # 1 / PLOT_RES
-        set_ax_format(axes_r2[i], xlabel=False, ylabel=(i == 0), dt="f")  # "N"
+        set_ax_format(axes_r1[i], xlabel=False, ylabel=(i == 0), dt="n")
+        set_ax_format(axes_r2[i], xlabel=False, ylabel=(i == 0), dt="f")
 
         with rec:
             rec_parsed = get_basic_data(rec)
@@ -313,7 +297,6 @@ def plot_group(
                 axes_r2_v[i], scenario_keys[i], neighbor_only=True, xlabel=True, ylabel=(i == 0)
             )
 
-        # Collect potential values
         for V in V_segments_x:
             all_V_x.extend(V)
         for V in V_segments_dx:
@@ -326,7 +309,6 @@ def plot_group(
         axes_r2[i].set_title(f"({char}2)", loc="left")
         axes_r2_v[i].set_title(f"({char}2')", loc="left")
 
-    # Set unified y-axis ranges for potential plots
     if all_V_x:
         v_min_x, v_max_x = np.min(all_V_x), np.max(all_V_x)
         v_range_x = v_max_x - v_min_x
@@ -343,9 +325,6 @@ def plot_group(
 
     plot_colorbar(fig, [*axes_r1, *axes_r1_v, *axes_r2, *axes_r2_v])
     save_landscape_figure(fig, save_name)
-
-
-# endregion
 
 
 def parse_args() -> argparse.Namespace:

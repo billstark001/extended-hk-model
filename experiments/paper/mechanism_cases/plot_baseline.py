@@ -20,7 +20,6 @@ from experiments.workspaces import workspace_dir
 if TYPE_CHECKING:
     from smp_bindings import RawSimulationRecord
 
-# Import reusable functions from f_supp_mech_map
 from experiments.paper.mechanism_cases.plot_supplement import (
     ParsedRecord,
     compute_segmented_potentials,
@@ -50,14 +49,12 @@ def create_subplot_layout(total_width=12, height_scale=1.0):
     axes : list
         List of subplot axes (12 subplots total)
     """
-    # Calculate dimensions
     # For square subplots: width = height = h
     # For 4:3 subplots: width = 4h/3
     # Total width: 4h + 2(4h/3) = 20h/3
     height_per_row = 3 * total_width / 20
     total_height = 2 * height_per_row * height_scale
 
-    # Create figure
     fig = plt.figure(figsize=(total_width, total_height))
 
     # GridSpec with width ratios [3, 3, 3, 3, 4, 4] for proper aspect ratios
@@ -65,7 +62,6 @@ def create_subplot_layout(total_width=12, height_scale=1.0):
     gs_left = gs[0].subgridspec(2, 4, hspace=0.2, wspace=0.1)
     gs_right = gs[1].subgridspec(2, 2, hspace=0.4, wspace=0.6)
 
-    # Create subplots
     axes_r1: List[Axes] = []
     axes_r2: List[Axes] = []
     for j in range(4):
@@ -85,11 +81,9 @@ def create_subplot_layout(total_width=12, height_scale=1.0):
 
 def plot_network_snapshots(rec: RawSimulationRecord, axes: Sequence[Axes], *, active_step: int, title_prefix=""):
     """Plot network snapshots at different time points (row 1)"""
-    # Calculate snapshot time steps
     snapshot_times_normalized = [0, 0.1, 0.25, 0.5]
     snapshot_times = [int(t * active_step) for t in snapshot_times_normalized]
 
-    # Get initial graph and compute spring layout
     G0 = rec.get_graph(0)
     poses = {}
     pos = nx.spring_layout(G0, seed=42)
@@ -101,7 +95,6 @@ def plot_network_snapshots(rec: RawSimulationRecord, axes: Sequence[Axes], *, ac
         pos = nx.spring_layout(G, pos=pos, iterations=10, seed=42)
         poses[t] = pos
 
-    # Plot network snapshots
     for i, t in enumerate(snapshot_times):
         G = rec.get_graph(t)
         opinions = rec.opinions[t]
@@ -139,7 +132,6 @@ def plot_dynamics_maps(
     else:
         plot_probe_potential(ax_v_x, scenario_key, neighbor_only=use_neighbor_diff, xlabel=xlabel, ylabel=True)
 
-    # Set titles
     ax_x.set_title(f"({title_prefix}) {'NOD' if not use_neighbor_diff else 'FOD'}", loc="left")
     ax_v_x.set_title(f"({title_prefix}') Potential of ({title_prefix})", loc="left")
 
@@ -188,15 +180,12 @@ if __name__ == "__main__":
 
         exit(0)
 
-    # Load baseline scenario (first record)
     rec_baseline_pbs = RawSimulationRecord(str(workspace_dir("local_mech")), cfg.mechanism_tasks()[1])
     rec_baseline_sbp = RawSimulationRecord(str(workspace_dir("local_mech")), cfg.mechanism_tasks()[2])
 
-    # Create figure and axes
     fig, axes = create_subplot_layout(total_width=16, height_scale=0.85)
     axes_r1, axes_r2 = axes
 
-    # Process data within context
     with rec_baseline_pbs:
         rec_parsed = get_basic_data(rec_baseline_pbs)
         plot_network_snapshots(
@@ -215,7 +204,6 @@ if __name__ == "__main__":
     for ax in axes_r1[4:] + axes_r2[4:]:
         ax.tick_params(axis="y", pad=0)
 
-    # Add colorbars with unified style
     plot_opinion_colorbar(fig, axes_r1[:4] + axes_r2[:4], label="$x$")
     plot_colorbar(fig, axes_r1[4:] + axes_r2[4:], pad=0.03)
 

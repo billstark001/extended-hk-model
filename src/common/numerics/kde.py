@@ -138,6 +138,6 @@ def get_kde_pdf(data, min_bandwidth: float, xmin: float, xmax: float):
         return delta_like_pdf
 
     bw_method = kde_min_bw_factory(min_bandwidth)
-    data_smpl = data  # np.random.choice(data, size=2000, replace=False)
+    data_smpl = data
     kde = gaussian_kde(data_smpl, bw_method=bw_method)
     return kde

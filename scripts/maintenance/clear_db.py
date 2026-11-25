@@ -8,10 +8,8 @@ if __name__ == "__main__":
     stats_db_path = sys.argv[1]
     flawed_path = sys.argv[2]
 
-    # Open the statistics database.
     session = create_db_session(stats_db_path)
 
-    # Load the names marked as flawed.
     with open(flawed_path, "r", encoding="utf-8") as f:
         flawed_name_list = [x.strip() for x in f.readlines()]
 

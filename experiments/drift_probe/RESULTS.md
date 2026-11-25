@@ -2,7 +2,19 @@
 
 The completed run uses 201 counterfactual opinion values, 11 frozen times, 500 anchor agents, and 20 recommendation replicates per anchor (10,000 samples per curve point).
 
-\| Record \| `Influence` \| `active_step` \| max `|F_CF|` \| \|---\|---:\|---:\|---:\| \| baseline \| 0.05 \| 352 \| 0.4453 \| \| PbS baseline \| 0.05 \| 786 \| 0.4496 \| \| SbP baseline \| 0.005 \| 2572 \| 0.4490 \| \| +influence \| 0.1 \| 441 \| 0.4471 \| \| +retweet \| 0.05 \| 3249 \| 0.4491 \| \| opinion rec. \| 0.05 \| 605 \| 0.4494 \| \| phase 1 \| 0.005 \| 2254 \| 0.2358 \| \| phase 2 \| 0.005 \| 13192 \| 0.4472 \| \| phase 3 \| 0.1 \| 301 \| 0.4491 \| \| phase 4 \| 1.0 \| 679 \| 0.4487 \| \| phase 5 \| 1.0 \| 14 \| 0.4486 \|
+| Record | `Influence` | `active_step` | max absolute `F_CF` |
+| --- | ---: | ---: | ---: |
+| baseline | 0.05 | 352 | 0.4453 |
+| PbS baseline | 0.05 | 786 | 0.4496 |
+| SbP baseline | 0.005 | 2572 | 0.4490 |
+| +influence | 0.1 | 441 | 0.4471 |
+| +retweet | 0.05 | 3249 | 0.4491 |
+| opinion rec. | 0.05 | 605 | 0.4494 |
+| phase 1 | 0.005 | 2254 | 0.2358 |
+| phase 2 | 0.005 | 13192 | 0.4472 |
+| phase 3 | 0.1 | 301 | 0.4491 |
+| phase 4 | 1.0 | 679 | 0.4487 |
+| phase 5 | 1.0 | 14 | 0.4486 |
 
 The exact integer steps corresponding to `t_n = 0, 0.1, ..., 1` are stored in each NPZ and in `manifest.json`.
 

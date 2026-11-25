@@ -58,19 +58,16 @@ def process_subfolder(dir_path: str, int_arg: Optional[int]) -> None:
     """Process a single subfolder according to the rules."""
     files = os.listdir(dir_path)
 
-    # Process acc-state
     acc_files = get_files_with_prefix(files, "acc-state")
     if len(acc_files) > 1:
         latest_acc = get_latest_file(acc_files, dir_path)
         remove_files(acc_files, dir_path, latest_acc)
 
-    # Process snapshot
     snap_files = get_files_with_prefix(files, "snapshot")
     if len(snap_files) > 1:
         latest_snap = get_latest_file(snap_files, dir_path)
         remove_files(snap_files, dir_path, latest_snap)
 
-    # Process finished and graph-<int_arg>
     finished_files = get_files_with_prefix(files, "finished")
     if int_arg is not None and finished_files:
         graph_files = get_files_with_prefix(files, f"graph-{int_arg}")

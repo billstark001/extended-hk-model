@@ -147,7 +147,6 @@ def numpy_to_latex_table(
     scientific=True,
     precision=4,
 ):
-    # convert to string
     """Write a LaTeX table to filename for a 2D array with optional row/column labels and numeric formatting."""
     formatted_data = []
     for row in data:
@@ -159,7 +158,6 @@ def numpy_to_latex_table(
                 formatted_row.append(f"{val:.{precision}f}")
         formatted_data.append(formatted_row)
 
-    # create table
     table = "\\begin{table}[h]\n\\centering\n"
     if row_labels is not None and col_labels is not None:
         table += "\\begin{tabular}{|l|" + "c|" * (data.shape[1] - 1) + "c|}\n"
@@ -173,6 +171,5 @@ def numpy_to_latex_table(
             table += " & ".join(row) + "\\\\\n"
     table += "\\end{tabular}\n\\caption{" + caption + "}\n\\end{table}"
 
-    # save table
     with open(filename, "w") as f:
         f.write(table)

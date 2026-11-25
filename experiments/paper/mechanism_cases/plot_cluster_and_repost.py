@@ -91,7 +91,6 @@ if __name__ == "__main__":
 
     session = select_statistics(session, lambda row: row.post_retain_count == 0)
 
-    # Load cluster data.
     stats_f1 = select_statistics(
         session, lambda row: row.pathway_integral is not None, lambda row: row.last_opinion_peak_count is not None
     )
@@ -105,7 +104,6 @@ if __name__ == "__main__":
     x_min, x_max = float(stats_grad.min() - 0.1), float(stats_grad.max() + 0.1)
     x_axis = np.linspace(x_min, x_max, 400)
 
-    # Load repost data.
     stats_raw = select_statistics(
         session,
         lambda row: row.pathway_integral is not None,
@@ -137,7 +135,6 @@ if __name__ == "__main__":
     od_p1_r_mean, od_p1_r_std = _filter(lambda x: is_high_iw(x) and x.repost_rate != 0)
     od_p1_nr_mean, od_p1_nr_std = _filter(lambda x: is_high_iw(x) and x.repost_rate == 0)
 
-    # Compare repost conditions.
     x1, y1, y_std_1 = np.array(
         [
             (x.pathway_integral, x.opinion_diff_seg_mean[1], x.opinion_diff_seg_std[1])
@@ -158,10 +155,8 @@ if __name__ == "__main__":
     x2_f, y2_f, _ = adaptive_moving_stats(x2, y2, 0.2)
     _, y2_std_f, _ = adaptive_moving_stats(x2, y_std_2, 0.2, min=x_min, max=x_max)
 
-    # Combine both studies in a two-by-three layout.
     fig, axes = plt_figure(n_row=2, n_col=3)
 
-    # First row: cluster panels.
     ax1, ax2, ax3 = axes[0]
 
     draw_prob(stats_peak == 1, stats_peak == 2, stats_peak > 2, stats_peak.size, ax1, stats_grad, x_axis)
@@ -194,7 +189,6 @@ if __name__ == "__main__":
     ax2.set_title("(b) no retweet", loc="left")
     ax3.set_title("(c) with retweet", loc="left")
 
-    # Second row: repost panels.
     ax4, ax5, ax6 = axes[1]
 
     x_labels = ["0~.2", ".2~.4", ".4~.6", ".6~.8", ".8~1"]

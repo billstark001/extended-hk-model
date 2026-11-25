@@ -49,7 +49,7 @@ def test_select_one_slot_and_preserve_scaled_time_and_physical_first_update(tmp_
     original = sha(source)
     slot, path = load_slot(source, dynamics="hk", alpha=0.02, epsilon=0.4, ratio=2)
     assert path == source
-    assert slot["tau"][1] == 0.01  # Physical dt=.5, not the retired design's dt=1.
+    assert slot["tau"][1] == 0.01  # The physical timestep is 0.5.
     assert slot["tau"][-1] == 100
     assert slot["node_energy"][1] == pytest.approx(np.exp(-0.003))
     assert sha(source) == original

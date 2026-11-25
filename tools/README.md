@@ -1,8 +1,6 @@
 # Workflow tools
 
-These are independent Go command modules. Build from each tool's directory;
-the Python project does not install them. macOS, Linux and Windows are supported;
-BSD variants retain a polling implementation but are not runtime-tested here.
+These are independent Go command modules. Build from each tool's directory; the Python project does not install them. macOS, Linux and Windows are supported; BSD variants retain a polling implementation but are not runtime-tested here.
 
 | Tool | Purpose | Go version |
 | --- | --- | --- |
@@ -19,10 +17,7 @@ tools/hdd-bridge/hdd-bridge -src /ssd/sim-cache -dst /hdd/sim-archive
 tools/waitpid/waitpid -timeout 12h 12345 python -m experiments.paper.run --help
 ```
 
-Windows executables have an `.exe` suffix. Windows users can run `go build .`
-inside each directory using PowerShell or cmd.exe. Compiled binaries are ignored.
-Use compiled `waitpid` for scheduling: `go run` wraps the program and does not
-preserve its exact exit status or signal behavior.
+Windows executables have an `.exe` suffix. Windows users can run `go build .` inside each directory using PowerShell or cmd.exe. Compiled binaries are ignored. Use compiled `waitpid` for scheduling: `go run` wraps the program and does not preserve its exact exit status or signal behavior.
 
 Checks:
 

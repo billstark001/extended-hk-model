@@ -1,35 +1,20 @@
-# Theory experiment migration and pruning
+# Historical theory data compatibility
 
-The model repository owns active code; original paper artifacts remain
-unchanged. `migration_sources.json` records historical source paths and SHA256
-values, not a registry of supported modules. Some recorded destinations have
-since been retired. It must not be used to discover runnable designs.
+The supported workflows are documented in [README.md](README.md). `migration_sources.json` records historical source paths and SHA-256 values; it is provenance, not a registry of runnable modules. Some destinations recorded there have since been retired.
 
-The 2026-10-17 cleanup follows the theory structure revision proposal. Current
-experiment names, coverage and the shared lifecycle are in
-[README.md](README.md).
-
-| Historical implementation | Current disposition |
+| Historical capability | Supported disposition |
 | --- | --- |
-| Energy-scan generation, channel probes and whole-grid plot menus | Removed; the previous design cleanup still applies |
-| Energy-scan node/edge fits and single-slot figures | Retained as offline capabilities; old baseline/expanded NPZ readers, fit APIs, and `fit-slot` / `plot-slot` CLI actions |
-| Old `scaling`, `release`, `population_closure` sweeps | Generators/plots removed; current named evidence tasks own the relevant comparisons |
-| Duplicate `micro_validation/population` design/analysis/plot | Removed; current evidence uses the shared lifecycle and model adapter |
-| Historical validation/follow-up grids | Saved 762/346-job plans and read-only record/table adapters remain; all historical generators and executors removed |
-| Historical figure menus and parameter-clock fit scripts | Removed; table analyses needed by the supplement remain |
-| Current `main_design` | Five named research topics; formal and smoke entry modules separated |
-| Nominal-N analytic closure scan | Removed; 90 exclusive formal tasks and 20 exclusive smoke tasks omitted |
-| Storage converter `evidence/migrate.py` | Copied to Cache original-data backup, then removed with its CLI/types/tests |
-| Runtime adapter, codecs, frozen readers, scientific estimators | Retained behind the shared `common.experiments` lifecycle used by both paper studies |
+| Energy-scan generation, channel probes and whole-grid plot menus | Retired |
+| Energy-scan node/edge fits and single-slot figures | Offline baseline/expanded NPZ readers, fit APIs and `fit-slot` / `plot-slot` actions remain available |
+| Old scaling, release and population-closure sweeps | Superseded by current named evidence tasks |
+| Duplicate microscopic population workflow | Replaced by the shared lifecycle and model adapter |
+| Historical 762-job validation and 346-job follow-up batches | Read-only record/table adapters consume the original authenticated frozen plans |
+| Historical figure menus and parameter-clock scripts | Retired; supplementary table analyses remain available |
+| Current aggregate design | Five named topics with separate formal and smoke entry modules |
+| Nominal-N analytic closure scan | Retired; 90 exclusive formal tasks and 20 exclusive smoke tasks are absent from the current aggregate |
+| One-time storage converter | Retired; legacy raw readers remain available |
+| Runtime adapters, codecs and scientific estimators | Supported through the shared experiment lifecycle |
 
-Retained current task IDs and physical requests are unchanged. The revised
-aggregate plan has 1794 tasks and a new fingerprint; old 1884-task data is still
-read using its own frozen plan. The two retained historical batches are read directly from their frozen plans,
-including their original ordering and metadata. Their
-scientific protocols remain distinct from the current manuscript protocol.
+The current aggregate has 1794 tasks. The earlier 1884-task dataset remains readable through its own frozen plan and analysis protocol. Retained task IDs and physical requests are unchanged; aggregate plan fingerprints differ. Historical validation/follow-up batches retain their original order, metadata and scientific protocols.
 
-The Cache native dataset contains 828 measure NPZ, 1056 micro binary and 228
-shared pair records. Its completed migration/analysis/render receipts remain
-with the dataset. Original JSON files and the retired converter copy remain in
-`/Volumes/Cache/extended-hk-model-paper-original-data/`. No simulations, further
-migration, raw-data removal, or bulk publication was performed by this cleanup.
+Raw migration receipts and any archived converter belong with their dataset. They are not supported generation entry points. Keep original raw records and their verified portable exports according to the dataset's provenance; current offline readers do not regenerate a historical plan or rewrite its records.

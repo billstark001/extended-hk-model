@@ -21,7 +21,6 @@ T = TypeVar("T")
 T1 = TypeVar("T1")
 T2 = TypeVar("T2")
 
-# parameters
 
 stats_db_path = str(statistics_database())
 
@@ -31,9 +30,7 @@ tw_keys = list(cfg.REPOST_AXIS)
 
 setup_paper_params()
 
-# utilities
 
-# build scenario
 short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
 
@@ -141,7 +138,6 @@ def plot_bar(ax: Axes, f: Callable[[ScenarioStatistics], float], compare_op=Fals
     means = all_data_arr[:, :, 0]
     stds = all_data_arr[:, :, 1]
 
-    # Print data for each bar
     if plot_title:
         ret.append(f"\n=== {plot_title} ===")
     for k_idx in range(k):
@@ -174,12 +170,10 @@ if __name__ == "__main__":
     session = read_statistics(stats_db_path, mode="gradation")
     cutoff = descriptive_iw_cutoff()
 
-    # Create figure with 2 rows: first row with 2 subplots, second row with 3 subplots
     fig, axes = plt_figure(n_row=2, n_col=3)
     ax1, ax2 = axes[0][0], axes[0][1]
     ax3, ax4, ax5 = axes[1][0], axes[1][1], axes[1][2]
 
-    # Hide the unused subplot in the first row
     axes[0][2].set_visible(False)
 
     def f_ev_count(x: ScenarioStatistics) -> float:
@@ -201,7 +195,6 @@ if __name__ == "__main__":
         assert x.triads is not None
         return x.triads
 
-    # Plot 1: Event count (1_1)
     data_1 = plot_bar(ax1, f=f_ev_count, plot_title="Event Count")
     ax1.set_title("(a) #rewiring events", loc="left")
     ax1.grid(True, linestyle="--", alpha=0.5)
@@ -209,21 +202,18 @@ if __name__ == "__main__":
     ax1.set_yscale("log")
     ax1.set_ylim(1e3, 1e4)
 
-    # Plot 2: Event step (1_2)
     data_2 = plot_bar(ax2, f=f_ev_step, plot_title="Event Step")
     ax2.set_title("(b) norm. occurrence time", loc="left")
     ax2.grid(True, linestyle="--", alpha=0.5)
     ax2.legend()
     ax2.set_ylim(0, 0.4)
 
-    # Plot 3: Front-loading environment index (3_1)
     data_3 = plot_bar(ax3, f_auc_subj_pol_index, plot_title="AUC of Subjective Polarization Index")
     ax3.set_title(r"(c) AUC of $I_s$", loc="left")
     ax3.grid(True, linestyle="--", alpha=0.5)
     ax3.legend()
     ax3.set_ylim(0.3, 0.8)
 
-    # Plot 4: Triads (2_1)
     data_4 = plot_bar(ax4, f=f_triads, plot_title="Triads")
     ax4.set_title("(d) #triads", loc="left")
     ax4.grid(True, linestyle="--", alpha=0.5)
@@ -231,7 +221,6 @@ if __name__ == "__main__":
     ax4.set_yscale("log")
     ax4.set_ylim(1000, 200000)
 
-    # Plot 5: Triads for Opinion (2_2)
     data_5 = plot_bar(ax5, f=f_triads, compare_op=True, plot_title="Triads (Opinion)")
     ax5.set_title("(e) #triads, Op.", loc="left")
     ax5.grid(True, linestyle="--", alpha=0.5)
@@ -239,7 +228,6 @@ if __name__ == "__main__":
     ax5.set_yscale("log")
     ax5.set_ylim(1000, 200000)
 
-    # Save the combined figure
     fig.text(0.5, 0.002, rf"Descriptive $I_w$ split at {cutoff:g}", ha="center", fontsize=7)
     fig.tight_layout()
     figure_dir = PATHWAY_OUTPUT.resolve() / "figures"

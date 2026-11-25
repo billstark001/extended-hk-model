@@ -16,7 +16,6 @@ T = TypeVar("T")
 T1 = TypeVar("T1")
 T2 = TypeVar("T2")
 
-# parameters
 
 stats_db_path = str(statistics_database())
 
@@ -26,9 +25,7 @@ tw_keys = list(cfg.REPOST_AXIS)
 
 setup_paper_params()
 
-# utilities
 
-# build scenario
 short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
 
@@ -107,7 +104,6 @@ def _plot_single_heatmap(ax, data_mean, data_std, title, cmap, vmin, vmax, with_
     im = ax.imshow(data_mean, cmap=cmap, vmin=vmin, vmax=vmax)
     ax.set_title(title, loc="left")
 
-    # Add standard deviation circles
     if with_std:
         for i in range(data_std.shape[0]):
             for j in range(data_std.shape[1]):
@@ -169,7 +165,6 @@ def plot_combined_heatmaps(
     """
     session = read_statistics(stats_db_path, mode="gradation")
 
-    # Calculate data for all metrics
     all_data = []
     for f, stats_name, kwargs in metrics:
         peaks = kwargs.get("peaks", None)
@@ -188,27 +183,21 @@ def plot_combined_heatmaps(
             diff_extent = max(np.max(np.abs(diff[np.isfinite(diff)]), initial=0), 0.1)
             options.update(heatmap_min=-extent, heatmap_max=extent, diff_range=diff_extent)
 
-    # Setup figure
     n_cols_per_metric = 3 if with_diff else 2
-    # Use 2x3 layout instead of 1x6
     fig, axes_orig = plt_figure(n_row=2, n_col=3, hw_ratio=1, constrained_layout=False)
 
-    # Flatten axes for easier indexing
     axes = np.array(axes_orig).flatten().tolist()
 
     for metric_idx, (mean_st, std_st, mean_op, std_op, diff, stats_name, kwargs) in enumerate(all_data):
         base_idx = metric_idx * n_cols_per_metric
 
-        # Get plot parameters
         cmap = kwargs.get("cmap", "RdYlBu_r")
         heatmap_min = kwargs.get("heatmap_min", 0)
         heatmap_max = kwargs.get("heatmap_max", 1)
         diff_range = kwargs.get("diff_range", 0.6)
 
-        # Generate subplot labels
         label_prefix = chr(ord("a") + metric_idx * n_cols_per_metric)
 
-        # Plot structure heatmap
         ax_st = axes[base_idx]
         im_st = _plot_single_heatmap(
             ax_st,
@@ -222,7 +211,6 @@ def plot_combined_heatmaps(
         )
         fig.colorbar(im_st, ax=ax_st, fraction=0.046, pad=0.04)
 
-        # Plot opinion heatmap
         ax_op = axes[base_idx + 1]
         im_op = _plot_single_heatmap(
             ax_op,
@@ -236,7 +224,6 @@ def plot_combined_heatmaps(
         )
         fig.colorbar(im_op, ax=ax_op, fraction=0.046, pad=0.04)
 
-        # Plot difference heatmap if requested
         if with_diff:
             ax_diff = axes[base_idx + 2]
             cur_chr = chr(ord(label_prefix) + 2)
@@ -329,7 +316,6 @@ if __name__ == "__main__":
         assert x.active_step is not None
         return np.log10(x.active_step)
 
-    # Create combined plot for gradient index and polarization backdrop index
     metrics = [
         (f_grad, "$I_w$", {"cmap": "RdBu_r", "signed": True}),
         (

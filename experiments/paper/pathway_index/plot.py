@@ -21,7 +21,6 @@ T = TypeVar("T")
 T1 = TypeVar("T1")
 T2 = TypeVar("T2")
 
-# parameters
 
 stats_db_path = str(statistics_database())
 
@@ -31,9 +30,7 @@ tw_keys = list(cfg.REPOST_AXIS)
 
 setup_paper_params()
 
-# utilities
 
-# build scenario
 short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
 
 
@@ -108,7 +105,6 @@ def plot_bar(
     means = all_data_arr[:, :, 0]
     stds = all_data_arr[:, :, 1]
 
-    # Print data for each bar
     if plot_title:
         ret.append(f"\n=== {plot_title} ===")
     for k_idx in range(k):
@@ -140,7 +136,6 @@ def plot_bar(
 if __name__ == "__main__":
     session = read_statistics(stats_db_path, mode="gradation")
 
-    # Create figure with 2 rows, 4 columns for 8 subplots (a-h)
     cutoff = descriptive_iw_cutoff()
     fig, axes = plt_figure(n_row=2, n_col=4, total_width=PAPER_WIDTH * 0.8, hw_ratio=4 / 3, constrained_layout=False)
 
@@ -164,24 +159,19 @@ if __name__ == "__main__":
         return x.triads
 
     # First row (a-d): comparing recommendation strategies (St vs Op)
-    # Plot a: Event count by recommendation strategy
     data_a = plot_bar(axes[0][0], f=f_ev_count, use_retweet_filters=False, plot_title="Event Count by RecSys")
     axes[0][0].set_title("(a)", loc="left")
     axes[0][0].set_ylabel("#rewiring events")
     axes[0][0].grid(True, linestyle="--", alpha=0.5)
-    # axes[0][0].legend()
     axes[0][0].set_yscale("log")
     axes[0][0].set_ylim(1e3, 1e4)
 
-    # Plot b: Event step by recommendation strategy
     data_b = plot_bar(axes[0][1], f=f_ev_step, use_retweet_filters=False, plot_title="Event Step by RecSys")
     axes[0][1].set_title("(b)", loc="left")
     axes[0][1].set_ylabel("norm. occurrence time")
     axes[0][1].grid(True, linestyle="--", alpha=0.5)
-    # axes[0][1].legend()
     axes[0][1].set_ylim(0, 0.4)
 
-    # Plot c: AUC of Subjective Polarization Index by recommendation strategy
     data_c = plot_bar(
         axes[0][2],
         f=f_auc_subj_pol_index,
@@ -191,10 +181,8 @@ if __name__ == "__main__":
     axes[0][2].set_title("(c)", loc="left")
     axes[0][2].set_ylabel(r"AUC of $I_s$")
     axes[0][2].grid(True, linestyle="--", alpha=0.5)
-    # axes[0][2].legend()
     axes[0][2].set_ylim(0.3, 0.8)
 
-    # Plot d: Triads by recommendation strategy
     data_d = plot_bar(axes[0][3], f=f_triads, use_retweet_filters=False, plot_title="Triads by RecSys")
     axes[0][3].set_title("(d)", loc="left")
     axes[0][3].set_ylabel("#triads")
@@ -204,24 +192,19 @@ if __name__ == "__main__":
     axes[0][3].set_ylim(1000, 200000)
 
     # Second row (e-h): comparing retweet status (!R vs R)
-    # Plot e: Event count by retweet status
     data_e = plot_bar(axes[1][0], f=f_ev_count, use_retweet_filters=True, plot_title="Event Count by Retweet")
     axes[1][0].set_title("(e)", loc="left")
     axes[1][0].set_ylabel("#rewiring events")
     axes[1][0].grid(True, linestyle="--", alpha=0.5)
-    # axes[1][0].legend()
     axes[1][0].set_yscale("log")
     axes[1][0].set_ylim(1e3, 1e4)
 
-    # Plot f: Event step by retweet status
     data_f = plot_bar(axes[1][1], f=f_ev_step, use_retweet_filters=True, plot_title="Event Step by Retweet")
     axes[1][1].set_title("(f)", loc="left")
     axes[1][1].set_ylabel("norm. occurrence time")
     axes[1][1].grid(True, linestyle="--", alpha=0.5)
-    # axes[1][1].legend()
     axes[1][1].set_ylim(0, 0.4)
 
-    # Plot g: AUC of Subjective Polarization Index by retweet status
     data_g = plot_bar(
         axes[1][2],
         f=f_auc_subj_pol_index,
@@ -231,10 +214,8 @@ if __name__ == "__main__":
     axes[1][2].set_title("(g)", loc="left")
     axes[1][2].set_ylabel(r"AUC of $I_s$")
     axes[1][2].grid(True, linestyle="--", alpha=0.5)
-    # axes[1][2].legend()
     axes[1][2].set_ylim(0.3, 0.8)
 
-    # Plot h: Triads by retweet status
     data_h = plot_bar(axes[1][3], f=f_triads, use_retweet_filters=True, plot_title="Triads by Retweet")
     axes[1][3].set_title("(h)", loc="left")
     axes[1][3].set_ylabel("#triads")
@@ -243,8 +224,6 @@ if __name__ == "__main__":
     axes[1][3].set_yscale("log")
     axes[1][3].set_ylim(1000, 200000)
 
-    # Optimize layout before saving
-    # Save the combined figure
     fig.text(0.5, 0.002, rf"Descriptive $I_w$ split at {cutoff:g}", ha="center", fontsize=7)
     fig.tight_layout()
     figure_dir = PATHWAY_OUTPUT.resolve() / "figures"

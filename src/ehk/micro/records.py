@@ -21,7 +21,6 @@ def read_records(pat_file_paths: List[str], full_sim_len: int = 1):
 
     pat_file_seed: dict = pat_files_raw[0] if pat_files_raw else {}
 
-    # partition keys into 2 groups
     keys_0d = []
     keys_non_0d = []
     for k, v in pat_file_seed.items():

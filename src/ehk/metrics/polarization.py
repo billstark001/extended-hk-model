@@ -33,9 +33,9 @@ def ideal_dist_init_array(x: np.ndarray, k: float = 2):
 
 def ideal_dist_worst_obj_array(axis: np.ndarray, cl: float, effective_sample_size: int, min_bw: float):
     m = max(1, effective_sample_size)
-    std = cl / 2  # std. of dataset
+    std = cl / 2
     factor = max(
-        m ** (-1.0 / (1 + 4)),  # scotts
+        m ** (-1.0 / (1 + 4)),  # Scott's bandwidth rule.
         min_bw / std,
     )
     std_norm = std * factor
@@ -49,9 +49,7 @@ def opinion_peak_count(opinions: NDArray, min_peak_distance: int = 50) -> int:
     """Count KDE modes on [-1, 1], including modes at the opinion boundaries."""
     grid = np.linspace(-1, 1, 1001)
     density = get_kde_pdf(opinions, 0.1, -1, 1)(grid)
-    peaks, _ = find_peaks(
-        np.pad(density, 1, mode="constant"), height=np.max(density) * 0.1, distance=min_peak_distance
-    )
+    peaks, _ = find_peaks(np.pad(density, 1, mode="constant"), height=np.max(density) * 0.1, distance=min_peak_distance)
     return len(peaks)
 
 
@@ -137,9 +135,7 @@ class DistanceCalculator:
         k = self.k
 
         # Compute pairwise differences without allocating a full n-by-n matrix.
-        i_idx, j_idx = (
-            self.triu_indices if len(opinion) == self.sample_count else np.triu_indices(len(opinion), k=1)
-        )
+        i_idx, j_idx = self.triu_indices if len(opinion) == self.sample_count else np.triu_indices(len(opinion), k=1)
 
         o_sample = np.abs(opinion[i_idx] - opinion[j_idx])
         o_sample = np.clip(o_sample, 0, k)
@@ -167,12 +163,11 @@ class DistanceCalculator:
         o_pdf = get_kde_pdf(o_kde, self.min_bandwidth, 0, k) if len(o_kde) else None
         s_pdf = get_kde_pdf(s_kde, self.min_bandwidth, 0, k) if len(s_kde) else None
 
-        # random cases, use pre-rendered
+        # Reuse the precomputed random-reference density.
         axis = self.axis
         s_rand_vals = o_rand_vals = self.o_rand_vals
 
-        # worst cases
-        # objective
+        # The objective worst case uses the observed polarized distance.
         o_worst_b = o_sample[o_sample >= t_opinion]
         o_worst_v = float(t_opinion if o_worst_b.size == 0 else np.mean(o_worst_b))
         o_worst_vals = ideal_dist_worst_obj_array(axis, o_worst_v, len(o_kde), self.min_bandwidth)

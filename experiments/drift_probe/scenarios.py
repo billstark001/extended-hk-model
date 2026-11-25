@@ -1,4 +1,4 @@
-"""Temporary drift-probe tasks, using archived mechanism records as inputs."""
+"""Drift-probe tasks using archived mechanism records as inputs."""
 
 from __future__ import annotations
 
@@ -51,11 +51,8 @@ class LandscapeScenario:
         }
 
 
-# These are the records used by f_mech_map_baseline.py and
-# Preserve the order used by the paper mechanism scenarios.
-# active_step uses the existing paper definition with active_threshold=0.98
-# and min_inactive_value=0.75. Values already used by the observational
-# figures' cache are retained exactly.
+# Preserve the paper mechanism scenario order and cached active steps.
+# Active steps use active_threshold=0.98 and min_inactive_value=0.75.
 SCENARIOS: dict[str, LandscapeScenario] = {
     "baseline": LandscapeScenario(
         key="baseline",

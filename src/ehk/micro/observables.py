@@ -22,8 +22,6 @@ if TYPE_CHECKING:
 c = Context(ignore_prefix="get_")
 c.set_state(active_threshold=0.98, min_inactive_value=0.75, opinion_peak_distance=50)
 
-# from nx.floyd_warshall_numpy
-
 
 def floyd_warshall_weight_matrix(A: NDArray):
     n, m = A.shape
@@ -70,9 +68,6 @@ def get_opinion_diff_vars(adj_mat: NDArray, opinion: NDArray):
     return var.flatten()
 
 
-# bimodality coefficient
-
-
 def bimodality_coefficient(data: NDArray):
     """
     Calculate the Bimodality Coefficient (BC) for a given dataset.
@@ -105,16 +100,12 @@ def get_total_steps(scenario_record: RawSimulationRecord):
     return scenario_record.max_step
 
 
-# region events
-
-
 @c.selector
 def get_rewiring_event_stats(scenario_record: RawSimulationRecord):
     from smp_bindings import get_events_by_step_range
 
     rewiring_events = get_events_by_step_range(scenario_record.events_db, 0, scenario_record.max_step + 1, "Rewiring")
     event_step = np.array([x.step for x in rewiring_events])
-    # TODO add other statistics when necessary
     return event_step
 
 
@@ -130,18 +121,13 @@ def get_retweeted_tweets_lifecycle_raw_stats(scenario_record: RawSimulationRecor
     for tweet in reposted_posts:
         tweet_body: PostEventBody | None = tweet.body
         assert tweet_body is not None and tweet_body.is_repost, "Corrupted data!"
-        # this is the key
         tweet_pair = tweet_body.record.agent_id, tweet_body.record.step
-        # add stats
-        # tweet_occurrence_steps[tweet_pair].append(tweet.step)
         tweet_occurrence_step[tweet_pair] = max(tweet_occurrence_step[tweet_pair], tweet.step)
         tweet_opinions[tweet_pair] = tweet_body.record.opinion
 
-    # calculate life span
     lifespans = []
     opinions = []
     for tweet_pair, last_step in tweet_occurrence_step.items():
-        # here, steps must not be empty
         init_step = tweet_pair[1]
         lifespans.append([init_step, last_step])
         opinions.append(tweet_opinions[tweet_pair])
@@ -150,11 +136,6 @@ def get_retweeted_tweets_lifecycle_raw_stats(scenario_record: RawSimulationRecor
     retweeted_opinions = np.array(opinions, dtype=float)
 
     return retweeted_lifespans, retweeted_opinions
-
-
-# endregion
-
-# region indices
 
 
 distance_collector = DistanceCalculator(use_js_divergence=True, min_bandwidth=0.01, sample_count=500)
@@ -274,9 +255,6 @@ def get_backdrop_rates(p_index: NDArray, h_index: NDArray, g_index: NDArray):
     return p_backdrop, h_backdrop, g_backdrop
 
 
-# endregion
-
-
 @c.selector
 def get_gradation_index_hp(p_index, h_index):
     return area_under_curve(np.array([p_index, h_index]), complement=None)
@@ -331,9 +309,6 @@ def interp(x0, x1, p):
 @c.selector
 def calc_active_step(x_indices: np.ndarray, g_index: np.ndarray, active_threshold: float, min_inactive_value: float):
 
-    # if there is no data, return 0
-    # but in real experiments, there should be at least <min_step> data points, so this is just a safeguard
-
     if x_indices.size == 0 or g_index.size == 0:
         return 0, 0, 0.0, np.zeros(0, dtype=float), 0.0
 
@@ -349,8 +324,6 @@ def calc_active_step(x_indices: np.ndarray, g_index: np.ndarray, active_threshol
         single_value = float(g_index[0])
         return 0, single_step, single_value, g_index.copy(), single_value
 
-    # main logic
-
     active_step_crit_value = max(float(g_index[-1]) * active_threshold, min_inactive_value)
     if not np.any(g_index >= active_step_crit_value):
         return len(x_indices) - 1, int(x_indices[-1]), float(g_index[-1]), g_index.copy(), float(np.mean(g_index))
@@ -362,10 +335,8 @@ def calc_active_step(x_indices: np.ndarray, g_index: np.ndarray, active_threshol
     elif active_step_index < 1:
         active_step_index = 1
 
-    # first inactive step
     post_active_step = x_indices[active_step_index]
     post_active_step_g = g_index[active_step_index]
-    # last active step
     pre_active_step = x_indices[active_step_index - 1]
     pre_active_step_g = g_index[active_step_index - 1]
 
@@ -434,9 +405,6 @@ def get_opinion_decrease_speed(opinion_diff: NDArray, active_step: float):
     return opinion_diff_seg_mean, opinion_diff_seg_std
 
 
-# region graph
-
-
 @c.selector
 def get_n_triads_and_bc_hom(scenario_record: RawSimulationRecord):
     last_graph = scenario_record.get_graph(scenario_record.max_step)
@@ -481,9 +449,6 @@ def get_last_community_count(scenario_record: RawSimulationRecord):
 def get_last_opinion_peak_count(opinion_last: NDArray, opinion_peak_distance: int):
 
     return opinion_peak_count(opinion_last, opinion_peak_distance)
-
-
-# endregion
 
 
 @c.selector
