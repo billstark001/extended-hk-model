@@ -27,7 +27,7 @@ def mean_followee_edge_concordance(graph, opinions, epsilon: float) -> float:
         return float("nan")
     x = np.asarray(opinions, dtype=float)
     sources, targets = edges.T
-    concordant = np.abs(x[sources] - x[targets]) <= epsilon
+    concordant = np.abs(x[sources] - x[targets]) < epsilon
     degree = np.bincount(sources)
     close = np.bincount(sources, weights=concordant)
     valid = degree > 0

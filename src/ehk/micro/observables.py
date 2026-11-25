@@ -161,10 +161,15 @@ distance_collector = DistanceCalculator(use_js_divergence=True, min_bandwidth=0.
 
 
 def calc_distance(rec: RawSimulationRecord, step: int):
+    return calc_distance_components(rec, step)[:2]
+
+
+def calc_distance_components(rec: RawSimulationRecord, step: int):
+    """Revised indices and reconstructed archived directions on the same samples."""
     result = distance_collector.calculate(
         rec.get_graph(step), rec.opinions[step], rec.metadata["HKParams"]["Tolerance"], random_state=step
     )
-    return result.rand_o, result.rand_s
+    return result.rand_o, result.rand_s, 1 - result.worst_o, 1 - result.worst_s
 
 
 def calc_homophily(rec: RawSimulationRecord, step: int):
@@ -208,10 +213,12 @@ def get_indices(scenario_record: RawSimulationRecord):
 @c.selector
 def get_concordance_series(scenario_record: RawSimulationRecord, x_indices: NDArray):
     epsilon = scenario_record.metadata["HKParams"]["Tolerance"]
-    rho_edge = np.array([
-        mean_followee_edge_concordance(scenario_record.get_graph(int(t)), scenario_record.opinions[t], epsilon)
-        for t in x_indices
-    ])
+    rho_edge = np.array(
+        [
+            mean_followee_edge_concordance(scenario_record.get_graph(int(t)), scenario_record.opinions[t], epsilon)
+            for t in x_indices
+        ]
+    )
     rho_post = np.array([followee_post_concordance(scenario_record, int(t)) for t in x_indices])
     return rho_edge, rho_post
 
@@ -228,20 +235,28 @@ def get_pathway_passage(scenario_record: RawSimulationRecord, probe_binary: Path
 
     def requests():
         for step, graph in scenario_record.iter_graphs(steps):
-            precision = scenario_record.trajectory.opinion_precision_at(step) if scenario_record.has_trajectory else "float32"
+            precision = (
+                scenario_record.trajectory.opinion_precision_at(step) if scenario_record.has_trajectory else "float32"
+            )
             state = FrozenSimulationState(
-                step=step, graph=graph, opinions=scenario_record.opinions[step], posts={},
+                step=step,
+                graph=graph,
+                opinions=scenario_record.opinions[step],
+                posts={},
                 precision="history_" + precision.replace("float", "f"),
             )
             yield {
-                "request_id": f"pathway-{step}", "states": [state.to_wire()],
-                "measurements": ["pathway"], "epsilon": epsilon,
+                "request_id": f"pathway-{step}",
+                "states": [state.to_wire()],
+                "measurements": ["pathway"],
+                "epsilon": epsilon,
             }
 
     with closing(run_probe_jobs(requests(), binary_path=str(probe_binary))) as measured:
         passage = first_passage(
             (state["step"], state["pathway"]["separation"], state["pathway"]["excess_concordance"])
-            for response in measured for state in response["results"]
+            for response in measured
+            for state in response["results"]
         )
     return passage.label, passage.separation_step, passage.segregation_step
 
@@ -265,6 +280,48 @@ def get_backdrop_rates(p_index: NDArray, h_index: NDArray, g_index: NDArray):
 @c.selector
 def get_gradation_index_hp(p_index, h_index):
     return area_under_curve(np.array([p_index, h_index]), complement=None)
+
+
+@c.selector("metric_audit")
+def get_metric_audit(scenario_record: RawSimulationRecord, x_indices, p_index, g_index, h_index, rho_post):
+    """Recompute historical conventions from raw states, without replacing the main indices.
+
+    A missing initial feed is never imputed. All staged convention comparisons
+    use the same available observations and disclose their actual prefix.
+    """
+    legacy = np.array([calc_distance_components(scenario_record, int(t))[2:] for t in x_indices])
+    epsilon = scenario_record.metadata["HKParams"]["Tolerance"]
+    old_baseline = epsilon - epsilon**2 / 8
+    new_baseline = epsilon - epsilon**2 / 4
+    legacy_h = np.maximum(0, (rho_post - old_baseline) / (1 - old_baseline))
+    corrected_post_h = np.maximum(0, (rho_post - new_baseline) / (1 - new_baseline))
+    valid = np.isfinite(legacy[:, 0]) & np.isfinite(p_index) & np.isfinite(legacy_h) & np.isfinite(h_index)
+
+    def integral(p, h, *, complement=True):
+        if not np.any(valid):
+            return float("nan")
+        return area_under_curve(np.array([p[valid], h[valid]]), complement=1 if complement else None)
+
+    variants = {
+        "legacy_reconstructed": integral(legacy[:, 0], legacy_h),
+        "correct_uniform_baseline": integral(legacy[:, 0], corrected_post_h),
+        "use_edge_endpoints": integral(legacy[:, 0], h_index),
+        "use_random_reference_distance": integral(np.sqrt(np.maximum(0, p_index)), h_index),
+        "use_js_divergence": integral(p_index, h_index),
+        "remove_endpoint_complement": integral(p_index, h_index, complement=False),
+        "revised_full_trajectory": get_gradation_index_hp(p_index, h_index),
+    }
+    return {
+        "legacy_p_index": legacy[:, 0],
+        "legacy_g_index": legacy[:, 1],
+        "legacy_h_index": legacy_h,
+        "corrected_post_h_index": corrected_post_h,
+        "legacy_pathway_integral": variants["legacy_reconstructed"],
+        "pathway_variants": variants,
+        "audit_prefix_start": int(x_indices[valid][0]) if np.any(valid) else None,
+        "audit_missing_steps": np.asarray(x_indices)[~valid],
+        "audit_sampling": "revised adaptive observation grid; convention comparisons share finite observations",
+    }
 
 
 def interp(x0, x1, p):
@@ -294,7 +351,11 @@ def calc_active_step(x_indices: np.ndarray, g_index: np.ndarray, active_threshol
 
     # main logic
 
-    active_step_crit_value: float = np.max([np.max(g_index) * active_threshold, min_inactive_value])
+    active_step_crit_value = max(float(g_index[-1]) * active_threshold, min_inactive_value)
+    if not np.any(g_index >= active_step_crit_value):
+        return len(x_indices) - 1, int(x_indices[-1]), float(g_index[-1]), g_index.copy(), float(np.mean(g_index))
+    if g_index[0] >= active_step_crit_value:
+        return 0, int(x_indices[0]), float(g_index[0]), g_index[:1].copy(), float(g_index[0])
     active_step_index = int(first_more_or_equal_than(np.array(g_index), active_step_crit_value))
     if active_step_index >= len(x_indices):
         active_step_index = len(x_indices) - 1  # take last index
@@ -468,7 +529,13 @@ def get_bc_hom_x_and_smpl(scenario_record: RawSimulationRecord):
 
 _, state_vars, cycles = c.get_dep_graph()
 
-valid_state_vars = {"scenario_record", "active_threshold", "min_inactive_value", "opinion_peak_distance", "probe_binary"}
+valid_state_vars = {
+    "scenario_record",
+    "active_threshold",
+    "min_inactive_value",
+    "opinion_peak_distance",
+    "probe_binary",
+}
 
 invalid_state_vars = [x for x in state_vars if x not in valid_state_vars]
 
