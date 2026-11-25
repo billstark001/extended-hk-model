@@ -23,6 +23,7 @@ from .corpus import PROFILES, get_profile, iter_documents, load_sources
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKENDS = ("current", "tinymongo", "indexed_split")
+BACKEND_CHOICES = (*BACKENDS, "sqlite_optimized")
 ACTIONS = (
     "point_metadata",
     "point_full",
@@ -33,6 +34,23 @@ ACTIONS = (
     "state_update",
     "replace_full",
 )
+ACTION_CHOICES = (*ACTIONS[:-2], "scope_metadata", "scope_full", *ACTIONS[-2:])
+
+
+def _selection(values, choices, label):
+    if isinstance(values, str):
+        raise ValueError(f"{label} must be a nonempty sequence of names")
+    try:
+        selected = tuple(values)
+    except TypeError as error:
+        raise ValueError(f"{label} must be a nonempty sequence of names") from error
+    if not selected:
+        raise ValueError(f"{label} must contain at least one name")
+    if any(name not in choices for name in selected):
+        raise ValueError(f"unknown {label}; choices are {', '.join(choices)}")
+    if len(set(selected)) != len(selected):
+        raise ValueError(f"duplicate {label}")
+    return selected
 
 
 def _environment(vendor):
@@ -188,7 +206,21 @@ def _observe_environment(directory, phase, identifier):
         pass  # Best-effort environment diagnostics must not change benchmark success.
 
 
-def prepare(directory, vendor, *, profiles=PROFILES, repetitions=3, query_repetitions=2, limit=None):
+def prepare(
+    directory,
+    vendor,
+    *,
+    profiles=PROFILES,
+    backends=BACKENDS,
+    actions=ACTIONS,
+    repetitions=3,
+    query_repetitions=2,
+    limit=None,
+):
+    backends = _selection(backends, BACKEND_CHOICES, "backends")
+    selected_actions = _selection(actions, ACTION_CHOICES, "actions")
+    # Reads use the original catalog; retain the protocol's mutation order.
+    actions = tuple(action for action in ACTION_CHOICES if action in selected_actions)
     directory, vendor = Path(directory).resolve(), Path(vendor).resolve()
     directory.mkdir(parents=True, exist_ok=True)
     if (directory / "plan.json").exists():
@@ -236,10 +268,10 @@ def prepare(directory, vendor, *, profiles=PROFILES, repetitions=3, query_repeti
         "schema": 2,
         "study": "isolated_storage_benchmark",
         "profiles": profile_info,
-        "backends": list(BACKENDS),
+        "backends": list(backends),
         "repetitions": repetitions,
         "query_repetitions": query_repetitions,
-        "actions": list(ACTIONS),
+        "actions": list(actions),
         "vendor": str(vendor),
         "sources_pack": str(source_pack),
         "sources_pack_sha256": sha(source_pack),
@@ -266,7 +298,7 @@ def prepare(directory, vendor, *, profiles=PROFILES, repetitions=3, query_repeti
     }
     recovery = directory.parent / "recovery_final"
     if recovery.exists():
-        plan["recovery"] = {name: str(recovery / name / "recovery.json") for name in BACKENDS}
+        plan["recovery"] = {name: str(recovery / name / "recovery.json") for name in backends}
     plan["fingerprint"] = fingerprint(plan)
     atomic_json(directory / "plan.json", plan)
     return plan
@@ -343,6 +375,8 @@ def run(directory):
         evidence = json.loads(Path(preflight["path"]).read_text())
         if evidence.get("status") != "passed" or evidence.get("sources_pack_sha256") != plan["sources_pack_sha256"]:
             raise ValueError("source-pack preflight did not pass for the frozen sources")
+    backends = _selection(plan.get("backends"), BACKEND_CHOICES, "backends")
+    _selection(plan.get("actions"), ACTION_CHOICES, "actions")
     environment = _environment(plan["vendor"])
     if str(plan["vendor"]) not in sys.path:
         sys.path.insert(0, plan["vendor"])
@@ -350,8 +384,8 @@ def run(directory):
     for profile_index, (profile, info) in enumerate(plan["profiles"].items()):
         for action in ("load", *plan["actions"]):
             for repeat in range(plan["repetitions"]):
-                offset = (repeat + profile_index) % len(BACKENDS)
-                order = (*BACKENDS[offset:], *BACKENDS[:offset])
+                offset = (repeat + profile_index) % len(backends)
+                order = (*backends[offset:], *backends[:offset])
                 for backend in order:
                     identifier = f"{profile}--{backend}--{action}--{repeat}"
                     result_path = directory / "results" / (identifier + ".json")
@@ -450,15 +484,23 @@ def main(argv=None):
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--vendor", type=Path, default=ROOT / "outputs/benchmarks/storage_20261122/vendor")
     parser.add_argument("--profiles", nargs="+", choices=PROFILES, default=PROFILES)
+    parser.add_argument("--backends", nargs="+", choices=BACKEND_CHOICES, help="Backends to freeze during prepare/all.")
+    parser.add_argument(
+        "--actions", nargs="+", choices=ACTION_CHOICES, help="Actions to freeze during prepare/all; load is always run."
+    )
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--query-repetitions", type=int, default=2)
     parser.add_argument("--limit", type=int)
     args = parser.parse_args(argv)
+    if args.action not in ("prepare", "all") and (args.backends is not None or args.actions is not None):
+        parser.error("--backends and --actions belong to prepare/all; run/report use the frozen plan")
     if args.action in ("prepare", "all"):
         prepare(
             args.directory,
             args.vendor,
             profiles=args.profiles,
+            backends=BACKENDS if args.backends is None else args.backends,
+            actions=ACTIONS if args.actions is None else args.actions,
             repetitions=args.repetitions,
             query_repetitions=args.query_repetitions,
             limit=args.limit,

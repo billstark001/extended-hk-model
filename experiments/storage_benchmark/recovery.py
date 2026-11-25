@@ -21,7 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-BACKENDS = ("current", "tinymongo", "indexed_split")
+BACKENDS = ("current", "tinymongo", "indexed_split", "sqlite_optimized")
 SCHEDULE = (
     ("after_ack", 2),
     ("before_commit", 3),
@@ -271,6 +271,8 @@ def run_recovery_round(
     if not hasattr(signal, "SIGKILL"):
         raise RuntimeError("this protocol requires POSIX SIGKILL")
     source_files = (Path(__file__), Path(__file__).with_name("backends.py"))
+    if backend_name == "sqlite_optimized":
+        source_files += (Path(__file__).with_name("sqlite_optimized.py"),)
     source_hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in source_files}
     directory = Path(directory).resolve()
     directory.mkdir(parents=True, exist_ok=False)
@@ -372,6 +374,8 @@ def run_recovery(
     backend_name: str, directory, *, rounds: int = 6, payload_bytes: int = 262144, timeout: float = 30
 ) -> dict:
     """Run at least five independent fault rounds; preserve each round's evidence."""
+    if backend_name not in BACKENDS:
+        raise ValueError(f"unknown backend: {backend_name}")
     if type(rounds) is not int or rounds < 5:
         raise ValueError("the recovery protocol requires at least five independent rounds")
     directory = Path(directory).resolve()

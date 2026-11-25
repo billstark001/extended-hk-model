@@ -2,13 +2,18 @@
 
 This experiment never selects or migrates the production store. All databases,
 dependency packages, requests, logs and results live under an explicit output
-directory. It compares three application interfaces over SQLite:
+directory. Its default comparison has three application interfaces over SQLite:
 
 - `current`: the existing `DocumentStore`, with eager NPY/zlib/base64 decoding.
 - `tinymongo`: TinyMongo 1.3.1's native SQLite backend, the same array codec and
   nine scalar indexes. A benchmark-only connection override enforces FULL.
 - `indexed_split`: SQLite with the same nine scalar indexes and separate
   compressed NPY BLOB rows. Metadata, layout and arrays commit together.
+
+The opt-in `sqlite_optimized` variant retains the compressed NPY codec and
+transactional metadata/payload snapshot. It uses streaming result cursors,
+compound query indexes and integer payload references; `indexed_split` remains
+the unchanged baseline.
 
 See [CORPUS.md](CORPUS.md) for the measured sources and explicit synthetic-size
 assumptions, and [RECOVERY_PROTOCOL.md](RECOVERY_PROTOCOL.md) for fault injection.
@@ -30,6 +35,27 @@ export PYTHONPATH=outputs/benchmarks/storage_20261122/vendor:src:.
 The corrected campaign is complete in that directory; see `FINDINGS.md` and
 `validation.json`. For a fresh reproduction, choose another empty directory.
 An existing isolated vendor directory can be reused without reinstalling it.
+
+To compare only the two split SQLite variants, freeze a fresh campaign with
+`--backends indexed_split sqlite_optimized`. `--actions` selects a nonempty
+subset of the eight default actions or the optional `scope_metadata` and
+`scope_full` queries; `load` always runs first. For example:
+
+```sh
+.venv/bin/python -m experiments.storage_benchmark.recovery --backend indexed_split --directory outputs/benchmarks/storage_optimization_20261124/recovery_final/indexed_split --rounds 6
+.venv/bin/python -m experiments.storage_benchmark.recovery --backend sqlite_optimized --directory outputs/benchmarks/storage_optimization_20261124/recovery_final/sqlite_optimized --rounds 6
+.venv/bin/python -m experiments.storage_benchmark.run prepare --directory outputs/benchmarks/storage_optimization_20261124/formal --vendor outputs/benchmarks/storage_20261122/vendor --backends indexed_split sqlite_optimized --actions selective_metadata scan_metadata scan_full nested_metadata state_update replace_full --repetitions 3 --query-repetitions 1
+.venv/bin/python -m experiments.storage_benchmark.run run --directory outputs/benchmarks/storage_optimization_20261124/formal
+```
+
+Omitting these options retains the original three backends and eight actions.
+Backend order follows the selected list, rotating within it for each profile
+and repetition. Selected actions run in protocol order: reads first, followed
+by `state_update` and `replace_full`. Choices are part of the frozen plan and
+fingerprint; `run` and `report` do not accept overrides. Recovery accepts one
+explicit backend per invocation, so both variants require their own six-round
+evidence. Reports for only the selected backends can be linked from the plan;
+old recovery results do not validate a changed implementation.
 
 `prepare` refuses to replace an existing plan. `run` verifies frozen plan,
 catalog, source pack and source-code hashes, then resumes matching completed

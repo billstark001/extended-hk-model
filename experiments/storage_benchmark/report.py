@@ -45,7 +45,7 @@ PLOT_NAMES = {
     "state_update": "State update",
     "replace_full": "Full replacement",
 }
-COLORS = {"current": "#4477AA", "tinymongo": "#EE7733", "indexed_split": "#228833"}
+COLORS = {"current": "#4477AA", "tinymongo": "#EE7733", "indexed_split": "#228833", "sqlite_optimized": "#7755AA"}
 MIB = 1024**2
 
 
@@ -424,7 +424,7 @@ def render(run_dir):
             "",
             "full_paper 和 versioned_2x 的校准合成规模不是恢复得到的真实全量论文统计；实际研究来源及合成假设见 [plan.json](plan.json)。",
             "",
-            "三个方案的底层都是 SQLite。这里比较文档接口、索引、编码和数组布局。WAL 与 synchronous=FULL 是本次受控配置，不能当作第三方库未配置时的默认承诺。",
+            "本轮所选方案的底层都是 SQLite。这里比较文档接口、索引、编码和数组布局。WAL 与 synchronous=FULL 是本次受控配置，不能当作第三方库未配置时的默认承诺。",
             "",
             "每项在新进程中运行，但操作系统 page cache 未受控，因此 first 不是冷盘测量。first 是进程内第一次同类条件查询，steady 是同一进程的后续查询；默认两次查询时只有一个后续样本。没有原始 operation_seconds 的记录仅列 unpartitioned，不重建 first/steady。",
             "",

@@ -573,6 +573,10 @@ class IndexedSplitBackend(_Backend):
 
 def open_backend(name, directory, readonly=False):
     """Open an isolated benchmark backend without mutating production configuration."""
+    if name == "sqlite_optimized":
+        from .sqlite_optimized import SQLiteOptimizedBackend
+
+        return SQLiteOptimizedBackend(directory, readonly=readonly)
     backends = {"current": CurrentBackend, "tinymongo": TinyMongoBackend, "indexed_split": IndexedSplitBackend}
     if name not in backends:
         raise ValueError(f"unknown storage benchmark backend: {name}")

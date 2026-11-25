@@ -6,6 +6,7 @@ from copy import deepcopy
 import numpy as np
 import pytest
 
+from experiments.storage_benchmark import recovery
 from experiments.storage_benchmark.recovery import (
     RecoveryFailure,
     _apply,
@@ -100,6 +101,43 @@ def test_unknown_full_document_version_is_not_treated_as_an_unconfirmed_write():
 def test_repeated_protocol_requires_at_least_five_rounds(tmp_path):
     with pytest.raises(ValueError, match="at least five"):
         run_recovery("current", tmp_path / "recovery", rounds=4)
+
+
+def test_recovery_accepts_optimized_backend_and_keeps_six_distinct_rounds(tmp_path, monkeypatch):
+    calls = []
+
+    def fault_round(backend, directory, **kwargs):
+        calls.append((backend, directory, kwargs))
+        return {"passed": True}
+
+    monkeypatch.setattr(recovery, "run_recovery_round", fault_round)
+    report = run_recovery("sqlite_optimized", tmp_path / "optimized", payload_bytes=512)
+    assert report["all_passed"] and report["planned_rounds"] == 6
+    assert [call[0] for call in calls] == ["sqlite_optimized"] * 6
+    assert [(kwargs["phase"], kwargs["target"]) for _, _, kwargs in calls] == list(recovery.SCHEDULE)
+    assert len({directory for _, directory, _ in calls}) == 6
+
+
+def test_recovery_cli_accepts_optimized_and_rejects_unknown_or_missing_backend(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        recovery,
+        "run_recovery",
+        lambda backend, *_args, **kwargs: calls.append((backend, kwargs)) or {"all_passed": True},
+    )
+    assert recovery.main(["--backend", "sqlite_optimized", "--directory", str(tmp_path)]) == 0
+    assert calls == [("sqlite_optimized", {"rounds": 6, "payload_bytes": 262144, "timeout": 30})]
+    for arguments in ([], ["--backend"], ["--backend", "missing"]):
+        with pytest.raises(SystemExit) as error:
+            recovery.main([*arguments, "--directory", str(tmp_path)])
+        assert error.value.code == 2
+
+
+def test_unknown_recovery_backend_fails_before_creating_evidence(tmp_path):
+    directory = tmp_path / "invalid"
+    with pytest.raises(ValueError, match="unknown backend"):
+        run_recovery("missing", directory)
+    assert not directory.exists()
 
 
 @pytest.mark.skipif(not hasattr(signal, "SIGKILL"), reason="POSIX writer-process SIGKILL protocol")

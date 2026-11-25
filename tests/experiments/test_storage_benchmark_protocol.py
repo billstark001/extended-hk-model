@@ -146,6 +146,183 @@ def test_preflight_rejects_rng_order_changes_before_even_limited_catalog_generat
     assert not list((tmp_path / "new-campaign").glob("catalog-*.jsonl"))
 
 
+@pytest.fixture
+def prepare_fixture(tmp_path, monkeypatch):
+    _roundtrip_fixture(tmp_path, monkeypatch, sorted_fields=True)
+    monkeypatch.setattr(driver, "get_profile", lambda _profile: {"count": 2})
+    monkeypatch.setattr(
+        driver,
+        "iter_documents",
+        lambda profile, limit=None: (corpus.document_at(index, profile) for index in range(limit or 2)),
+    )
+    monkeypatch.setattr(driver, "_hardware", lambda: {"fixture": True})
+    return tmp_path / "vendor"
+
+
+def test_prepare_keeps_original_backend_and_action_defaults(tmp_path, prepare_fixture):
+    plan = driver.prepare(tmp_path / "campaign", prepare_fixture, profiles=("full_paper",))
+    assert plan["backends"] == ["current", "tinymongo", "indexed_split"]
+    assert plan["actions"] == [
+        "point_metadata",
+        "point_full",
+        "selective_metadata",
+        "scan_metadata",
+        "scan_full",
+        "nested_metadata",
+        "state_update",
+        "replace_full",
+    ]
+    assert plan["source_pack_preflight"]["checked_documents"] > 0
+    frozen = {key: value for key, value in plan.items() if key != "fingerprint"}
+    assert fingerprint(frozen) == plan["fingerprint"]
+
+
+def test_prepare_freezes_subset_order_and_only_selected_recovery_links(tmp_path, prepare_fixture):
+    (tmp_path / "recovery_final").mkdir()
+    plan = driver.prepare(
+        tmp_path / "campaign",
+        prepare_fixture,
+        profiles=("full_paper",),
+        backends=("sqlite_optimized", "indexed_split"),
+        actions=("replace_full", "scan_full", "state_update"),
+    )
+    assert plan["backends"] == ["sqlite_optimized", "indexed_split"]
+    assert plan["actions"] == ["scan_full", "state_update", "replace_full"]
+    assert set(plan["recovery"]) == {"sqlite_optimized", "indexed_split"}
+    frozen = {key: value for key, value in plan.items() if key != "fingerprint"}
+    for field, replacement in (("backends", ["indexed_split"]), ("actions", ["scan_full"])):
+        assert fingerprint({**frozen, field: replacement}) != plan["fingerprint"]
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [
+        {"backends": ()},
+        {"backends": None},
+        {"backends": "indexed_split"},
+        {"backends": ("missing",)},
+        {"backends": ("indexed_split", "indexed_split")},
+        {"actions": ()},
+        {"actions": None},
+        {"actions": ("load",)},
+        {"actions": ("missing",)},
+        {"actions": ("scan_full", "scan_full")},
+    ],
+)
+def test_invalid_selections_fail_before_preparation(tmp_path, monkeypatch, selection):
+    monkeypatch.setattr(driver, "_sources_pack", lambda _directory: pytest.fail("loaded sources for invalid selection"))
+    directory = tmp_path / "invalid"
+    with pytest.raises(ValueError, match="backends|actions"):
+        driver.prepare(directory, tmp_path / "vendor", **selection)
+    assert not directory.exists()
+
+
+def test_run_rotates_only_selected_backends_from_the_frozen_plan(tmp_path, prepare_fixture, monkeypatch):
+    plan = driver.prepare(
+        tmp_path / "campaign",
+        prepare_fixture,
+        profiles=("actual_available", "full_paper"),
+        backends=("sqlite_optimized", "indexed_split"),
+        actions=("scan_full",),
+        repetitions=2,
+    )
+    monkeypatch.syspath_prepend(plan["vendor"])
+    captured = []
+    monkeypatch.setattr(driver, "_run_jobs", lambda _directory, jobs, _environment: captured.extend(jobs))
+    driver.run(tmp_path / "campaign")
+    assert len(captured) == 16
+    # JSON plan keys are sorted on disk: actual_available, then full_paper.
+    for offset, expected in (
+        (0, ["sqlite_optimized", "indexed_split"]),
+        (2, ["indexed_split", "sqlite_optimized"]),
+        (8, ["indexed_split", "sqlite_optimized"]),
+    ):
+        assert [request["backend"] for _, request, _ in captured[offset : offset + 2]] == expected
+    assert {request["action"] for _, request, _ in captured} == {"load", "scan_full"}
+    assert {request["backend"] for _, request, _ in captured} == {"indexed_split", "sqlite_optimized"}
+
+
+@pytest.mark.parametrize("field,value", [("backends", ["indexed_split"]), ("actions", ["scan_full"])])
+def test_changed_frozen_selection_fails_before_worker_launch(tmp_path, prepare_fixture, field, value):
+    directory = tmp_path / "campaign"
+    plan = driver.prepare(directory, prepare_fixture, profiles=("full_paper",))
+    plan[field] = value
+    (directory / "plan.json").write_text(json.dumps(plan))
+    with pytest.raises(ValueError, match="plan changed"):
+        driver.run(directory)
+
+
+@pytest.mark.parametrize("field,value", [("backends", []), ("backends", ["missing"]), ("actions", [])])
+def test_invalid_frozen_selection_is_rejected_before_worker_launch(tmp_path, prepare_fixture, field, value):
+    directory = tmp_path / "campaign"
+    plan = driver.prepare(directory, prepare_fixture, profiles=("full_paper",))
+    plan[field] = value
+    plan.pop("fingerprint")
+    plan["fingerprint"] = fingerprint(plan)
+    (directory / "plan.json").write_text(json.dumps(plan))
+    with pytest.raises(ValueError, match="backends|actions"):
+        driver.run(directory)
+
+
+def test_subset_resume_skips_only_matching_successful_jobs(tmp_path, prepare_fixture, monkeypatch):
+    directory = tmp_path / "campaign"
+    plan = driver.prepare(
+        directory,
+        prepare_fixture,
+        profiles=("full_paper",),
+        repetitions=1,
+        backends=("indexed_split", "sqlite_optimized"),
+        actions=("scan_full",),
+    )
+    monkeypatch.syspath_prepend(plan["vendor"])
+    monkeypatch.setattr(driver, "_observe_environment", lambda *_args: None)
+    monkeypatch.setattr(driver.shutil, "disk_usage", lambda _directory: SimpleNamespace(free=100 * 1024**3))
+    calls = []
+
+    def execute(request, result_path, *_args):
+        calls.append(request)
+        result = {"status": "ok", "request_fingerprint": fingerprint(request)}
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(json.dumps(result))
+        return result
+
+    monkeypatch.setattr(driver, "_execute", execute)
+    assert driver.run(directory) == {"completed": 4, "planned": 4}
+    assert driver.run(directory) == {"completed": 4, "planned": 4}
+    assert len(calls) == 4
+    assert {request["backend"] for request in calls} == {"indexed_split", "sqlite_optimized"}
+    assert {request["action"] for request in calls} == {"load", "scan_full"}
+
+
+def test_prepare_cli_passes_explicit_selections_and_retains_defaults(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(driver, "prepare", lambda *_args, **kwargs: calls.append(kwargs))
+    base = ["prepare", "--directory", str(tmp_path)]
+    driver.main(base)
+    assert calls[-1]["backends"] == driver.BACKENDS
+    assert calls[-1]["actions"] == driver.ACTIONS
+    driver.main([*base, "--backends", "indexed_split", "sqlite_optimized", "--actions", "scan_metadata", "scan_full"])
+    assert calls[-1]["backends"] == ["indexed_split", "sqlite_optimized"]
+    assert calls[-1]["actions"] == ["scan_metadata", "scan_full"]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["prepare", "--backends"],
+        ["prepare", "--backends", "missing"],
+        ["prepare", "--actions"],
+        ["prepare", "--actions", "missing"],
+        ["run", "--backends", "sqlite_optimized"],
+        ["report", "--actions", "scan_full"],
+    ],
+)
+def test_cli_rejects_missing_unknown_or_unfrozen_overrides(tmp_path, arguments):
+    with pytest.raises(SystemExit) as error:
+        driver.main([*arguments, "--directory", str(tmp_path)])
+    assert error.value.code == 2
+
+
 @pytest.mark.parametrize("error_type,state", [(RuntimeError, "failed"), (KeyboardInterrupt, "interrupted")])
 def test_worker_failure_updates_driver_status_and_observes_outside_worker(tmp_path, monkeypatch, error_type, state):
     observations = []
