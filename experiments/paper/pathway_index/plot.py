@@ -1,143 +1,40 @@
-from typing import Callable, Dict, Iterable, List, Tuple, TypeVar
+from functools import partial
 
 import numpy as np
-from matplotlib.axes import Axes
 
-import experiments.paper.scenarios as cfg
 from common.plotting import PAPER_WIDTH, plt_figure, plt_save_and_close, setup_paper_params
 from experiments.paper.analysis.records import ScenarioStatistics
-from experiments.paper.analysis.selection import (
-    StatisticFilter,
-    descriptive_iw_cutoff,
-    is_high_iw,
-    is_low_iw,
-    read_statistics,
-    select_statistics,
-)
+from experiments.paper.analysis.selection import descriptive_iw_cutoff, read_statistics
 from experiments.paper.paths import PATHWAY_OUTPUT, statistics_database
+from experiments.paper.pathway_index.bar_plot import PAPER_BAR_LIMITS, plot_grouped_bars, write_bar_caption
 from experiments.paper.pathway_index.data_utils import piecewise_linear_integral_trapz
-
-T = TypeVar("T")
-T1 = TypeVar("T1")
-T2 = TypeVar("T2")
-
-
-stats_db_path = str(statistics_database())
-
-rs_keys = list(cfg.GRADATION_RECOMMENDATIONS)
-tw_keys = list(cfg.REPOST_AXIS)
-
 
 setup_paper_params()
 
 
-short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
-
-
-bc_inst_orig: List[List[List[ScenarioStatistics]]] = []
-rw_rev_dict: Dict[float, int] = {}
-dc_rev_dict: Dict[float, int] = {}
-for i, rw in enumerate(cfg.REWIRING_AXIS):
-    rw_rev_dict[rw] = i
-    lst = []
-    for j, dc in enumerate(cfg.INFLUENCE_AXIS):
-        dc_rev_dict[dc] = j
-        lst.append([])
-    bc_inst_orig.append(lst)
-
 # First row filters: distinguish by recommendation strategy (St vs Op), ignore retweet status
 k_filters_recsys = [(lambda row: row.recsys_type == "StructureM9",), (lambda row: row.recsys_type == "OpinionM9",)]
+k_filters_recsys = [(*filters, lambda row: row.post_retain_count == 0) for filters in k_filters_recsys]
 
 k_labels_recsys = ["St.", "Op."]
 
 # Second row filters: distinguish by retweet status (!R vs R), ignore recommendation strategy
 k_filters_retweet = [(lambda row: row.repost_rate == 0,), (lambda row: row.repost_rate != 0,)]
+k_filters_retweet = [(*filters, lambda row: row.post_retain_count == 0) for filters in k_filters_retweet]
 
 k_labels_retweet = ["!R", "R"]
 
 
-m_filters = [(is_low_iw,), (is_high_iw,)]
-
-m_labels = [r"low $I_w$", r"high $I_w$"]
-
-m_colors = ["tab:blue", "tab:red"]
-
-
-def evaluate_bar_on_filters(
-    session: Iterable[ScenarioStatistics], filters: List[StatisticFilter], f_ext: Callable[[ScenarioStatistics], float]
-):
-    full_data: Iterable[ScenarioStatistics] = select_statistics(
-        session, lambda row: row.name.startswith("s_grad"), lambda row: row.post_retain_count == 0, *filters
-    )
-
-    data_arr: List[float] = []
-    for datum in full_data:
-        data_arr.append(f_ext(datum))
-
-    values = np.asarray(data_arr, dtype=float)
-    values = values[np.isfinite(values)]
-    return (np.mean(values), np.std(values)) if values.size else (np.nan, np.nan)
-
-
-def plot_bar(
-    ax: Axes, f: Callable[[ScenarioStatistics], float], use_retweet_filters=False, plot_title: str = ""
-) -> List[str]:
-
-    ret: List[str] = []
-
-    k_filters = k_filters_retweet if use_retweet_filters else k_filters_recsys
-    k_labels = k_labels_retweet if use_retweet_filters else k_labels_recsys
-
-    k = len(k_filters)
-    m = len(m_filters)
-
-    all_data: List[List[Tuple[float, float]]] = []
-
-    for k_filter in k_filters:
-        row_data: List[Tuple[float, float]] = []
-        for m_filter in m_filters:
-            filters = [*k_filter, *m_filter]
-            mean, std = evaluate_bar_on_filters(session, filters, f)
-            row_data.append((mean, std))  # type: ignore
-        all_data.append(row_data)
-
-    all_data_arr = np.array(all_data, dtype=float)  # (k, m, [mean, std])
-    means = all_data_arr[:, :, 0]
-    stds = all_data_arr[:, :, 1]
-
-    if plot_title:
-        ret.append(f"\n=== {plot_title} ===")
-    for k_idx in range(k):
-        for m_idx in range(m):
-            ret.append(f"{k_labels[k_idx]} - {m_labels[m_idx]}: {means[k_idx, m_idx]:.4f} ± {stds[k_idx, m_idx]:.4f}")
-
-    width = 0.6 / m  # width of the bars
-    x = np.arange(k)
-
-    for i in range(m):
-        ax.bar(
-            x + i * width,
-            means[:, i],
-            width,
-            yerr=stds[:, i],
-            label=m_labels[i],
-            capsize=4,
-            edgecolor="black",
-            color=m_colors[i],
-            alpha=0.5,
-        )
-
-    ax.set_xticks(x + width * (m - 1) / 2)
-    ax.set_xticklabels(k_labels)
-
-    return ret
-
-
 if __name__ == "__main__":
-    session = read_statistics(stats_db_path, mode="gradation")
+    session = read_statistics(statistics_database(), mode="gradation")
 
     cutoff = descriptive_iw_cutoff()
-    fig, axes = plt_figure(n_row=2, n_col=4, total_width=PAPER_WIDTH * 0.8, hw_ratio=4 / 3, constrained_layout=False)
+    plot_recsys = partial(plot_grouped_bars, records=session, cutoff=cutoff,
+                         category_filters=k_filters_recsys, category_labels=k_labels_recsys)
+    plot_retweet = partial(plot_grouped_bars, records=session, cutoff=cutoff,
+                          category_filters=k_filters_retweet, category_labels=k_labels_retweet)
+    fig, axes = plt_figure(n_row=2, n_col=4, total_width=PAPER_WIDTH * 0.8, hw_ratio=4 / 3,
+                           constrained_layout=False)
 
     def f_ev_count(x: ScenarioStatistics) -> float:
         assert x.event_count is not None
@@ -159,78 +56,73 @@ if __name__ == "__main__":
         return x.triads
 
     # First row (a-d): comparing recommendation strategies (St vs Op)
-    data_a = plot_bar(axes[0][0], f=f_ev_count, use_retweet_filters=False, plot_title="Event Count by RecSys")
+    data_a = plot_recsys(axes[0][0], metric=f_ev_count, plot_title="Event Count by RecSys")
     axes[0][0].set_title("(a)", loc="left")
     axes[0][0].set_ylabel("#rewiring events")
     axes[0][0].grid(True, linestyle="--", alpha=0.5)
     axes[0][0].set_yscale("log")
-    axes[0][0].set_ylim(1e3, 1e4)
 
-    data_b = plot_bar(axes[0][1], f=f_ev_step, use_retweet_filters=False, plot_title="Event Step by RecSys")
+    data_b = plot_recsys(axes[0][1], metric=f_ev_step, plot_title="Event Step by RecSys")
     axes[0][1].set_title("(b)", loc="left")
     axes[0][1].set_ylabel("norm. occurrence time")
     axes[0][1].grid(True, linestyle="--", alpha=0.5)
-    axes[0][1].set_ylim(0, 0.4)
 
-    data_c = plot_bar(
+    data_c = plot_recsys(
         axes[0][2],
-        f=f_auc_subj_pol_index,
-        use_retweet_filters=False,
+        metric=f_auc_subj_pol_index,
         plot_title="AUC of Subjective Polarization Index by RecSys",
     )
     axes[0][2].set_title("(c)", loc="left")
     axes[0][2].set_ylabel(r"AUC of $I_s$")
     axes[0][2].grid(True, linestyle="--", alpha=0.5)
-    axes[0][2].set_ylim(0.3, 0.8)
 
-    data_d = plot_bar(axes[0][3], f=f_triads, use_retweet_filters=False, plot_title="Triads by RecSys")
+    data_d = plot_recsys(axes[0][3], metric=f_triads, plot_title="Triads by RecSys")
     axes[0][3].set_title("(d)", loc="left")
     axes[0][3].set_ylabel("#triads")
     axes[0][3].grid(True, linestyle="--", alpha=0.5)
     axes[0][3].legend(fontsize=8)
     axes[0][3].set_yscale("log")
-    axes[0][3].set_ylim(1000, 200000)
 
     # Second row (e-h): comparing retweet status (!R vs R)
-    data_e = plot_bar(axes[1][0], f=f_ev_count, use_retweet_filters=True, plot_title="Event Count by Retweet")
+    data_e = plot_retweet(axes[1][0], metric=f_ev_count, plot_title="Event Count by Retweet")
     axes[1][0].set_title("(e)", loc="left")
     axes[1][0].set_ylabel("#rewiring events")
     axes[1][0].grid(True, linestyle="--", alpha=0.5)
     axes[1][0].set_yscale("log")
-    axes[1][0].set_ylim(1e3, 1e4)
 
-    data_f = plot_bar(axes[1][1], f=f_ev_step, use_retweet_filters=True, plot_title="Event Step by Retweet")
+    data_f = plot_retweet(axes[1][1], metric=f_ev_step, plot_title="Event Step by Retweet")
     axes[1][1].set_title("(f)", loc="left")
     axes[1][1].set_ylabel("norm. occurrence time")
     axes[1][1].grid(True, linestyle="--", alpha=0.5)
-    axes[1][1].set_ylim(0, 0.4)
 
-    data_g = plot_bar(
+    data_g = plot_retweet(
         axes[1][2],
-        f=f_auc_subj_pol_index,
-        use_retweet_filters=True,
+        metric=f_auc_subj_pol_index,
         plot_title="AUC of Subjective Polarization Index by Retweet",
     )
     axes[1][2].set_title("(g)", loc="left")
     axes[1][2].set_ylabel(r"AUC of $I_s$")
     axes[1][2].grid(True, linestyle="--", alpha=0.5)
-    axes[1][2].set_ylim(0.3, 0.8)
 
-    data_h = plot_bar(axes[1][3], f=f_triads, use_retweet_filters=True, plot_title="Triads by Retweet")
+    data_h = plot_retweet(axes[1][3], metric=f_triads, plot_title="Triads by Retweet")
     axes[1][3].set_title("(h)", loc="left")
     axes[1][3].set_ylabel("#triads")
     axes[1][3].grid(True, linestyle="--", alpha=0.5)
     axes[1][3].legend(fontsize=8)
     axes[1][3].set_yscale("log")
-    axes[1][3].set_ylim(1000, 200000)
 
-    fig.text(0.5, 0.002, rf"Descriptive $I_w$ split at {cutoff:g}", ha="center", fontsize=7)
+    for row in axes:
+        for axis, limits in zip(row, (PAPER_BAR_LIMITS.event_count, PAPER_BAR_LIMITS.event_time,
+                                     PAPER_BAR_LIMITS.subjective_auc, PAPER_BAR_LIMITS.triads)):
+            axis.set_ylim(*limits)
     fig.tight_layout()
     figure_dir = PATHWAY_OUTPUT.resolve() / "figures"
     figure_dir.mkdir(parents=True, exist_ok=True)
     plt_save_and_close(fig, str(figure_dir / "f_grad_index_interpret"))
+    write_bar_caption(figure_dir / "f_grad_index_interpret", session, cutoff,
+                      data_a + data_b + data_c + data_d + data_e + data_f + data_g + data_h)
 
     with (figure_dir / "f_grad_index_interpret_data.txt").open("w") as f:
-        f.write(f"Descriptive I_w cutoff: {cutoff:g}\n")
+        f.write(f"Available runs: {len(session)}; descriptive I_w cutoff: {cutoff:g}; counts=low/high\n")
         for line in data_a + data_b + data_c + data_d + data_e + data_f + data_g + data_h:
             f.write(line + "\n")

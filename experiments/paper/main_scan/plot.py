@@ -1,10 +1,12 @@
-import copy
-from typing import Callable, Dict, Iterable, List, Sequence, Tuple, TypeVar
+"""Render original-scan heatmaps from one explicitly selected analysis snapshot."""
+
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 from matplotlib.axes import Axes
 from numpy.typing import NDArray
-from tqdm import tqdm
 
 import experiments.paper.scenarios as cfg
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
@@ -12,69 +14,102 @@ from experiments.paper.analysis.records import ScenarioStatistics
 from experiments.paper.analysis.selection import read_statistics, select_statistics
 from experiments.paper.paths import MAIN_SCAN_OUTPUT, statistics_database
 
-T = TypeVar("T")
-T1 = TypeVar("T1")
-T2 = TypeVar("T2")
+
+@dataclass(frozen=True, slots=True)
+class ColorScale:
+    cmap: str
+    limits: tuple[float, float]
+    ticks: tuple[float, ...]
 
 
-stats_db_path = str(statistics_database())
-
-rs_keys = list(cfg.GRADATION_RECOMMENDATIONS)
-tw_keys = list(cfg.REPOST_AXIS)
-
-
-setup_paper_params()
+IW_SCALE = ColorScale("RdYlBu_r", (0.0, 1.0), (0.0, 0.2, 0.4, 0.6, 0.8, 1.0))
+IW_DIFFERENCE_SCALE = ColorScale("RdBu_r", (-0.6, 0.6), (-0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6))
+TV_SCALE = ColorScale("YlGnBu", (0.5, 2.0), (0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0))
+TV_DIFFERENCE_SCALE = ColorScale("RdBu_r", (-1.0, 1.0), (-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0))
+ACTIVE_STEP_SCALE = ColorScale("YlGnBu", (1.0, 5.0), (1.0, 2.0, 3.0, 4.0, 5.0))
 
 
-short_progress_bar = "{l_bar}{bar:10}{r_bar}{bar:-10b}"
+@dataclass(frozen=True, slots=True)
+class HeatmapMetric:
+    measure: Callable[[ScenarioStatistics], float]
+    label: str
+    color_scale: ColorScale
+    difference_scale: ColorScale | None = None
+    peaks: int | None = None
 
 
-bc_inst_orig: List[List[List[ScenarioStatistics]]] = []
-rw_rev_dict: Dict[float, int] = {}
-dc_rev_dict: Dict[float, int] = {}
-for i, rw in enumerate(cfg.REWIRING_AXIS):
-    rw_rev_dict[rw] = i
-    lst = []
-    for j, dc in enumerate(cfg.INFLUENCE_AXIS):
-        dc_rev_dict[dc] = j
-        lst.append([])
-    bc_inst_orig.append(lst)
+@dataclass(frozen=True, slots=True)
+class HeatmapData:
+    metric: HeatmapMetric
+    structure_mean: NDArray[np.float64]
+    structure_std: NDArray[np.float64]
+    opinion_mean: NDArray[np.float64]
+    opinion_std: NDArray[np.float64]
+
+
+@dataclass(frozen=True, slots=True)
+class CaptionGroup:
+    label: str
+    count: int
+    scale: ColorScale
+    below_scale: int
+    above_scale: int
+
+
+@dataclass(frozen=True, slots=True)
+class HeatmapCaption:
+    analysis_id: str
+    origin: str
+    available_completed: int
+    groups: tuple[CaptionGroup, ...]
+
+    def write(self, path: Path):
+        lines = [
+            "Original-scan heatmaps from the selected completed trajectories.",
+            f"analysis_id: {self.analysis_id}",
+            f"origin: {self.origin}",
+            f"Available completed trajectories in the selected snapshot: n={self.available_completed}.",
+            *[f"{group.label}: n={group.count}; fixed {group.scale.cmap} scale {group.scale.limits}; "
+              f"individual values below/above this scale: {group.below_scale}/{group.above_scale}."
+              for group in self.groups],
+            "Counts refer to finite observations after each metric's filters; these counts do not imply a complete scan.",
+            "Each heatmap cell is the mean of the matching trajectories. Cells without matching finite values are blank, not zero.",
+            "Difference panels, where present, show opinion minus structure only where both cells have observations.",
+            "Color maps, limits and ticks follow the existing paper figures. Values beyond a displayed color scale saturate at its endpoints; the underlying values remain unchanged.",
+            "All heatmaps restrict retained-post history to k=0. For the TV(I_p) panels, TV is the observed sum of absolute successive changes in I_p; #P=1 denotes one final opinion peak.",
+        ]
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+rw_rev_dict = {value: index for index, value in enumerate(cfg.REWIRING_AXIS)}
+dc_rev_dict = {value: index for index, value in enumerate(cfg.INFLUENCE_AXIS)}
+RETWEET_GROUPS = ((0.0, "StructureM9"), (0.0, "OpinionM9"), (0.5, "StructureM9"), (0.5, "OpinionM9"))
 
 
 def _create_evaluator(full_data_selector: Iterable[ScenarioStatistics]):
-    bc_inst = copy.deepcopy(bc_inst_orig)
-    for datum in tqdm(full_data_selector, bar_format=short_progress_bar):
-        if datum is None:
-            continue
-        rw_index = rw_rev_dict[datum.rewiring]
-        dc_index = dc_rev_dict[datum.decay]
-        bc_inst[rw_index][dc_index].append(datum)
+    cells: list[list[list[ScenarioStatistics]]] = [
+        [[] for _ in cfg.INFLUENCE_AXIS] for _ in cfg.REWIRING_AXIS
+    ]
+    for datum in full_data_selector:
+        cells[rw_rev_dict[datum.rewiring]][dc_rev_dict[datum.decay]].append(datum)
 
-    def eval_func(f_ext: Callable[[ScenarioStatistics], float]) -> Tuple[NDArray[np.float64], NDArray[np.float64]]:
+    def evaluate(measure: Callable[[ScenarioStatistics], float]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        means = np.full((len(cfg.REWIRING_AXIS), len(cfg.INFLUENCE_AXIS)), np.nan)
+        deviations = np.full_like(means, np.nan)
+        for row_index, row in enumerate(cells):
+            for column_index, cell in enumerate(row):
+                values = np.asarray([measure(record) for record in cell], dtype=float)
+                values = values[np.isfinite(values)]
+                if values.size:
+                    means[row_index, column_index] = values.mean()
+                    deviations[row_index, column_index] = values.std()
+        return means, deviations
 
-        bc_inst_num: List[List[List[float]]] = []
-        for l_rw in bc_inst:
-            bc_inst_num_row = []
-            for l_dc_rw in l_rw:
-                bc_inst_num_cell: List[float] = [f_ext(x) for x in l_dc_rw]
-                bc_inst_num_row.append(
-                    [
-                        np.mean(bc_inst_num_cell) if bc_inst_num_cell else None,
-                        np.std(bc_inst_num_cell) if bc_inst_num_cell else None,
-                    ]
-                )
-            bc_inst_num.append(bc_inst_num_row)
-
-        # (rewiring, influence, [mean, std])
-        bc_arr = np.array(bc_inst_num, dtype=float)
-        bc_mean, bc_std = bc_arr[:, :, 0], bc_arr[:, :, 1]
-        return bc_mean, bc_std
-
-    return eval_func
+    return evaluate
 
 
-def create_heatmap_evaluator(session: Iterable[ScenarioStatistics], rs_key: str, opinion_peak_count: int | None = None):
-    full_data_selector: Iterable[ScenarioStatistics] = select_statistics(
+def _heatmap_rows(session: Iterable[ScenarioStatistics], rs_key: str, opinion_peak_count: int | None = None):
+    return select_statistics(
         session,
         *((lambda row: row.last_opinion_peak_count == opinion_peak_count,) if opinion_peak_count is not None else ()),
         lambda row: row.name.startswith("s_grad"),
@@ -82,271 +117,185 @@ def create_heatmap_evaluator(session: Iterable[ScenarioStatistics], rs_key: str,
         lambda row: row.post_retain_count == 0,
         lambda row: row.pathway_integral is not None,
     )
-    return _create_evaluator(full_data_selector)
+
+
+def create_heatmap_evaluator(session: Iterable[ScenarioStatistics], rs_key: str, opinion_peak_count: int | None = None):
+    return _create_evaluator(_heatmap_rows(session, rs_key, opinion_peak_count))
+
+
+def _retweet_rows(
+    session: Iterable[ScenarioStatistics], retweet_rate: float, rs_key: str | None = None
+):
+    return select_statistics(
+        session,
+        lambda row: row.name.startswith("s_grad"),
+        *((lambda row: row.recsys_type == rs_key,) if rs_key else ()),
+        lambda row: row.repost_rate == retweet_rate,
+        lambda row: row.post_retain_count == 0,
+        lambda row: row.pathway_integral is not None,
+    )
 
 
 def create_heatmap_evaluator_retweet(
     session: Iterable[ScenarioStatistics], retweet_rate: float, rs_key: str | None = None
 ):
-    full_data_selector: Iterable[ScenarioStatistics] = select_statistics(
-        session,
-        lambda row: row.name.startswith("s_grad"),
-        *((lambda row: row.recsys_type == rs_key, lambda row: row.post_retain_count == 0) if rs_key else ()),
-        lambda row: row.repost_rate == retweet_rate,
-        lambda row: row.post_retain_count == 0,
-        lambda row: row.pathway_integral is not None,
-    )
-    return _create_evaluator(full_data_selector)
+    return _create_evaluator(_retweet_rows(session, retweet_rate, rs_key))
 
 
-def _plot_single_heatmap(ax, data_mean, data_std, title, cmap, vmin, vmax, with_std=True):
-    """Helper function to plot a single heatmap with optional standard deviation circles."""
-    im = ax.imshow(data_mean, cmap=cmap, vmin=vmin, vmax=vmax)
+def write_heatmap_caption(
+    path: Path, session: Sequence[ScenarioStatistics], metrics: Sequence[HeatmapMetric], *, by_retweet=False
+):
+    groups = []
+    for metric in metrics:
+        if by_retweet:
+            selections = ((f"{strategy}, p={repost:g}", _retweet_rows(session, repost, strategy))
+                          for repost, strategy in RETWEET_GROUPS)
+        else:
+            selections = ((strategy, _heatmap_rows(session, strategy, metric.peaks))
+                          for strategy in ("StructureM9", "OpinionM9"))
+        for label, rows in selections:
+            values = np.asarray([metric.measure(row) for row in rows], dtype=float)
+            values = values[np.isfinite(values)]
+            lower, upper = metric.color_scale.limits
+            groups.append(CaptionGroup(f"{metric.label} ({label})", int(values.size), metric.color_scale,
+                                       int(np.count_nonzero(values < lower)), int(np.count_nonzero(values > upper))))
+    HeatmapCaption(session[0].analysis_id, session[0].origin, len(session), tuple(groups)).write(path)
+
+
+def _plot_single_heatmap(ax, data_mean, data_std, title, scale: ColorScale, with_std=True):
+    im = ax.imshow(data_mean, cmap=scale.cmap, vmin=scale.limits[0], vmax=scale.limits[1])
     ax.set_title(title, loc="left")
-
     if with_std:
-        for i in range(data_std.shape[0]):
-            for j in range(data_std.shape[1]):
-                std_val = data_std[i, j]
-                if not np.isnan(std_val):
-                    ax.scatter(
-                        j, i, s=std_val * 1000, facecolors="none", edgecolors="midnightblue", linewidths=2, alpha=0.6
-                    )
-
+        for i, row in enumerate(data_std):
+            for j, value in enumerate(row):
+                if np.isfinite(value):
+                    ax.scatter(j, i, s=value * 1000, facecolors="none", edgecolors="midnightblue", linewidths=2, alpha=0.6)
     return im
 
 
-def _setup_heatmap_axes(axes: Sequence[Axes], layout="1row"):
-    """Helper function to setup common properties for heatmap axes.
-
-    Args:
-      axes: List of axes to setup
-      layout: '1row' for single row layout, '2row' for 2x3 layout
-    """
-    for i, ax in enumerate(axes):
-        ax.invert_yaxis()
-        ax.set_xticks(np.arange(len(cfg.INFLUENCE_AXIS)))
-        ax.set_yticks(np.arange(len(cfg.REWIRING_AXIS)))
-
-        # For 2x3 layout, show y-axis labels on leftmost columns (indices 0 and 3)
-        # For 1-row layout, show y-axis labels only on the first axis
-        if layout == "2row":
-            show_ylabel = i % 3 == 0  # First column of each row
-            show_xlabel = i // 3 == 1  # Only bottom row
+def _setup_heatmap_axes(axes: Sequence[Axes], *, n_rows: int, n_columns: int):
+    for index, axis in enumerate(axes):
+        axis.invert_yaxis()
+        axis.set_xticks(np.arange(len(cfg.INFLUENCE_AXIS)))
+        axis.set_yticks(np.arange(len(cfg.REWIRING_AXIS)))
+        if index // n_columns == n_rows - 1:
+            axis.set_xlabel(r"influence ($\alpha$)")
+            axis.set_xticklabels(cfg.INFLUENCE_AXIS, rotation=90)
         else:
-            show_ylabel = i == 0  # Only first axis
-            show_xlabel = True
-
-        if show_xlabel:
-            ax.set_xlabel(r"influence ($\alpha$)")
-            ax.set_xticklabels(cfg.INFLUENCE_AXIS, rotation=90)
+            axis.set_xticklabels([])
+        if index % n_columns == 0:
+            axis.set_ylabel(r"rewiring ($q$)")
+            axis.set_yticklabels(cfg.REWIRING_AXIS)
         else:
-            ax.set_xlabel("")
-            ax.set_xticklabels([])
-
-        if show_ylabel:
-            ax.set_ylabel(r"rewiring ($q$)")
-            ax.set_yticklabels(cfg.REWIRING_AXIS)
-        else:
-            ax.set_ylabel("")
-            ax.set_yticklabels([])
+            axis.set_yticklabels([])
 
 
 def plot_combined_heatmaps(
-    metrics: List[Tuple[Callable[[ScenarioStatistics], float], str, dict]], with_diff=True, with_std=True
+    session: Sequence[ScenarioStatistics], metrics: Sequence[HeatmapMetric], *, with_diff=True, with_std=True
 ):
-    """Plot multiple metrics in a combined figure.
+    if not metrics:
+        raise ValueError("at least one heatmap metric is required")
+    if with_diff and any(metric.difference_scale is None for metric in metrics):
+        raise ValueError("difference heatmaps require an explicit color scale")
+    all_data: list[HeatmapData] = []
+    for metric in metrics:
+        mean_st, std_st = create_heatmap_evaluator(session, "StructureM9", metric.peaks)(metric.measure)
+        mean_op, std_op = create_heatmap_evaluator(session, "OpinionM9", metric.peaks)(metric.measure)
+        all_data.append(HeatmapData(metric, mean_st, std_st, mean_op, std_op))
 
-    Args:
-      metrics: List of tuples (function, stats_name, plot_kwargs)
-      peaks: Peak count filter
-      with_diff: Whether to show difference plots
-      with_std: Whether to show standard deviation circles
-    """
-    session = read_statistics(stats_db_path, mode="gradation")
-
-    all_data = []
-    for f, stats_name, kwargs in metrics:
-        peaks = kwargs.get("peaks", None)
-        evaluator_st = create_heatmap_evaluator(session, "StructureM9", peaks)
-        evaluator_op = create_heatmap_evaluator(session, "OpinionM9", peaks)
-        mean_st, std_st = evaluator_st(f)
-        mean_op, std_op = evaluator_op(f)
-        diff = mean_op - mean_st
-        all_data.append((mean_st, std_st, mean_op, std_op, diff, stats_name, dict(kwargs)))
-
-    # A signed trajectory integral is not bounded by [0, 1].
-    for mean_st, _, mean_op, _, diff, _, options in all_data:
-        if options.get("signed"):
-            values = np.concatenate((mean_st.ravel(), mean_op.ravel()))
-            extent = max(np.max(np.abs(values[np.isfinite(values)]), initial=0), 0.1)
-            diff_extent = max(np.max(np.abs(diff[np.isfinite(diff)]), initial=0), 0.1)
-            options.update(heatmap_min=-extent, heatmap_max=extent, diff_range=diff_extent)
-
-    n_cols_per_metric = 3 if with_diff else 2
-    fig, axes_orig = plt_figure(n_row=2, n_col=3, hw_ratio=1, constrained_layout=False)
-
-    axes = np.array(axes_orig).flatten().tolist()
-
-    for metric_idx, (mean_st, std_st, mean_op, std_op, diff, stats_name, kwargs) in enumerate(all_data):
-        base_idx = metric_idx * n_cols_per_metric
-
-        cmap = kwargs.get("cmap", "RdYlBu_r")
-        heatmap_min = kwargs.get("heatmap_min", 0)
-        heatmap_max = kwargs.get("heatmap_max", 1)
-        diff_range = kwargs.get("diff_range", 0.6)
-
-        label_prefix = chr(ord("a") + metric_idx * n_cols_per_metric)
-
-        ax_st = axes[base_idx]
-        im_st = _plot_single_heatmap(
-            ax_st,
-            mean_st,
-            std_st,
-            f"({chr(ord(label_prefix) + 0)}) {stats_name} (structure)",
-            cmap,
-            heatmap_min,
-            heatmap_max,
-            with_std,
-        )
-        fig.colorbar(im_st, ax=ax_st, fraction=0.046, pad=0.04)
-
-        ax_op = axes[base_idx + 1]
-        im_op = _plot_single_heatmap(
-            ax_op,
-            mean_op,
-            std_op,
-            f"({chr(ord(label_prefix) + 1)}) {stats_name} (opinion)",
-            cmap,
-            heatmap_min,
-            heatmap_max,
-            with_std,
-        )
-        fig.colorbar(im_op, ax=ax_op, fraction=0.046, pad=0.04)
-
+    n_columns = 3 if with_diff else 2
+    fig, axes_orig = plt_figure(n_row=len(metrics), n_col=n_columns, hw_ratio=1, constrained_layout=False)
+    axes = np.asarray(axes_orig).ravel().tolist()
+    for metric_index, data in enumerate(all_data):
+        base_index = metric_index * n_columns
+        for offset, (mean, std, strategy) in enumerate((
+            (data.structure_mean, data.structure_std, "structure"),
+            (data.opinion_mean, data.opinion_std, "opinion"),
+        )):
+            axis = axes[base_index + offset]
+            label = chr(ord("a") + base_index + offset)
+            image = _plot_single_heatmap(axis, mean, std, f"({label}) {data.metric.label} ({strategy})",
+                                         data.metric.color_scale, with_std)
+            fig.colorbar(image, ax=axis, ticks=data.metric.color_scale.ticks, fraction=0.046, pad=0.04)
         if with_diff:
-            ax_diff = axes[base_idx + 2]
-            cur_chr = chr(ord(label_prefix) + 2)
-            sub1_chr = chr(ord(label_prefix) + 0)
-            sub2_chr = chr(ord(label_prefix) + 1)
-            im_diff = _plot_single_heatmap(
-                ax_diff,
-                diff,
-                np.zeros_like(diff),
-                f"({cur_chr}) difference ({sub2_chr} - {sub1_chr})",
-                "RdBu_r",
-                -diff_range,
-                diff_range,
-                False,
-            )
-            fig.colorbar(im_diff, ax=ax_diff, fraction=0.046, pad=0.04)
-
-    _setup_heatmap_axes(axes, layout="2row")
+            difference = data.opinion_mean - data.structure_mean
+            scale = data.metric.difference_scale
+            assert scale is not None
+            axis = axes[base_index + 2]
+            label = chr(ord("a") + base_index + 2)
+            image = _plot_single_heatmap(axis, difference, np.zeros_like(difference),
+                                         f"({label}) difference (opinion - structure)", scale, False)
+            fig.colorbar(image, ax=axis, ticks=scale.ticks, fraction=0.046, pad=0.04)
+    _setup_heatmap_axes(axes, n_rows=len(metrics), n_columns=n_columns)
     fig.tight_layout()
-
     return fig
 
 
-def plot_heatmap_by_retweet(
-    f: Callable[[ScenarioStatistics], float] = lambda x: x.pathway_integral,  # type: ignore
-    stats_name="$I_w$",
-    heatmap_min=0,
-    heatmap_max=1,
-):
-    session = read_statistics(stats_db_path, mode="gradation")
-
-    evaluators = [
-        create_heatmap_evaluator_retweet(session, r, k)
-        for r, k in [(0, "StructureM9"), (0, "OpinionM9"), (0.5, "StructureM9"), (0.5, "OpinionM9")]
-    ]
-
-    labels = ["St., p=0", "Op., p=0", "St., p=0.5", "Op., p=0.5"]
-
-    stats = [e(f) for e in evaluators]
-
-    fig, axes = plt_figure(n_row=1, n_col=4, hw_ratio=1, constrained_layout=False)
-
-    for i, ax in enumerate(axes):
-        grad_index_mean_st, grad_index_std_st = stats[i]
-
-        im1 = ax.imshow(grad_index_mean_st, cmap="YlGnBu", vmin=heatmap_min, vmax=heatmap_max)
-        ax.set_title(f"(a) {stats_name} ({labels[i]})", loc="left")
-        fig.colorbar(im1, ax=ax, fraction=0.046, pad=0.04)
-
-    for i, ax in enumerate(axes):
-        ax.invert_yaxis()
-        ax.set_xticks(np.arange(len(cfg.INFLUENCE_AXIS)))
-        ax.set_yticks(np.arange(len(cfg.REWIRING_AXIS)))
-
-        ax.set_xlabel(r"influence ($\alpha$)")
-        ax.set_xticklabels(cfg.INFLUENCE_AXIS, rotation=90)
-
-        if i == 0:
-            ax.set_ylabel(r"rewiring ($q$)")
-            ax.set_yticklabels(cfg.REWIRING_AXIS)
-        else:
-            ax.set_ylabel("")
-            ax.set_yticklabels([])
-
+def plot_heatmap_by_retweet(session: Sequence[ScenarioStatistics], metric: HeatmapMetric):
+    statistics = [create_heatmap_evaluator_retweet(session, repost, strategy)(metric.measure)
+                  for repost, strategy in RETWEET_GROUPS]
+    fig, axes = plt_figure(n_row=1, n_col=len(RETWEET_GROUPS), hw_ratio=1, constrained_layout=False)
+    for index, (axis, (mean, std), (repost, strategy)) in enumerate(zip(axes, statistics, RETWEET_GROUPS)):
+        label = chr(ord("a") + index)
+        short_strategy = "St." if strategy == "StructureM9" else "Op."
+        image = _plot_single_heatmap(axis, mean, std, f"({label}) {metric.label} ({short_strategy}, p={repost:g})",
+                                     metric.color_scale, False)
+        fig.colorbar(image, ax=axis, ticks=metric.color_scale.ticks, fraction=0.046, pad=0.04)
+    _setup_heatmap_axes(axes, n_rows=1, n_columns=len(RETWEET_GROUPS))
     fig.tight_layout()
-
     return fig
 
 
-if __name__ == "__main__":
+def _format_summary(label: str, values: Iterable[float]) -> str:
+    array = np.asarray(list(values), dtype=float)
+    array = array[np.isfinite(array)]
+    if not array.size:
+        return f"{label}: n=0; no matching finite observations"
+    return (f"{label}: n={array.size}, mean={array.mean():.4f}, std={array.std():.4f}, "
+            f"min={array.min():.4f}, max={array.max():.4f}")
+
+
+def main():
+    setup_paper_params()
+    session = read_statistics(statistics_database(), mode="gradation")
     figure_dir = MAIN_SCAN_OUTPUT.resolve() / "figures"
     figure_dir.mkdir(parents=True, exist_ok=True)
 
-    def f_grad(x: ScenarioStatistics) -> float:
-        assert x.pathway_integral is not None
-        return x.pathway_integral
+    def pathway(row: ScenarioStatistics) -> float:
+        assert row.pathway_integral is not None
+        return row.pathway_integral
 
-    p_indices_op = {}
-    p_indices_st = {}
+    def total_variation(row: ScenarioStatistics) -> float:
+        assert row.p_backdrop is not None
+        return row.p_backdrop
 
-    def f_p_backdrop(x: ScenarioStatistics) -> float:
-        assert x.p_backdrop is not None and x.p_index is not None
-        if x.recsys_type == "OpinionM9":
-            p_indices_op[x.name] = x.p_index[-1]
-        else:
-            p_indices_st[x.name] = x.p_index[-1]
-        return x.p_backdrop
+    def active_step(row: ScenarioStatistics) -> float:
+        assert row.active_step is not None
+        return float(np.log10(max(row.active_step, 1)))
 
-    def f_active_step(x: ScenarioStatistics) -> float:
-        assert x.active_step is not None
-        return np.log10(x.active_step)
+    metrics = [HeatmapMetric(pathway, "$I_w$", IW_SCALE, IW_DIFFERENCE_SCALE),
+               HeatmapMetric(total_variation, r"TV($I_p$), #P=1", TV_SCALE, TV_DIFFERENCE_SCALE, peaks=1)]
+    plt_save_and_close(plot_combined_heatmaps(session, metrics, with_std=False),
+                       str(figure_dir / "f_grad_and_pol_trad_index"))
+    write_heatmap_caption(figure_dir / "f_grad_and_pol_trad_index_caption.txt", session, metrics)
 
-    metrics = [
-        (f_grad, "$I_w$", {"cmap": "RdBu_r", "signed": True}),
-        (
-            f_p_backdrop,
-            r"$I_p^T$, #P=1",
-            {"cmap": "YlGnBu", "heatmap_min": 0.5, "heatmap_max": 2, "diff_range": 1, "peaks": 1},
-        ),
-    ]
+    summaries = []
+    for strategy, label in (("OpinionM9", "p_index_op"), ("StructureM9", "p_index_st")):
+        rows = select_statistics(session, lambda row: row.name.startswith("s_grad"),
+                                 lambda row: row.recsys_type == strategy,
+                                 lambda row: row.post_retain_count == 0,
+                                 lambda row: row.last_opinion_peak_count == 1,
+                                 lambda row: row.pathway_integral is not None)
+        summaries.append(_format_summary(label, (row.p_index[-1] for row in rows
+                                                if row.p_index is not None and row.p_index.size)))
+    for summary in summaries:
+        print(summary)
+    (figure_dir / "f_p_backdrop_stats.txt").write_text("\n".join(summaries) + "\n", encoding="utf-8")
+    active_metric = HeatmapMetric(active_step, r"$\log_{10}(t_a)$", ACTIVE_STEP_SCALE)
+    plt_save_and_close(plot_heatmap_by_retweet(session, active_metric),
+                       str(figure_dir / "f_p_active_step"))
+    write_heatmap_caption(figure_dir / "f_p_active_step_caption.txt", session, [active_metric], by_retweet=True)
 
-    plt_save_and_close(
-        plot_combined_heatmaps(
-            metrics=metrics,
-            with_diff=True,
-            with_std=False,  # Disable std for cleaner look as in original f_p_backdrop plot
-        ),
-        str(figure_dir / "f_grad_and_pol_trad_index"),
-    )
 
-    all_indices_op = np.array(list(p_indices_op.values()), dtype=float)
-    all_indices_st = np.array(list(p_indices_st.values()), dtype=float)
-
-    stats_op = f"p_index_op stats: mean={np.mean(all_indices_op):.4f}, std={np.std(all_indices_op):.4f}, min={np.min(all_indices_op):.4f}, max={np.max(all_indices_op):.4f}"
-    stats_st = f"p_index_st stats: mean={np.mean(all_indices_st):.4f}, std={np.std(all_indices_st):.4f}, min={np.min(all_indices_st):.4f}, max={np.max(all_indices_st):.4f}"
-
-    print(stats_op)
-    print(stats_st)
-
-    with (figure_dir / "f_p_backdrop_stats.txt").open("w") as f:
-        f.write(stats_op + "\n" + stats_st)
-
-    plt_save_and_close(
-        plot_heatmap_by_retweet(f=f_active_step, stats_name=r"$\log_{10}(t_a)$", heatmap_max=5, heatmap_min=1),
-        str(figure_dir / "f_p_active_step"),
-    )
+if __name__ == "__main__":
+    main()

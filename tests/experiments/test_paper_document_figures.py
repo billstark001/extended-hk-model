@@ -67,7 +67,8 @@ def test_invalidated_source_statistics_cannot_be_used_in_a_figure(tmp_path):
 
 def test_main_heatmap_matches_history_but_raw_bars_keep_history_controls():
     from experiments.paper.main_scan.plot import create_heatmap_evaluator
-    from experiments.paper.pathway_index.plot_raw import evaluate_bar_on_filters, k_filters_1, k_filters_2
+    from experiments.paper.pathway_index.bar_plot import summarize_bar
+    from experiments.paper.pathway_index.plot_raw import k_filters_1, k_filters_2
 
     rows = [
         _record(f"s_grad_fixture_{history}", history=history, value=value)
@@ -77,8 +78,8 @@ def test_main_heatmap_matches_history_but_raw_bars_keep_history_controls():
     assert np.count_nonzero(np.isfinite(mean)) == 1
     assert mean[np.isfinite(mean)].item() == 0.2
     for filters, expected in ((k_filters_1[2], 0.2), (k_filters_2[1], 0.7), (k_filters_2[2], 1.2)):
-        mean, std = evaluate_bar_on_filters(rows, list(filters), lambda row: row.pathway_integral)
-        assert mean == expected and std == 0
+        summary = summarize_bar(rows, filters, lambda row: row.pathway_integral)
+        assert summary.mean == expected and summary.std == 0 and summary.count == 1
 
 
 def test_grouped_figures_require_explicit_descriptive_cutoff(monkeypatch):

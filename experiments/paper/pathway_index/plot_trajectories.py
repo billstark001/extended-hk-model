@@ -1,4 +1,5 @@
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Sequence, Tuple
+from pathlib import Path
 
 import numpy as np
 from matplotlib import cm, colormaps
@@ -12,14 +13,15 @@ from experiments.paper.analysis.records import ScenarioStatistics
 from experiments.paper.analysis.selection import read_statistics, select_statistics
 from experiments.paper.paths import PATHWAY_OUTPUT, statistics_database
 
-stats_db_path = str(statistics_database())
-
 retweet_groups: List[float] = list(cfg.REPOST_AXIS)
 rs_groups: List[Tuple[str, int]] = [(rs, int(retain)) for rs, retain in cfg.GRADATION_RECOMMENDATIONS.values()]
 
 HEATMAP_BINS = 128
 SUMMARY_CURVE_SAMPLES = 256
 SUMMARY_CURVE_QUANTILES = 16
+PAPER_INDEX_BOUNDS = (0.0, 1.0)
+PAPER_AXIS_LIMITS = (-0.05, 1.05)
+PAPER_INDEX_TICKS = tuple(np.linspace(0.0, 1.0, 6))
 
 
 def _safe_curve(p_index: np.ndarray | None, h_index: np.ndarray | None) -> np.ndarray | None:
@@ -122,7 +124,7 @@ def summary_curves_clustered(
     if not curves:
         return []
 
-    # Resample every curve to a common 512-point coordinate system.
+    # Resample every curve to the common coordinate system.
     resampled_curves = [resample_curve(points) for points, _ in curves]
     resampled_array = np.stack(resampled_curves, axis=0)
 
@@ -163,10 +165,8 @@ def summary_curves_clustered(
     return summaries
 
 
-def plot_p_h_index_trajectories() -> Figure:
+def plot_p_h_index_trajectories(session: Sequence[ScenarioStatistics]) -> Figure:
     setup_paper_params()
-
-    session = read_statistics(stats_db_path, mode="gradation")
 
     full_data: Iterable[ScenarioStatistics] = select_statistics(
         session,
@@ -183,23 +183,18 @@ def plot_p_h_index_trajectories() -> Figure:
 
     axes_arr = np.array(axes)
     cmap = colormaps["coolwarm"]
-    all_curves = [entry for group in grouped.values() for entry in group]
-    p_min = min(0.0, min((float(points[:, 0].min()) for points, _ in all_curves), default=0.0))
-    p_max = max((float(points[:, 0].max()) for points, _ in all_curves), default=1.0)
-    p_max = max(1.0, p_max)
-    grad_max = max((abs(g) for _, g in all_curves), default=1.0)
-    norm = Normalize(vmin=-grad_max, vmax=grad_max)
+    norm = Normalize(vmin=0.0, vmax=1.0)
 
     for i_rt, rt in enumerate(retweet_groups):
         for i_rs, (rs_type, retain_count) in enumerate(rs_groups):
             ax = axes_arr[i_rt, i_rs]
             curves = grouped[(rt, rs_type, retain_count)]
 
-            density_img = _density_image(curves, cmap, norm, (p_min, p_max))
+            density_img = _density_image(curves, cmap, norm, PAPER_INDEX_BOUNDS)
             if density_img is not None:
                 ax.imshow(
                     density_img,
-                    extent=(p_min, p_max, 0, 1),
+                    extent=(*PAPER_INDEX_BOUNDS, 0, 1),
                     origin="lower",
                     interpolation="bilinear",
                     aspect="auto",
@@ -217,15 +212,15 @@ def plot_p_h_index_trajectories() -> Figure:
                     zorder=2,
                 )
 
-            eps = 0.05
-
-            ax.set_xlim(p_min - eps, p_max + eps)
-            ax.set_ylim(0 - eps, 1 + eps)
+            ax.set_xlim(*PAPER_AXIS_LIMITS)
+            ax.set_ylim(*PAPER_AXIS_LIMITS)
+            ax.set_xticks(PAPER_INDEX_TICKS)
+            ax.set_yticks(PAPER_INDEX_TICKS)
             ax.set_facecolor("white")
             ax.grid(True, linestyle="--", linewidth=0.5)
 
             title_rs = "St" if rs_type == "StructureM9" else "Op"
-            ax.set_title(f"p={rt:g}, {title_rs}/k={retain_count} (n={len(curves)})", loc="left", fontsize=9)
+            ax.set_title(f"p={rt:g}, {title_rs}/k={retain_count}", loc="left", fontsize=9)
 
             if i_rt == 3:
                 ax.set_xlabel(r"$I_p$")
@@ -240,14 +235,34 @@ def plot_p_h_index_trajectories() -> Figure:
     sm = cm.ScalarMappable(norm=norm, cmap=cmap)
     sm.set_array([])
     cax = fig.add_axes((0.91, 0.17, 0.015, 0.66))
-    cbar = fig.colorbar(sm, cax=cax)
+    cbar = fig.colorbar(sm, cax=cax, ticks=PAPER_INDEX_TICKS)
     cbar.set_label(r"mean $I_w$")
 
     return fig
 
 
+def write_trajectory_caption(stem: Path, session: Sequence[ScenarioStatistics]) -> None:
+    selected = select_statistics(session, lambda row: row.name.startswith("s_grad"))
+    groups = _group_data(selected)
+    lines = [
+        f"Available completed trajectories: n={len(session)}.",
+        "Panels pool rewiring/influence settings; each n counts valid trajectories in that repost/policy/history group.",
+        "Density uses saved adaptive samples; cluster backbones are medians after resampling to a shared point-index grid.",
+        "Color represents mean I_w. Empty groups contain no trajectory.",
+        "The paper's fixed coolwarm scale is [0,1], with both index axes shown on [-0.05,1.05].",
+        "Saved trajectories and I_w values remain unchanged; values outside the color scale use endpoint colors, and portions outside the axes are not shown.",
+    ]
+    if session:
+        lines.append(f"Origin: {session[0].origin}; analysis_id: {session[0].analysis_id}.")
+    lines.extend(f"p={repost:g}, {policy}/k={history}: n={len(curves)}"
+                 for (repost, policy, history), curves in groups.items())
+    stem.with_name(stem.name + "_caption.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 if __name__ == "__main__":
     figure_dir = PATHWAY_OUTPUT.resolve() / "figures"
     figure_dir.mkdir(parents=True, exist_ok=True)
-    fig = plot_p_h_index_trajectories()
+    session = read_statistics(statistics_database(), mode="gradation")
+    fig = plot_p_h_index_trajectories(session)
     plt_save_and_close(fig, str(figure_dir / "f_p_h_index_trajectory"), jpg=True)
+    write_trajectory_caption(figure_dir / "f_p_h_index_trajectory", session)
