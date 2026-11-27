@@ -67,12 +67,15 @@ def kinetic_request(
     stopping=None,
     record_steps=(),
     snapshot_fields=(),
+    endpoint_complement=True,
 ):
     """Build a public kinetic request for a continuous uniform initial opinion law.
 
     observable_fields and snapshot_fields opt into outputs; final_snapshot_fields
     contains names without the final_ prefix. Zero influence is allowed for
-    rewiring-only probes. No solver import or execution occurs here.
+    rewiring-only probes. endpoint_complement includes the pathway terminal
+    term by default and is independent of output selection. No solver import
+    or execution occurs here.
     """
     p = parameters
     # The first-step splitting audit permits zero influence. Build the public
@@ -93,6 +96,7 @@ def kinetic_request(
             steepness=p.recommendation_steepness,
             opinion_tolerance=p.opinion_tolerance,
         ),
+        endpoint_complement=endpoint_complement,
     )
     request.update(
         steps=p.steps, record_every=p.record_every, noise_diffusion=p.noise_diffusion, confidence_mode=p.confidence_mode
@@ -103,7 +107,7 @@ def kinetic_request(
     # Preserve the original continuous uniform initial law.
     request["initial"].update(type="uniform", probabilities=[])
     for key, value in request["observables"].items():
-        if isinstance(value, bool):
+        if isinstance(value, bool) and key != "endpoint_complement":
             request["observables"][key] = key in observable_fields
     request["snapshots"]["record_steps"] = list(record_steps)
     for key, value in request["snapshots"].items():

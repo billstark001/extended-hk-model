@@ -11,7 +11,7 @@ import pandas as pd
 
 from common.io.json import atomic_json
 from experiments.paper.analysis.records import ScenarioStatistics
-from experiments.paper.analysis.selection import read_statistics
+from experiments.paper.analysis.selection import read_statistics, recorded_endpoint_complement
 from experiments.paper.paths import PATHWAY_OUTPUT, statistics_database
 from experiments.paper.pathway_index.data_utils import piecewise_linear_integral_trapz
 
@@ -55,6 +55,7 @@ def summarize(rows: list[ScenarioStatistics], cutoff: float) -> tuple[pd.DataFra
                 "name": row.name,
                 "origin": row.origin,
                 "analysis_id": row.analysis_id,
+                "endpoint_complement": recorded_endpoint_complement(row),
                 "group": "low" if row.pathway_integral < cutoff else "high",
                 "policy": row.recsys_type,
                 "reposting": "off" if row.repost_rate == 0 else "on",
@@ -146,6 +147,7 @@ def analyze(database, output, *, cutoff, origin=None, analysis_id=None):
             "schema": 1,
             "analysis_id": rows[0].analysis_id,
             "origin": rows[0].origin,
+            "endpoint_complement": recorded_endpoint_complement(rows[0]),
             "cutoff": cutoff,
             "grouping": "descriptive low/high I_w; not first-passage labels",
             "history": 0,

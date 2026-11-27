@@ -20,12 +20,14 @@ def measure_request(
     final_state: bool = True,
     snapshot_taus: Sequence[float] = (),
     stopping: StoppingOptions | None = None,
+    endpoint_complement: bool = True,
 ) -> dict[str, Any]:
     """Translate Parameters into a public kinetic request with cell masses on [-1,1].
 
     Optional initial_mass must be a normalized nonnegative bins-vector. Convert
     scaled horizon/record_tau to physical steps, retaining initial/first-step
-    energy snapshots; final_state controls final rho/edge fields.
+    energy snapshots; final_state controls final rho/edge fields. Pathway
+    requests include the terminal complement unless explicitly disabled.
     """
     p = parameters
     p.validate()
@@ -81,6 +83,7 @@ def measure_request(
             "node_energy": True,
             "edge_energy": True,
             "pathway": False,
+            "endpoint_complement": endpoint_complement,
             "polarization_first_passage": False,
             "homophily_first_passage": False,
             "polarization_threshold": 0.8,

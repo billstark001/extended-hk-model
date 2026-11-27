@@ -200,6 +200,7 @@ def get_statistics_for_mode(
     min_inactive_value=0.75,
     include_pathway_probe=False,
     include_metric_audit=True,
+    endpoint_complement=True,
 ):
     from smp_bindings import RawSimulationRecord
 
@@ -228,6 +229,7 @@ def get_statistics_for_mode(
             active_threshold=active_threshold,
             min_inactive_value=min_inactive_value,
             opinion_peak_distance=config.opinion_peak_distance,
+            endpoint_complement=endpoint_complement,
         )
 
         hk_params = _extract_hk_params(actual_metadata)
@@ -249,6 +251,7 @@ def get_statistics_for_mode(
             origin=origin,
             metadata=actual_metadata,
             requested_metadata=scenario_metadata,
+            endpoint_complement=endpoint_complement,
             rng_provenance="recorded"
             if actual_metadata.get("RNG") or actual_metadata.get("RNGSeed")
             else "unavailable in raw metadata",
@@ -283,6 +286,7 @@ def run_mode(
     plan_only=False,
     raw_root=None,
     origin=None,
+    endpoint_complement=True,
 ):
     if mode not in MODE_CONFIGS:
         valid = ", ".join(get_mode_names())
@@ -298,7 +302,7 @@ def run_mode(
     if not os.path.isdir(scenario_base_path) and not plan_only:
         raise FileNotFoundError(scenario_base_path)
 
-    c.set_state(active_threshold=0.98, min_inactive_value=0.75)
+    c.set_state(active_threshold=0.98, min_inactive_value=0.75, endpoint_complement=endpoint_complement)
 
     mode_config = STATISTICS.select(mode)[0]
     get_statistics = partial(
@@ -306,6 +310,7 @@ def run_mode(
         mode=mode,
         include_pathway_probe=include_pathway_probe,
         include_metric_audit=include_metric_audit,
+        endpoint_complement=endpoint_complement,
     )
     scenarios = mode_config.scenarios()
     if limit is not None:
@@ -322,6 +327,7 @@ def run_mode(
             "metric_revision": METRIC_REVISION,
             "include_pathway_probe": include_pathway_probe,
             "include_metric_audit": include_metric_audit,
+            "endpoint_complement": endpoint_complement,
             "tasks": scenarios,
         }
 
@@ -336,6 +342,7 @@ def run_mode(
             "common_statistics": mode_config.common_stats,
             "metric_revision": METRIC_REVISION,
             "metric_audit": include_metric_audit,
+            "endpoint_complement": endpoint_complement,
             "first_passage": {
                 "cadence": OBSERVATION_INTERVAL,
                 "separation": SEPARATION_THRESHOLD,

@@ -44,7 +44,8 @@ def test_edge_and_agent_weighting_are_explicit_and_iw_is_signed():
     graph = nx.DiGraph([(0, 1), (0, 2), (1, 0)])
     assert mean_followee_edge_concordance(graph, np.array([0, 0, 1]), 0.45) == pytest.approx(0.75)
     p, h = np.array([0, 0.5, 0.1]), np.array([0, 0, 1])
-    assert get_gradation_index_hp(p, h) == pytest.approx(-0.2)
+    assert get_gradation_index_hp(p, h) == pytest.approx(0.7)
+    assert get_gradation_index_hp(p, h, endpoint_complement=False) == pytest.approx(-0.2)
 
 
 def test_checkpoints_use_only_current_state_and_recent_activity():

@@ -33,6 +33,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--limit", type=int, help="Analyze only the first N planned tasks, for a bounded smoke run.")
     parser.add_argument(
+        "--endpoint-complement", action=argparse.BooleanOptionalAction, default=True,
+        help="Include (1-I_p(T))*I_h(T) in I_w (default); --no-endpoint-complement keeps only the observed integral.",
+    )
+    parser.add_argument(
         "--force", action="store_true", help="Recompute rather than reuse matching completed documents."
     )
     parser.add_argument(
@@ -86,6 +90,7 @@ def main(argv: list[str] | None = None):
         plan_only=args.plan_only,
         raw_root=args.raw_root,
         origin=args.origin,
+        endpoint_complement=args.endpoint_complement,
     )
     print(json.dumps(result, indent=2))
     return result

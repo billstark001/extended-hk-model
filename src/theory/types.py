@@ -56,6 +56,7 @@ class MeasureOptions(TypedDict, total=False):
     final_state: bool
     snapshot_taus: Sequence[float]
     stopping: StoppingOptions
+    endpoint_complement: bool
 
 
 class MicroTaskFields(TypedDict, total=False):

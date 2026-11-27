@@ -13,6 +13,7 @@ from common.io.json import atomic_json
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
 from ehk.metrics.homophily import uniform_concordance_probability
 from experiments.paper.analysis.records import StatisticsStore
+from experiments.paper.analysis.selection import recorded_endpoint_complement
 from experiments.paper.paths import PATHWAY_OUTPUT, statistics_database
 
 GROUPS = ("Low I_w", "High I_w", "Unavailable")
@@ -62,6 +63,10 @@ def analyze(database, legacy, output, origin=None, example=None, *, analysis_id=
     revisions = {row.analysis_id for row in rows}
     if len(revisions) != 1:
         raise ValueError("select one --analysis-id when multiple analysis revisions are present")
+    endpoint_modes = {recorded_endpoint_complement(row) for row in rows}
+    if len(endpoint_modes) != 1:
+        raise ValueError("mixed endpoint-complement conventions in the selected analysis revision")
+    endpoint_complement = next(iter(endpoint_modes))
     if len({row.origin for row in rows}) != 1:
         raise ValueError("select one --origin when multiple raw datasets are present")
     if len({row.name for row in rows}) != len(rows):
@@ -78,6 +83,7 @@ def analyze(database, legacy, output, origin=None, example=None, *, analysis_id=
                 "name": row.name,
                 "origin": row.origin,
                 "analysis_id": row.analysis_id,
+                "endpoint_complement": endpoint_complement,
                 "policy": row.recsys_type,
                 "history": row.post_retain_count,
                 "influence": row.decay,
@@ -86,6 +92,8 @@ def analyze(database, legacy, output, origin=None, example=None, *, analysis_id=
                 "steps": row.step,
                 "revised_iw": row.pathway_integral,
                 "revised_group": iw_group(row.pathway_integral, cutoff),
+                "full_trajectory_with_complement": row.pathway_variants.get("full_trajectory_with_complement"),
+                "full_trajectory_without_complement": row.pathway_variants.get("full_trajectory_without_complement"),
                 "reconstructed_legacy_iw": reconstructed,
                 "reconstructed_group": iw_group(reconstructed, cutoff),
                 "archived_iw": old,
@@ -103,6 +111,7 @@ def analyze(database, legacy, output, origin=None, example=None, *, analysis_id=
                 {
                     "name": row.name,
                     "origin": row.origin,
+                    "endpoint_complement": endpoint_complement,
                     "convention": convention,
                     "I_w": value,
                     "change_from_previous_convention": None if previous is None else value - previous,
@@ -127,8 +136,13 @@ def analyze(database, legacy, output, origin=None, example=None, *, analysis_id=
     )
     counts.to_csv(output / "pathway_group_migration.csv")
     report = {
-        "schema": 3,
+        "schema": 4,
         "analysis_id": next(iter(revisions)),
+        "endpoint_complement": endpoint_complement,
+        "endpoint_convention": "unrecorded" if endpoint_complement is None else (
+            "integral + (1-I_p(T))*I_h(T)" if endpoint_complement else "observed integral only"
+        ),
+        "full_trajectory_comparison": "completed and uncompleted values exported when recorded; never inferred",
         "records": len(rows),
         "cutoff": cutoff,
         "cutoff_status": "historical descriptive split; not a validated PbS/SbP classifier",
@@ -149,7 +163,7 @@ def analyze(database, legacy, output, origin=None, example=None, *, analysis_id=
         xticklabels=GROUPS,
         yticks=np.arange(len(GROUPS)),
         yticklabels=GROUPS,
-        xlabel="Revised integral group",
+        xlabel="Revised pathway-index group",
         ylabel="Reconstructed historical group",
     )
     for (row_number, col), count in np.ndenumerate(grid):

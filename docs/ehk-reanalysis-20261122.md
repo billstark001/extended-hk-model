@@ -6,13 +6,13 @@ This guide covers reanalysis of existing microscopic records and reproducible ne
 
 - `I_p,I_s` use random-reference Jensen–Shannon divergence ratios. Historical JS distance and clustered-reference complements are reconstructed separately in the audit. `I_p` measures departure of the opinion-distance distribution from the random reference; it can rise under consensus and is not bounded by one.
 - `I_h` uses the current opinions at directed follow-edge endpoints. Concordance is averaged equally over nodes with positive out-degree and normalized against the uniform baseline `epsilon-epsilon**2/4`. The confidence condition is strictly `distance < epsilon`. Concordance of received followee posts is stored separately.
-- `I_w` is the chronological signed trapezoidal integral, without an endpoint complement or clipping to `[0,1]`. It summarizes a trajectory continuously.
+- `I_w` is the chronological signed trapezoidal integral plus `(1-I_p(T))*I_h(T)` by default. This completion to `I_p=1` retains terminal homophily in the trajectory-tendency measure. `--no-endpoint-complement` selects the observed integral alone. Neither convention is clipped to `[0,1]`.
 - The historical `0.6` cutoff is an unvalidated descriptive split. Grouped plots require an explicit `EHK_IW_CUTOFF` and use low/high `I_w` labels.
 - Reanalysis does not call the P/E probe by default. `--include-pathway-probe` adds its independent first-passage labels.
 
 The default statistics database is `outputs/experiments/paper/stats-v3.sqlite`. Standard-library SQLite stores metadata, metric protocols, raw-source identities and arrays in one document per task. Typed NumPy arrays use compressed NPY with pickle disabled. Each document commits in one transaction; adding a statistic does not require a wide-table migration.
 
-Cache identity binds task parameters, recorded raw metadata, available RNG provenance, metric source code and input-file identities. Historical records without seeds retain that missing provenance. Changed inputs and forced reanalysis invalidate previous documents persistently; a failed retry cannot supply an old complete result to plotting. Readers require an explicit selection when multiple metric revisions or raw sources coexist.
+Cache identity binds task parameters, recorded raw metadata, available RNG provenance, the endpoint-complement choice, metric source code and input-file identities. Historical records without seeds retain that missing provenance. Historical metric values retain their stored convention; they are never relabeled by the new default. Changed inputs and forced reanalysis invalidate previous documents persistently; a failed retry cannot supply an old complete result to plotting. Readers require an explicit selection when multiple metric revisions or raw sources coexist.
 
 ## Reanalyze existing raw records
 
@@ -26,7 +26,7 @@ python -m experiments.paper.analysis.run gradation --raw-root /path/to/existing/
 python -m experiments.paper.analysis.run gradation --raw-root /path/to/existing/raw --origin original-paper --database /path/to/reanalysis/stats-v3.sqlite --concurrency 6
 ```
 
-A successful limited run can be reused by a later full selection. Run `epsilon` and `replicate` similarly; all three modes may share the new statistics database. The positional `MODE INSTANCE_NAME` interface still reads `sim_ws.json`. `--force` recomputes documents under the current metric revision. Missing and failed tasks remain visible in the run status, while successful records can resume independently.
+A successful limited run can be reused by a later full selection. Run `epsilon` and `replicate` similarly; all three modes may share the new statistics database. Omission of the completion flag, or `--endpoint-complement`, uses completion. Add `--no-endpoint-complement` for a separate uncompleted analysis identity. The positional `MODE INSTANCE_NAME` interface still reads `sim_ws.json`. `--force` recomputes documents under the current metric revision. Missing and failed tasks remain visible in the run status, while successful records can resume independently.
 
 By default, reanalysis also reconstructs historical conventions on the same raw trajectory: the uniform baseline, post versus edge concordance, JS reference direction, distance versus divergence, endpoint complement and sampling coverage. Reconstruction uses deterministic current sampling; exact agreement with old products lacking sampling provenance is not guaranteed. Missing post observations are retained as missing. Use `--skip-metric-audit` for an analysis that does not need this comparison.
 

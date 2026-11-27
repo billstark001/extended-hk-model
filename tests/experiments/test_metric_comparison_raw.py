@@ -91,7 +91,7 @@ def test_measurement_reuses_existing_exact_states_and_full_prefix_iw(tmp_path, m
     measured = raw._measure(tmp_path / "disk" / path["raw_record"], path, points)
     assert calls == [16, 32]
     assert [p["I_p"] for p in measured["points"]] == [.16, .32]
-    assert measured["path"]["I_w"] == pytest.approx(.425)
+    assert measured["path"]["I_w"] == pytest.approx(.725)
     assert measured["path"]["prefix_start"] == 0
     assert measured["path"]["trajectory_end"] == 32
     assert measured["path"]["sampling_method"] == core.IW_SAMPLING_METHOD

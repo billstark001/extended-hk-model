@@ -41,9 +41,11 @@ def test_documents_roundtrip_arrays_metadata_nonfinite_and_atomic_upserts(tmp_pa
 def test_edge_threshold_and_signed_path_integral_follow_paper_definition():
     graph = nx.DiGraph([(0, 1)])
     assert mean_followee_edge_concordance(graph, np.array([0.0, 0.45]), 0.45) == 0
-    assert get_gradation_index_hp(np.array([0, 0.5, 0.1]), np.array([0, 0, 1])) == pytest.approx(-0.2)
-    # No terminal extension to I_p=1.
-    assert get_gradation_index_hp(np.array([0, 0.2]), np.array([0.5, 0.5])) == pytest.approx(0.1)
+    assert get_gradation_index_hp(np.array([0, 0.5, 0.1]), np.array([0, 0, 1])) == pytest.approx(0.7)
+    assert get_gradation_index_hp(
+        np.array([0, 0.5, 0.1]), np.array([0, 0, 1]), endpoint_complement=False
+    ) == pytest.approx(-0.2)
+    assert get_gradation_index_hp(np.array([0, 0.2]), np.array([0.5, 0.5])) == pytest.approx(0.5)
 
 
 def test_activity_uses_terminal_reference_and_falls_back_if_never_crossed():
@@ -61,7 +63,8 @@ def test_activity_already_above_criterion_starts_at_initial_observation():
     assert result[4] == 1.0
 
 
-def test_raw_metric_audit_preserves_missing_feed_and_separates_conventions(monkeypatch, tmp_path):
+@pytest.mark.parametrize("endpoint_complement", [True, False])
+def test_raw_metric_audit_preserves_missing_feed_and_separates_conventions(monkeypatch, tmp_path, endpoint_complement):
     from ehk.micro import observables
 
     class Raw:
@@ -76,11 +79,16 @@ def test_raw_metric_audit_preserves_missing_feed_and_separates_conventions(monke
         np.array([0.1, 0.2, 0.3]),
         np.array([0.0, 0.5, 1.0]),
         np.array([np.nan, 0.6, 0.8]),
+        endpoint_complement=endpoint_complement,
     )
     assert audit["audit_prefix_start"] == 10
     assert np.array_equal(audit["audit_missing_steps"], [0])
     assert np.isnan(audit["legacy_h_index"][0])
-    assert audit["pathway_variants"]["revised_full_trajectory"] == pytest.approx(0.1)
+    expected = 0.9 if endpoint_complement else 0.1
+    assert audit["audit_endpoint_complement"] is endpoint_complement
+    assert audit["pathway_variants"]["revised_full_trajectory"] == pytest.approx(expected)
+    assert audit["pathway_variants"]["full_trajectory_with_complement"] == pytest.approx(0.9)
+    assert audit["pathway_variants"]["full_trajectory_without_complement"] == pytest.approx(0.1)
     path = tmp_path / "stats.sqlite"
     with StatisticsStore(path) as store:
         store.put(
@@ -93,7 +101,8 @@ def test_raw_metric_audit_preserves_missing_feed_and_separates_conventions(monke
                 rewiring=0.05,
                 repost_rate=0.1,
                 step=20,
-                pathway_integral=0.1,
+                pathway_integral=expected,
+                endpoint_complement=endpoint_complement,
                 **audit,
             ),
             analysis_id="fixture",
@@ -115,6 +124,20 @@ def test_document_statistics_reject_legacy_wide_tables(tmp_path):
     with sqlite3.connect(path) as db:
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert tables == {"scenariostatistics"}
+
+
+def test_recorded_exact_revision_remains_readable_after_binned_adoption(tmp_path):
+    from ehk.metrics.protocol import METRIC_PROTOCOL
+
+    path = tmp_path / "historical.sqlite"
+    value = ScenarioStatistics(name="old", origin="raw", metric_revision=3, pathway_integral=.21844215537211242)
+    with StatisticsStore(path) as store:
+        store.put(value, analysis_id="original-exact", mode="gradation", protocol={"metrics": {"revision": 3}})
+    with StatisticsStore(path, readonly=True) as store:
+        old = store.get("old", "raw", "original-exact")
+        assert old.metric_revision == 3 and old.protocol["metrics"]["revision"] == 3
+        assert old.pathway_integral == .21844215537211242
+        assert METRIC_PROTOCOL["distance_kde"]["bins"] == 4081
 
 
 def test_optional_probe_binary_identity_is_required_only_when_enabled(tmp_path, monkeypatch):

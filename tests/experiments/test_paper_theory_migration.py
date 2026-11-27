@@ -59,3 +59,21 @@ def test_rewiring_only_probe_preserves_zero_influence_and_uniform_law():
     assert request["snapshots"]["record_steps"] == [0, 1]
     assert request["snapshots"]["rho"] and request["snapshots"]["edge"]
     assert request["stopping"]["mode"] == "fixed_steps"
+
+
+def test_pathway_endpoint_choice_is_independent_of_observable_selection():
+    from theory.parameters import Parameters
+    from theory.runtime.measure import measure_request
+
+    for choice in (True, False):
+        request = measure_request("measure", Parameters(), endpoint_complement=choice)
+        assert request["observables"]["endpoint_complement"] is choice
+        request = kinetic_request(
+            "pathway", KineticParameters(), KineticResolution(),
+            observable_fields=("pathway",), endpoint_complement=choice,
+        )
+        assert request["observables"]["pathway"] is True
+        assert request["observables"]["endpoint_complement"] is choice
+        assert request["observables"]["polarization"] is False
+    request = kinetic_request("default", KineticParameters(), KineticResolution(), observable_fields=("pathway",))
+    assert request["observables"]["endpoint_complement"] is True

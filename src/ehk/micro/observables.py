@@ -15,13 +15,14 @@ from ehk.metrics.evaluation import MeasurementEvaluator
 from ehk.metrics.homophily import mean_followee_edge_concordance, normalize_homophily
 from ehk.metrics.pathway import OBSERVATION_INTERVAL, first_passage
 from ehk.metrics.polarization import DistanceCalculator, opinion_peak_count
+from ehk.metrics.trajectory import pathway_index
 
 if TYPE_CHECKING:
     from smp_bindings import PostEventBody, RawSimulationRecord
 
 
 c = Context(ignore_prefix="get_")
-c.set_state(active_threshold=0.98, min_inactive_value=0.75, opinion_peak_distance=50)
+c.set_state(active_threshold=0.98, min_inactive_value=0.75, opinion_peak_distance=50, endpoint_complement=True)
 
 
 def floyd_warshall_weight_matrix(A: NDArray):
@@ -219,13 +220,20 @@ def get_backdrop_rates(p_index: NDArray, h_index: NDArray, g_index: NDArray):
     return p_backdrop, h_backdrop, g_backdrop
 
 
-@c.selector
-def get_gradation_index_hp(p_index, h_index):
-    return area_under_curve(np.array([p_index, h_index]), complement=None)
+def get_gradation_index_hp(p_index, h_index, *, endpoint_complement=True):
+    """Compute I_w, including the terminal contribution unless explicitly disabled."""
+    return pathway_index(p_index, h_index, endpoint_complement=endpoint_complement)
+
+
+@c.selector("gradation_index_hp")
+def _selected_gradation_index_hp(p_index, h_index, endpoint_complement):
+    return get_gradation_index_hp(p_index, h_index, endpoint_complement=endpoint_complement)
 
 
 @c.selector("metric_audit")
-def get_metric_audit(scenario_record: RawSimulationRecord, x_indices, p_index, g_index, h_index, rho_post):
+def get_metric_audit(
+    scenario_record: RawSimulationRecord, x_indices, p_index, g_index, h_index, rho_post, endpoint_complement=True
+):
     """Recompute historical conventions from raw states, without replacing the main indices.
 
     A missing initial feed is never imputed. All staged convention comparisons
@@ -251,7 +259,9 @@ def get_metric_audit(scenario_record: RawSimulationRecord, x_indices, p_index, g
         "use_random_reference_distance": integral(np.sqrt(np.maximum(0, p_index)), h_index),
         "use_js_divergence": integral(p_index, h_index),
         "remove_endpoint_complement": integral(p_index, h_index, complement=False),
-        "revised_full_trajectory": get_gradation_index_hp(p_index, h_index),
+        "revised_full_trajectory": get_gradation_index_hp(p_index, h_index, endpoint_complement=endpoint_complement),
+        "full_trajectory_with_complement": get_gradation_index_hp(p_index, h_index, endpoint_complement=True),
+        "full_trajectory_without_complement": get_gradation_index_hp(p_index, h_index, endpoint_complement=False),
     }
     return {
         "legacy_p_index": legacy[:, 0],
@@ -263,6 +273,7 @@ def get_metric_audit(scenario_record: RawSimulationRecord, x_indices, p_index, g
         "audit_prefix_start": int(x_indices[valid][0]) if np.any(valid) else None,
         "audit_missing_steps": np.asarray(x_indices)[~valid],
         "audit_sampling": "revised adaptive observation grid; convention comparisons share finite observations",
+        "audit_endpoint_complement": endpoint_complement,
     }
 
 
@@ -463,6 +474,7 @@ valid_state_vars = {
     "active_threshold",
     "min_inactive_value",
     "opinion_peak_distance",
+    "endpoint_complement",
     "probe_binary",
 }
 

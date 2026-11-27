@@ -13,6 +13,24 @@ from experiments.paper.paths import statistics_database
 StatisticFilter = Callable[[ScenarioStatistics], bool]
 
 
+def recorded_endpoint_complement(row: ScenarioStatistics) -> bool | None:
+    """Read the stored convention without assigning a new default to old values."""
+    protocol = getattr(row, "protocol", {}) or {}
+    metric = protocol.get("metrics", {})
+    values = [
+        getattr(row, "endpoint_complement", None),
+        getattr(row, "audit_endpoint_complement", None),
+        protocol.get("endpoint_complement"),
+        metric.get("endpoint_complement") if isinstance(metric, dict) else None,
+    ]
+    recorded = [value for value in values if value is not None]
+    if any(type(value) is not bool for value in recorded):
+        raise ValueError("stored endpoint_complement must be boolean")
+    if len(set(recorded)) > 1:
+        raise ValueError("conflicting stored endpoint-complement conventions")
+    return recorded[0] if recorded else None
+
+
 def read_statistics(
     database: str | Path | None = None, *, mode: str, origin: str | None = None, analysis_id: str | None = None
 ) -> list[ScenarioStatistics]:
@@ -32,6 +50,8 @@ def read_statistics(
     revisions = {row.analysis_id for row in rows}
     if len(revisions) != 1:
         raise ValueError("multiple analysis revisions match; select EHK_ANALYSIS_ID before plotting")
+    if len({recorded_endpoint_complement(row) for row in rows}) != 1:
+        raise ValueError("mixed endpoint-complement conventions in the selected analysis revision")
     if len({row.origin for row in rows}) != 1:
         raise ValueError("multiple source datasets match; select EHK_STATS_ORIGIN before plotting")
     stale = [row.name for row in rows if getattr(row, "stale", False) or getattr(row, "complete", True) is False]

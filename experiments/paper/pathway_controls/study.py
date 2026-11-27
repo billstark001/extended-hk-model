@@ -138,13 +138,14 @@ def export_snapshots(directory):
     return index
 
 
-def analyze(directory):
+def analyze(directory, *, endpoint_complement=True):
     """Recompute the paper's Ip/Is/Ih/Iw from actual raw metadata and trajectories."""
     import numpy as np
     from smp_bindings import RawSimulationRecord
 
     from ehk.micro import observables
     from ehk.micro.observables import get_gradation_index_hp, get_indices
+    from ehk.metrics.protocol import metric_protocol
 
     directory = Path(directory).resolve()
     index = export_snapshots(directory)
@@ -180,9 +181,9 @@ def analyze(directory):
                         **task["coordinates"],
                         "arm": arm,
                         "horizon": record.max_step,
-                        "I_w": float(get_gradation_index_hp(p, h)),
+                        "I_w": float(get_gradation_index_hp(p, h, endpoint_complement=endpoint_complement)),
                         "sampling": "paper adaptive grid",
-                        "endpoint_complement": False,
+                        "endpoint_complement": endpoint_complement,
                     }
                 )
     output = directory / "analysis"
@@ -200,6 +201,8 @@ def analyze(directory):
             "metric_implementation_sha256": sha(observables.__file__),
             "classification": None,
             "metrics": ["I_p", "I_s", "I_h", "I_w"],
+            "endpoint_complement": endpoint_complement,
+            "metric_protocol": metric_protocol(endpoint_complement=endpoint_complement),
         },
     )
     return {"snapshots": len(index["snapshots"]), "index_rows": len(rows), "arms": len(summaries)}

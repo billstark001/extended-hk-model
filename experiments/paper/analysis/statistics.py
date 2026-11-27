@@ -9,7 +9,7 @@ from common.experiments.execution import TaskAdapter, execute_tasks
 from common.experiments.lifecycle import TaskJournal, Workflow, interruptible, session_lock
 from common.experiments.plans import freeze_plan
 from common.io.json import fingerprint, sha
-from ehk.metrics.protocol import METRIC_PROTOCOL, METRIC_REVISION
+from ehk.metrics.protocol import METRIC_REVISION, metric_protocol
 
 from .records import StatisticsStore
 
@@ -68,9 +68,12 @@ def analysis_protocol(protocol=None):
         except PackageNotFoundError:
             versions[package] = "unavailable"
     binding_root = Path(smp_bindings.__file__).resolve().parent
+    options = dict(protocol or {})
+    endpoint_complement = options.get("endpoint_complement", True)
     evidence = {
-        "metrics": METRIC_PROTOCOL,
-        **(protocol or {}),
+        **options,
+        "metrics": metric_protocol(endpoint_complement=endpoint_complement),
+        "endpoint_complement": endpoint_complement,
         "analysis_sources": {str(path.relative_to(root)): sha(path) for path in sources},
         "binding_sources": {path.name: sha(path) for path in sorted(binding_root.glob("*.py"))},
         "versions": versions,

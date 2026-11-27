@@ -23,6 +23,7 @@ def main(argv=None):
     parser.add_argument("--snapshot-steps", nargs="+", type=int)
     parser.add_argument("--seed-namespace")
     parser.add_argument("--concurrency", type=int, default=4)
+    parser.add_argument("--endpoint-complement", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args(argv)
     options = {
         key: value
@@ -43,7 +44,7 @@ def main(argv=None):
     if args.directory is None:
         parser.error("--directory is required except for plan")
     if args.action == "analyze":
-        return analyze(args.directory)
+        return analyze(args.directory, endpoint_complement=args.endpoint_complement)
     if args.action == "plot":
         return plot_snapshots(args.directory)
     binary = args.smp_binary or SMP_BINARY.resolve()
