@@ -39,7 +39,7 @@ python -m experiments.paper.metric_comparison collect-raw \
   --output /path/to/collection --max-paths 2
 ```
 
-Omit `--max-paths` to process every prepared path. Collection uses persistent `RawSimulationRecord` histories and evaluates `observables.calc_distance` for `I_p,I_s` and `calc_homophily` for `I_h` at the exact prepared states. Full-path `I_w` uses `get_indices` and `get_gradation_index_hp`, retaining their adaptive sampling and integration.
+Omit `--max-paths` to process every prepared path. Collection uses persistent `RawSimulationRecord` histories and evaluates `observables.calc_distance` for `I_p,I_s` and `calc_homophily` for `I_h` at the exact prepared states. Full-path `I_w` uses `get_indices` and `get_gradation_index_hp`, retaining their adaptive sampling. Chronological signed trapezoids include `(1-I_p(T))*I_h(T)` by default. `collect-raw` and `collect` accept `--no-endpoint-complement` for the observed integral alone. Their configuration, path tables and receipts retain the boolean, and changing it requires a new destination.
 
 Collection resumes by path and binds its configuration and metric-source hashes. `--raw-root PROFILE=DATASET` supplies relocated roots. A changed bound source, parameter or root override requires a new collection directory. Per-path receipts hash raw metadata, observations, trajectory manifests, initial graphs and event databases. Cached metrics recheck these hashes when raw sources are available. The trajectory reader also verifies chunk checksums.
 
@@ -55,7 +55,7 @@ python -m experiments.paper.metric_comparison collect \
   --points /path/to/legacy_points.csv.gz --paths /path/to/legacy_paths.csv
 ```
 
-Point tables require the five observation-key fields plus `plan_fingerprint,binary_sha256,raw_record,I_p,I_s,I_h`. Path tables require four path-key fields, the same three provenance fields, and `I_w,sampling_method,prefix_start,trajectory_end`. `prefix_start` must be 0 and the endpoint must match the prepared path. The supported `sampling_method` is `existing_get_indices_adaptive_0.01_max_interval_512`; an integral on the exported 16-step grid cannot use that label. Duplicate or unprepared keys, inconsistent provenance and nonfinite metric values are rejected. Uncalculated states remain pending and are omitted from import tables. `--collection /path/to/collection` can import an existing collection.
+Point tables require the five observation-key fields plus `plan_fingerprint,binary_sha256,raw_record,I_p,I_s,I_h`. Path tables require four path-key fields, the same three provenance fields, and `I_w,sampling_method,prefix_start,trajectory_end,endpoint_complement`. `prefix_start` must be 0 and the endpoint must match the prepared path. The supported `sampling_method` is `existing_get_indices_adaptive_0.01_max_interval_512`; an integral on the exported 16-step grid cannot use that label. Historical metric-comparison path tables without the completion field are interpreted as uncompleted and require explicit `collect --no-endpoint-complement`; the default import rejects that mismatch. Duplicate or unprepared keys, inconsistent provenance and nonfinite metric values are rejected. Uncalculated states remain pending and are omitted from import tables. `--collection /path/to/collection` can import an existing collection.
 
 ```sh
 python -m experiments.paper.metric_comparison compare \
@@ -63,10 +63,22 @@ python -m experiments.paper.metric_comparison compare \
   --output /path/to/comparison
 ```
 
-`compare` validates preparation/collection hashes and provenance, then performs an exact join. It exports `points_aligned.csv.gz`, `paths_aligned.csv.gz` and coverage. Missing values remain empty and pending. It does not classify paths, fit another scalar or enforce agreement between metric families.
+`compare` validates preparation/collection hashes and provenance, then performs an exact join. It exports `points_aligned.csv.gz`, `paths_aligned.csv.gz` and coverage, carrying the source collection's completion convention into alignment and the report. Missing values remain empty and pending. It does not classify paths, fit another scalar or enforce agreement between metric families.
 
 ## Interpretation
 
 `legacy` denotes the original metric family. Collection runs the current implementation and records its source hashes. It does not automatically reproduce different baselines, counting objects or endpoint complements in older archives.
 
 `I_h` weights positive-outdegree users equally; `C_edge` weights directed edges equally. `I_p,I_s` and `P` have different definitions. `I_w` summarizes a full trajectory, whereas P/E first-passage classification uses 16-step observations and its own thresholds. Comparisons should examine states, trajectory patterns and paired intervention effects under those definitions. Confidence-component endpoints and KDE opinion-peak counts retain their separate meanings.
+
+## Parallel collection
+
+`collect-raw --workers N` uses bounded process workers (1–8), grouped by original initial state. A bounded exact-state cache retains absolute step, opinion precision and ordering, directed-edge ordering and confidence radius. Each path still runs the existing adaptive calculation independently. Completed path receipts survive interruptions; `progress.json` reports collection counts and elapsed time. Raw graph inventory accepts both `graph-0` and zero-padded names, hashes every stored graph and WAL data, and excludes SQLite's volatile SHM lock state.
+
+For reproducible CPU use, keep numerical-library thread counts at one while parallelizing initial states:
+
+```sh
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 MKL_NUM_THREADS=1 \
+python -m experiments.paper.metric_comparison collect-raw \
+  --preparation /path/to/preparation --output /path/to/collection --workers 6
+```

@@ -17,7 +17,7 @@ PATH_KEYS = ["profile", "task_id", "stage", "arm"]
 POINT_KEYS = [*PATH_KEYS, "step"]
 PROVENANCE = ["plan_fingerprint", "binary_sha256", "raw_record"]
 LEGACY_POINTS = ["I_p", "I_s", "I_h"]
-LEGACY_PATHS = ["I_w", "sampling_method", "prefix_start", "trajectory_end"]
+LEGACY_PATHS = ["I_w", "sampling_method", "prefix_start", "trajectory_end", "endpoint_complement"]
 RAW_REQUIRED = ["metadata.json", "trajectory.json", "events.db", "observations.json"]
 POINT_FIELDS = [*POINT_KEYS, "relative_step", "separation", "excess_concordance", "edge_concordance",
                 "pair_concordance", *PROVENANCE, "prefix_reference_raw_record"]
@@ -32,6 +32,27 @@ def _new_output(output):
     if output.exists():
         raise ValueError(f"output already exists; select a new destination: {output}")
     return output
+
+
+def endpoint_mode(manifest):
+    """These collectors' earlier schema stored the integral alone, without a flag."""
+    value = manifest.get("endpoint_complement", False)
+    if type(value) is not bool:
+        raise ValueError("endpoint_complement must be a boolean")
+    return value
+
+
+def validate_endpoint_column(frame, endpoint_complement):
+    """Keep saved values tied to their actual policy, including historical tables."""
+    if "endpoint_complement" not in frame:
+        if endpoint_complement and len(frame):
+            raise ValueError("historical I_w has no endpoint_complement policy; import with --no-endpoint-complement")
+        frame["endpoint_complement"] = endpoint_complement
+    values = frame["endpoint_complement"].astype(str).str.lower().map({"true": True, "false": False})
+    if values.isna().any() or not (values == endpoint_complement).all():
+        raise ValueError("I_w endpoint_complement differs from the selected policy")
+    frame["endpoint_complement"] = values.astype(bool)
+    return frame
 
 
 def _relative(root, relative):
@@ -108,6 +129,8 @@ def _arms(profile, result):
 
 def prepare(bundles, output, *, raw_roots=None):
     """Export recorded observations and precise requests for missing old metrics."""
+    from .raw import _required_files
+
     output = _new_output(output)
     raw_roots = raw_roots or {}
     sources, paths, tasks = [], [], []
@@ -172,11 +195,7 @@ def prepare(bundles, output, *, raw_roots=None):
                         raise ValueError(f"duplicate path identity: {key}")
                     seen_paths.add(key)
                     raw = _relative(dataset, arm["raw_record"])
-                    missing = [f for f in RAW_REQUIRED if not (raw / f).is_file()]
-                    if not any(raw.glob("graph-000000.msgpack*")):
-                        missing.append("graph-000000.msgpack[.lz4]")
-                    if not any(raw.glob("finished*")):
-                        missing.append("finished*")
+                    missing = _required_files(raw)
                     endpoints = arm["endpoints"]
                     if not endpoints:
                         raise ValueError(f"empty observation path: {key}")
@@ -237,7 +256,9 @@ def _read_points(preparation):
     return pd.read_csv(preparation / "points.csv.gz", keep_default_na=False, float_precision="round_trip")
 
 
-def _validate_import(incoming, expected, keys, metrics, *, paths=False):
+def _validate_import(incoming, expected, keys, metrics, *, paths=False, endpoint_complement=False):
+    if paths:
+        incoming = validate_endpoint_column(incoming.copy(), endpoint_complement)
     required = [*keys, *PROVENANCE, *metrics]
     missing = set(required) - set(incoming)
     if missing:
@@ -270,10 +291,11 @@ def _validate_import(incoming, expected, keys, metrics, *, paths=False):
     return incoming[required]
 
 
-def collect(preparation, output, *, points=None, paths=None, collection=None):
+def collect(preparation, output, *, points=None, paths=None, collection=None, endpoint_complement=True):
     """Import supplied old metrics with strict identities and provenance."""
     preparation = Path(preparation).resolve()
     manifest = authenticate_preparation(preparation)
+    endpoint_mode({"endpoint_complement": endpoint_complement})
     output = _new_output(output)
     if collection is not None:
         if points is not None or paths is not None:
@@ -283,6 +305,8 @@ def collect(preparation, output, *, points=None, paths=None, collection=None):
         _authenticate_files(collection, supplied)
         if supplied.get("preparation_sha256") != sha(preparation / "preparation.json"):
             raise ValueError("legacy collection belongs to a different preparation")
+        if endpoint_mode(supplied) != endpoint_complement:
+            raise ValueError("legacy collection endpoint_complement differs from the selected policy")
         points, paths = collection / "legacy_points.csv.gz", collection / "legacy_paths.csv"
     if points is None and paths is None:
         raise ValueError("provide existing legacy tables or a collection directory")
@@ -293,13 +317,15 @@ def collect(preparation, output, *, points=None, paths=None, collection=None):
         ("legacy_paths.csv", paths, expected_paths, PATH_KEYS, LEGACY_PATHS),
     ):
         frame = pd.read_csv(source, keep_default_na=False, float_precision="round_trip") if source is not None else pd.DataFrame(columns=[*keys, *PROVENANCE, *metrics])
-        imported[name] = _validate_import(frame, expected, keys, metrics, paths=name == "legacy_paths.csv")
+        imported[name] = _validate_import(frame, expected, keys, metrics, paths=name == "legacy_paths.csv",
+                                          endpoint_complement=endpoint_complement)
     output.mkdir(parents=True)
     for name, frame in imported.items():
         frame.to_csv(output / name, index=False)
     counts = {"points": len(imported["legacy_points.csv.gz"]), "paths": len(imported["legacy_paths.csv"])}
     complete = counts["points"] == manifest["points"] and counts["paths"] == manifest["paths"]
     report = {"schema": SCHEMA, "status": "complete" if complete else "pending_legacy_metrics",
+              "endpoint_complement": endpoint_complement,
               "preparation_sha256": sha(preparation / "preparation.json"), "imported": counts,
               "sources": {name: {"path": str(Path(p).resolve()), "sha256": sha(Path(p))}
                           for name, p in (("points", points), ("paths", paths)) if p is not None},
@@ -314,18 +340,20 @@ def compare(preparation, collection, output):
     authenticate_preparation(preparation)
     output = _new_output(output)
     source = json.loads((collection / "collection.json").read_text())
+    endpoint_complement = endpoint_mode(source)
     _authenticate_files(collection, source)
     if source.get("preparation_sha256") != sha(preparation / "preparation.json"):
         raise ValueError("legacy collection belongs to a different preparation")
     output.mkdir(parents=True)
-    report = {"schema": SCHEMA, "status": "complete", "coverage": {}}
+    report = {"schema": SCHEMA, "status": "complete", "coverage": {}, "endpoint_complement": endpoint_complement}
     for name, expected, keys, metrics in (
         ("points", _read_points(preparation), POINT_KEYS, LEGACY_POINTS),
         ("paths", pd.read_csv(preparation / "paths.csv", keep_default_na=False, float_precision="round_trip"), PATH_KEYS, LEGACY_PATHS),
     ):
         table = collection / ("legacy_points.csv.gz" if name == "points" else "legacy_paths.csv")
         incoming = pd.read_csv(table, keep_default_na=False, float_precision="round_trip")
-        incoming = _validate_import(incoming, expected, keys, metrics, paths=name == "paths")
+        incoming = _validate_import(incoming, expected, keys, metrics, paths=name == "paths",
+                                    endpoint_complement=endpoint_complement)
         joined = expected.merge(incoming[[*keys, *metrics]], on=keys, how="left", validate="one_to_one", indicator="legacy_coverage")
         joined.to_csv(output / f"{name}_aligned.csv.gz", index=False)
         missing = int((joined["legacy_coverage"] != "both").sum())

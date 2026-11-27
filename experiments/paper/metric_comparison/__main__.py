@@ -20,11 +20,14 @@ def main(argv=None):
     imported.add_argument("--points", type=Path)
     imported.add_argument("--paths", type=Path)
     imported.add_argument("--collection", type=Path)
+    imported.add_argument("--endpoint-complement", action=argparse.BooleanOptionalAction, default=True)
     raw = commands.add_parser("collect-raw", help="Use existing historical metrics on available persistent records")
     raw.add_argument("--preparation", type=Path, required=True)
     raw.add_argument("--output", type=Path, required=True)
     raw.add_argument("--max-paths", type=int)
+    raw.add_argument("--workers", type=int, default=1)
     raw.add_argument("--raw-root", action="append", default=[], metavar="PROFILE=DATASET")
+    raw.add_argument("--endpoint-complement", action=argparse.BooleanOptionalAction, default=True)
     comparison = commands.add_parser("compare", help="Join both metric sets and report pending observations")
     comparison.add_argument("--preparation", type=Path, required=True)
     comparison.add_argument("--collection", type=Path, required=True)
@@ -41,10 +44,12 @@ def main(argv=None):
         result = prepare(args.bundle, args.output, raw_roots=roots)
         shown = {key: value for key, value in result.items() if key not in ("files", "sources")}
     elif args.command == "collect":
-        shown = collect(args.preparation, args.output, points=args.points, paths=args.paths, collection=args.collection)
+        shown = collect(args.preparation, args.output, points=args.points, paths=args.paths, collection=args.collection,
+                        endpoint_complement=args.endpoint_complement)
     elif args.command == "collect-raw":
         from .raw import collect_raw
-        result = collect_raw(args.preparation, args.output, max_paths=args.max_paths, raw_roots=roots)
+        result = collect_raw(args.preparation, args.output, max_paths=args.max_paths, raw_roots=roots, workers=args.workers,
+                             endpoint_complement=args.endpoint_complement)
         shown = {key: value for key, value in result.items() if key not in ("files", "paths")}
     else:
         shown = compare(args.preparation, args.collection, args.output)

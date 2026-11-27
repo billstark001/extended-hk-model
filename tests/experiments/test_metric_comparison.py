@@ -96,6 +96,7 @@ def _legacy(tmp_path, preparation):
     paths = pd.read_csv(preparation / "paths.csv", keep_default_na=False).iloc[:1].copy()
     paths["I_w"], paths["sampling_method"], paths["prefix_start"] = .7, IW_SAMPLING_METHOD, 0
     paths["trajectory_end"] = paths["end_step"]
+    paths["endpoint_complement"] = True
     paths = paths[[*PATH_KEYS, *PROVENANCE, *LEGACY_PATHS]]
     points.to_csv(tmp_path / "old-points.csv", index=False)
     paths.to_csv(tmp_path / "old-paths.csv", index=False)
@@ -147,6 +148,25 @@ def test_preparation_authentication_rejects_modified_output(tmp_path):
     (prepared / "paths.csv").write_text('edited')
     with pytest.raises(ValueError, match="hash mismatch"):
         authenticate_preparation(prepared)
+
+
+def test_historical_import_requires_explicit_integral_only_policy(tmp_path):
+    prepared = tmp_path / "prepared"
+    prepare([_bundle(tmp_path)], prepared)
+    _, paths = _legacy(tmp_path, prepared)
+    historical = tmp_path / "old-paths.csv"
+    paths.drop(columns="endpoint_complement").to_csv(historical, index=False)
+    with pytest.raises(ValueError, match="no endpoint_complement policy"):
+        collect(prepared, tmp_path / "ambiguous", paths=historical)
+    imported = tmp_path / "historical"
+    result = collect(prepared, imported, paths=historical, endpoint_complement=False)
+    assert result["endpoint_complement"] is False
+    saved = pd.read_csv(imported / "legacy_paths.csv")
+    assert saved["I_w"].item() == .7 and not saved["endpoint_complement"].item()
+    comparison = compare(prepared, imported, tmp_path / "historical-comparison")
+    assert comparison["endpoint_complement"] is False
+    with pytest.raises(ValueError, match="differs from the selected policy"):
+        collect(prepared, tmp_path / "relabelled", collection=imported)
 
 
 def test_prepare_authenticates_legacy_review_layout(tmp_path):

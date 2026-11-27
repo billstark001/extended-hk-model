@@ -63,6 +63,17 @@ def test_missing_disk_stays_pending_and_does_not_measure_or_fill_zero(tmp_path, 
     assert report["preparation_sha256"] == core.sha(preparation / "preparation.json")
 
 
+def test_endpoint_policy_is_frozen_before_receipt_reuse(tmp_path, monkeypatch):
+    preparation, _, _ = _prepared(tmp_path, monkeypatch, available=False)
+    output = tmp_path / "collected"
+    result = raw.collect_raw(preparation, output)
+    configuration = json.loads((output / "configuration.json").read_text())
+    assert result["endpoint_complement"] is configuration["endpoint_complement"] is True
+    assert configuration["metric_protocol"]["endpoint_complement"] is True
+    with pytest.raises(ValueError, match="manifest changed"):
+        raw.collect_raw(preparation, output, endpoint_complement=False)
+
+
 def test_measurement_reuses_existing_exact_states_and_full_prefix_iw(tmp_path, monkeypatch):
     import smp_bindings
 
@@ -83,15 +94,21 @@ def test_measurement_reuses_existing_exact_states_and_full_prefix_iw(tmp_path, m
             return None
 
     monkeypatch.setattr(smp_bindings, "RawSimulationRecord", SavedRecord)
-    monkeypatch.setattr(observables, "calc_distance", lambda record, step: (calls.append(step) or step / 100, .2))
+    monkeypatch.setattr(observables, "calc_distance_components", lambda record, step: (calls.append(step) or step / 100, .2, 0., 0.))
     monkeypatch.setattr(observables, "calc_homophily", lambda record, step: .4)
-    monkeypatch.setattr(observables, "get_indices", lambda record: (
+    from ehk.metrics import trajectory
+
+    monkeypatch.setattr(trajectory, "sample_indices", lambda end, point: (
         np.array([0, 8, 32]), np.array([0, .5, 1]), np.array([0, .2, .7]), np.zeros(3),
     ))
     measured = raw._measure(tmp_path / "disk" / path["raw_record"], path, points)
     assert calls == [16, 32]
     assert [p["I_p"] for p in measured["points"]] == [.16, .32]
     assert measured["path"]["I_w"] == pytest.approx(.725)
+    assert measured["path"]["endpoint_complement"] is True
+    integral = raw._measure(tmp_path / "disk" / path["raw_record"], path, points, endpoint_complement=False)
+    assert integral["path"]["I_w"] == pytest.approx(.425)
+    assert integral["path"]["endpoint_complement"] is False
     assert measured["path"]["prefix_start"] == 0
     assert measured["path"]["trajectory_end"] == 32
     assert measured["path"]["sampling_method"] == core.IW_SAMPLING_METHOD
@@ -109,8 +126,9 @@ def test_collection_resumes_completed_paths_without_raw_disk(tmp_path, monkeypat
     measured = {"points": [{**{key: path[key] for key in (*raw.PATH_KEYS, *raw.SOURCE_KEYS)},
                             "step": step, "I_p": .2, "I_s": .3, "I_h": .4} for step in (16, 32)],
                 "path": {**{key: path[key] for key in (*raw.PATH_KEYS, *raw.SOURCE_KEYS)},
-                         "I_w": .5, "sampling_method": core.IW_SAMPLING_METHOD, "prefix_start": 0, "trajectory_end": 32}}
-    monkeypatch.setattr(raw, "_measure", lambda *args: measured)
+                         "I_w": .5, "sampling_method": core.IW_SAMPLING_METHOD, "prefix_start": 0, "trajectory_end": 32,
+                         "endpoint_complement": True}}
+    monkeypatch.setattr(raw, "_measure", lambda *args, **kwargs: measured)
     output = tmp_path / "collected"
     assert raw.collect_raw(preparation, output)["status"] == "complete"
     monkeypatch.setattr(raw, "_required_files", lambda path: ["unmounted"])
@@ -144,9 +162,9 @@ def test_changed_raw_sources_cannot_reuse_cached_metric_values(tmp_path, monkeyp
     measured = {"points": [], "path": {
         **{key: path[key] for key in (*raw.PATH_KEYS, *raw.SOURCE_KEYS)},
         "I_w": .5, "sampling_method": core.IW_SAMPLING_METHOD,
-        "prefix_start": 0, "trajectory_end": 32,
+        "prefix_start": 0, "trajectory_end": 32, "endpoint_complement": True,
     }}
-    monkeypatch.setattr(raw, "_measure", lambda *args: measured)
+    monkeypatch.setattr(raw, "_measure", lambda *args, **kwargs: measured)
     output = tmp_path / "collected"
     assert raw.collect_raw(preparation, output)["status"] == "complete"
     (tmp_path / "disk" / path["raw_record"] / "events.db").write_bytes(b"changed source")
