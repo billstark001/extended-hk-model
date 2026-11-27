@@ -39,7 +39,7 @@ python -m experiments.paper.metric_comparison collect-raw \
   --output /path/to/collection --max-paths 2
 ```
 
-Omit `--max-paths` to process every prepared path. Collection uses persistent `RawSimulationRecord` histories and evaluates `observables.calc_distance` for `I_p,I_s` and `calc_homophily` for `I_h` at the exact prepared states. Full-path `I_w` uses `get_indices` and `get_gradation_index_hp`, retaining their adaptive sampling. Chronological signed trapezoids include `(1-I_p(T))*I_h(T)` by default. `collect-raw` and `collect` accept `--no-endpoint-complement` for the observed integral alone. Their configuration, path tables and receipts retain the boolean, and changing it requires a new destination.
+Omit `--max-paths` to process every prepared path. Collection uses persistent `RawSimulationRecord` histories and evaluates `observables.calc_distance` for `I_p,I_s` and `calc_homophily` for `I_h` at the exact prepared states. Full-path `I_w` uses `get_indices` and `get_gradation_index_hp`, retaining their adaptive sampling. Chronological signed trapezoids include `(1-I_p(T))*I_h(T)` by default. `collect-raw`, `collect` and the pipeline `run` accept `--no-endpoint-complement` for the observed integral alone. Their configuration, path tables and receipts retain the boolean, and changing it requires a new destination.
 
 Collection resumes by path and binds its configuration and metric-source hashes. `--raw-root PROFILE=DATASET` supplies relocated roots. A changed bound source, parameter or root override requires a new collection directory. Per-path receipts hash raw metadata, observations, trajectory manifests, initial graphs and event databases. Cached metrics recheck these hashes when raw sources are available. The trajectory reader also verifies chunk checksums.
 
@@ -71,7 +71,7 @@ python -m experiments.paper.metric_comparison compare \
 
 `I_h` weights positive-outdegree users equally; `C_edge` weights directed edges equally. `I_p,I_s` and `P` have different definitions. `I_w` summarizes a full trajectory, whereas P/E first-passage classification uses 16-step observations and its own thresholds. Comparisons should examine states, trajectory patterns and paired intervention effects under those definitions. Confidence-component endpoints and KDE opinion-peak counts retain their separate meanings.
 
-## Parallel collection
+## Parallel collection and the comparison report
 
 `collect-raw --workers N` uses bounded process workers (1–8), grouped by original initial state. A bounded exact-state cache retains absolute step, opinion precision and ordering, directed-edge ordering and confidence radius. Each path still runs the existing adaptive calculation independently. Completed path receipts survive interruptions; `progress.json` reports collection counts and elapsed time. Raw graph inventory accepts both `graph-0` and zero-padded names, hashes every stored graph and WAL data, and excludes SQLite's volatile SHM lock state.
 
@@ -82,3 +82,23 @@ OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 MKL_NUM_THREAD
 python -m experiments.paper.metric_comparison collect-raw \
   --preparation /path/to/preparation --output /path/to/collection --workers 6
 ```
+
+After collection and exact alignment complete, generate tables, a Markdown report and PNG/PDF/SVG scientific figures:
+
+```sh
+python -m experiments.paper.metric_comparison.report \
+  --preparation /path/to/preparation --comparison /path/to/comparison \
+  --output /path/to/new-report
+```
+
+The report includes matched endpoints, one hold checkpoint per task/stage, existing first-passage labels with shared prefixes, and within-task intervention contrasts. Main figures use core conditions; sensitivity conditions remain separate in tables. Old/new effect estimates use the same matched pairs. `--allow-partial` is only for an explicitly labeled interim report; the default rejects pending input. Small legacy-index roundoff at shared checkpoints is retained in the paired table and accepted only within a float64 validation tolerance, without altering metric values.
+
+Run the complete offline pipeline in one command:
+
+```sh
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 MKL_NUM_THREADS=1 \
+python -m experiments.paper.metric_comparison.run \
+  --preparation /path/to/preparation --output /path/to/pipeline --workers 8
+```
+
+The pipeline writes `collection/`, `alignment/` and `report/`, with phase/status in `run_status.json` and path-level progress in `collection/progress.json`. Use `--collection /path/to/existing-collection` to reuse authenticated receipts from an interrupted collection. The same frozen collection configuration is required. Existing alignment/report destinations are never overwritten. Only the identified first-read source-change failure may retry under the same configuration; missing records or other failures stop the pipeline before analysis. A complete report also verifies the existing KDE opinion-peak counts against authenticated saved endpoint opinions and retains their comparison with confidence-component outcomes.
