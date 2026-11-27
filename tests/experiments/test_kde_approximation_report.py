@@ -64,7 +64,7 @@ def _fixture(tmp_path):
                 factor = 1021 / size
                 paths.append({**key, "bins": size, "end_step": 32,
                               "baseline_steps_json": "[0,16,32]", "candidate_steps_json": "[0,8,16,32]",
-                              "baseline_Iw": endpoint["I_w"], "fixed_Iw": endpoint["I_w"] + .001 * factor * (2 if changed else 1),
+                              "baseline_Iw": endpoint["I_w"], "source_Iw": endpoint["I_w"], "fixed_Iw": endpoint["I_w"] + .001 * factor * (2 if changed else 1),
                               "adaptive_Iw": endpoint["I_w"] + .003 * factor * (2 if changed else 1),
                               "baseline_active_step": 24, "fixed_active_step": 25, "adaptive_active_step": 26})
                 for grid, steps in (("prepared", (16, 32)), ("baseline_adaptive", (0, 16, 32)),
@@ -75,6 +75,7 @@ def _fixture(tmp_path):
                         error = factor * (.002 if changed and step == 32 else .001 if step == 32 else .0001)
                         points.append({**key, "bins": size, "grid": grid, "step": step,
                                        **dict(zip(("exact_Ip", "exact_Is", "exact_Ih"), exact)),
+                                       **dict(zip(("source_Ip", "source_Is", "source_Ih"), exact)),
                                        "approx_Ip": current[0] + error, "approx_Is": current[1] + error / 10,
                                        "approx_Ih": current[2]})
     pd.DataFrame(prepared).to_csv(prep / "points.csv.gz", index=False)
@@ -99,7 +100,7 @@ def _fixture(tmp_path):
 
 def _rewrite_collection(collection, name, frame):
     frame.to_csv(collection / name, index=False)
-    manifest = json.loads((collection / "collection.json").read_text())
+    manifest = json.loads((collection / "collection.json").read_text(encoding="utf-8"))
     manifest["files"][name] = sha(collection / name)
     atomic_json(collection / "collection.json", manifest)
 
@@ -115,8 +116,8 @@ def test_report_authenticates_counts_and_never_fills_unmeasured_candidate_states
     assert candidate["unavailable_exact_states"].tolist() == [4, 4]
     assert candidate["n"].tolist() == [12, 12]
     assert all(sha(destination / name) == expected for name, expected in result["files"].items())
-    assert "没有据此宣布科学结论等价" in (destination / "report.md").read_text()
-    assert "不能外推整轮加速" in (destination / "report.md").read_text()
+    assert "没有据此宣布科学结论等价" in (destination / "report.md").read_text(encoding="utf-8")
+    assert "不能外推整轮加速" in (destination / "report.md").read_text(encoding="utf-8")
     with pytest.raises(ValueError, match="already exists"):
         report(prep, baseline, collection, destination, make_figures=False)
 
@@ -191,7 +192,7 @@ def test_hash_and_baseline_generation_mismatches_are_rejected(tmp_path):
 
 def test_frozen_baseline_cannot_be_relabelled_with_a_different_endpoint_policy(tmp_path):
     prep, baseline, collection = _fixture(tmp_path)
-    manifest = json.loads((collection / "collection.json").read_text())
+    manifest = json.loads((collection / "collection.json").read_text(encoding="utf-8"))
     manifest["endpoint_complement"] = True
     atomic_json(collection / "collection.json", manifest)
     with pytest.raises(ValueError, match="endpoint_complement policies disagree"):
@@ -209,7 +210,7 @@ def test_whole_missing_kde_grid_cannot_be_reported_as_complete(tmp_path):
 
 def test_complete_manifest_requires_complete_path_counts(tmp_path):
     prep, baseline, collection = _fixture(tmp_path)
-    manifest = json.loads((collection / "collection.json").read_text())
+    manifest = json.loads((collection / "collection.json").read_text(encoding="utf-8"))
     manifest["planned_paths"] = 5
     atomic_json(collection / "collection.json", manifest)
     with pytest.raises(ValueError, match="path coverage"):

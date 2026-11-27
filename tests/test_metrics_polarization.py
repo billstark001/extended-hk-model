@@ -1,10 +1,14 @@
-"""Numerical contracts for the production distance components and exact archive."""
+"""Contracts for the sole clustered-reference JS-distance indices."""
 
 import networkx as nx
 import numpy as np
 import pytest
+from scipy.integrate import trapezoid
+from scipy.special import rel_entr
+from scipy.stats import norm
 
 from ehk.metrics import polarization
+from ehk.metrics.density import FittedDensity
 from ehk.metrics.polarization import DistanceCalculator
 from ehk.metrics.state import MeasurementState
 
@@ -18,39 +22,51 @@ def _fixture(dtype=np.float64):
     return graph, opinions
 
 
-# Captured from the original exact implementation before extracting components.
-# Both populations are subsampled, and KL keeps its historical scale directions.
-EXACT_HEX = {
-    ("float64", False): ["-0x1.4358d05f29ac4p+0", "-0x1.133afeef3f266p-7", "0x1.ee5d9e144fe92p-1", "0x1.dfcc25c24a7cap-1"],
-    ("float64", True): ["0x1.03cb23e4cf9d9p-5", "0x1.5d29d2216cb66p-8", "0x1.f6a44b47c9d71p-1", "0x1.f57e09f4286cfp-1"],
-    ("float32", False): ["-0x1.4358d4a0f1dd3p+0", "-0x1.133afe79fbe0ep-7", "0x1.ee5d9dcb6de12p-1", "0x1.dfcc25c08e745p-1"],
-    ("float32", True): ["0x1.03cb225353d79p-5", "0x1.5d29d6ab75313p-8", "0x1.f6a44b56a65bdp-1", "0x1.f57e09f729164p-1"],
-}
+def _distance(p, q, axis, floor):
+    p = np.maximum(p / trapezoid(p, axis), floor)
+    q = np.maximum(q / trapezoid(q, axis), floor)
+    m = (p + q) / 2
+    return np.sqrt(trapezoid(.5 * (rel_entr(p, m) + rel_entr(q, m)), axis))
 
 
 @pytest.mark.parametrize("dtype", [np.float64, np.float32])
-@pytest.mark.parametrize("js", [False, True])
-def test_original_exact_results_are_bitwise_preserved(dtype, js):
+def test_indices_use_normalized_clustered_reference_distance(dtype):
     graph, opinions = _fixture(dtype)
-    calculator = DistanceCalculator(
-        min_bandwidth=.01, sample_count=17, max_kde_samples=37, use_js_divergence=js, use_debug_data=True,
-    )
-    result = calculator.calculate(graph, opinions, .45, random_state=83)
-    assert calculator.density_method == "exact"
-    assert [float(getattr(result, name)).hex() for name in ("rand_o", "rand_s", "worst_o", "worst_s")] == EXACT_HEX[(dtype.__name__, js)]
+    calculator = DistanceCalculator(sample_count=17, max_kde_samples=37)
     state = MeasurementState.from_graph(graph, opinions)
-    assert calculator.calculate_indices(state, .45, random_state=83) == (result.rand_o, result.rand_s)
-    assert calculator.calculate_indices(state, .45, random_state=np.random.default_rng(83)) == (result.rand_o, result.rand_s)
-    objective = calculator.prepare_opinion(opinions, .45, random_state=83)
+    opinion = calculator.prepare_opinion(opinions, .45, random_state=83)
     edge = calculator.prepare_edge(state, random_state=83)
-    assert (calculator.opinion_index(objective), calculator.edge_index(edge)) == (result.rand_o, result.rand_s)
-    np.testing.assert_array_equal(result.debug_data.o_sample, objective.distances)
-    np.testing.assert_array_equal(result.debug_data.s_sample, state.edge_distances)
+    expected = []
+    for density, clustered in (
+        (opinion.density, opinion.clustered_reference),
+        (edge, calculator.clustered_edge_reference),
+    ):
+        observed = density.pdf(calculator.axis)
+        expected.append(1 - _distance(observed, clustered, calculator.axis, calculator.t_err)
+                        / _distance(clustered, calculator.random_reference, calculator.axis, calculator.t_err))
+    actual = calculator.calculate_indices(state, .45, random_state=83, method="exact")
+    np.testing.assert_allclose(actual, expected, rtol=2e-14, atol=2e-14)
+    assert calculator.calculate_indices(state, .45, random_state=np.random.default_rng(83), method="exact") == actual
+    assert (calculator.opinion_index(opinion, method="exact"), calculator.edge_index(edge, method="exact")) == actual
 
 
-def test_component_samples_keep_original_rng_order_without_edge_allpair_work(monkeypatch):
+def test_clustered_reference_anchors_negative_values_and_density_normalization():
+    calculator = DistanceCalculator(sample_count=17)
+
+    def fitted(values):
+        return FittedDensity(np.array([0.]), lambda axis: values, .01, True)
+
+    random = calculator.random_reference
+    clustered = calculator.clustered_edge_reference
+    assert calculator.edge_index(fitted(random)) == pytest.approx(0., abs=2e-15)
+    assert calculator.edge_index(fitted(clustered * 7)) == pytest.approx(1., abs=2e-15)
+    opposite = norm.pdf(calculator.axis, 2, .01)
+    assert calculator.edge_index(fitted(opposite)) < 0
+
+
+def test_component_samples_keep_rng_order_without_edge_allpair_work(monkeypatch):
     graph, opinions = _fixture()
-    calculator = DistanceCalculator(min_bandwidth=.01, sample_count=17, max_kde_samples=37, use_js_divergence=True)
+    calculator = DistanceCalculator(sample_count=17, max_kde_samples=37)
     state = MeasurementState.from_graph(graph, opinions)
     rng = np.random.default_rng(83)
     i, j = np.triu_indices(len(opinions), k=1)
@@ -62,7 +78,7 @@ def test_component_samples_keep_original_rng_order_without_edge_allpair_work(mon
     assert objective.density.bandwidth == objective.density.pdf.cho_cov[0, 0]
 
     def no_allpair(*args, **kwargs):
-        pytest.fail("preparing edge components must not recompute pairwise opinion distances")
+        pytest.fail("preparing edge components must not recompute all-pair differences")
 
     monkeypatch.setattr(calculator, "_prepare_opinion", no_allpair)
     monkeypatch.setattr(np, "triu_indices", no_allpair)
@@ -71,23 +87,22 @@ def test_component_samples_keep_original_rng_order_without_edge_allpair_work(mon
     assert edge.bandwidth == edge.pdf.cho_cov[0, 0]
 
 
-@pytest.mark.parametrize("n,maximum,expected", [
-    (17, 37, ["0x1.575ef60338609p-3", "0x1.1364ce8075b10p-8"]),
-    (145, 10000, ["0x1.fe0bae63e48a5p-10", "0x1.20d7fa7ee04f6p-10"]),
-])
-def test_production_matches_b4081_values_captured_before_promotion(n, maximum, expected):
-    graph = nx.complete_graph(n, create_using=nx.DiGraph)
-    opinions = np.random.default_rng(29).uniform(-1, 1, n)
-    reference = DistanceCalculator(use_js_divergence=True, min_bandwidth=.01, sample_count=n, max_kde_samples=maximum)
-    state = MeasurementState.from_edges(opinions, np.asarray(list(graph.edges), dtype=int))
-    values = reference.calculate_indices(state, .45, random_state=31, method="binned", bins=4081)
-    assert [float(value).hex() for value in values] == expected
-    assert reference.density_method == "exact"
+def test_binned_is_the_calculator_default_and_all_supported_resolutions_share_the_formula():
+    graph, opinions = _fixture()
+    calculator = DistanceCalculator(sample_count=17, max_kde_samples=37)
+    state = MeasurementState.from_graph(graph, opinions)
+    assert calculator.density_method == "binned" and calculator.bins == 4081
+    actual = calculator.calculate_indices(state, .45, random_state=31)
+    assert actual == calculator.calculate_indices(state, .45, random_state=31, method="binned", bins=4081)
+    exact = calculator.calculate_indices(state, .45, random_state=31, method="exact")
+    for bins in (1021, 2041, 4081, 8161):
+        approximate = calculator.calculate_indices(state, .45, random_state=31, bins=bins)
+        np.testing.assert_allclose(approximate, exact, atol=3e-4, rtol=0)
 
 
 def test_binned_components_do_not_evaluate_exact_observed_pdfs(monkeypatch):
     graph, opinions = _fixture()
-    calculator = DistanceCalculator(use_js_divergence=True, min_bandwidth=.01, sample_count=17, max_kde_samples=37)
+    calculator = DistanceCalculator(sample_count=17, max_kde_samples=37)
     fit = polarization.get_kde_pdf
 
     class FitOnly:
@@ -98,48 +113,38 @@ def test_binned_components_do_not_evaluate_exact_observed_pdfs(monkeypatch):
             pytest.fail("binned nonconstant measurements must not evaluate exact observed PDFs")
 
     monkeypatch.setattr(polarization, "get_kde_pdf", lambda *args: FitOnly(fit(*args)))
-    values = calculator.calculate_indices(MeasurementState.from_graph(graph, opinions), .45, random_state=83, method="binned")
+    values = calculator.calculate_indices(MeasurementState.from_graph(graph, opinions), .45, random_state=83)
     assert np.isfinite(values).all()
 
 
-def test_archived_worst_components_remain_exact_under_explicit_binned_indices():
-    graph, opinions = _fixture()
-    calculator = DistanceCalculator(use_js_divergence=True, min_bandwidth=.01, sample_count=17, max_kde_samples=37)
-    exact = calculator.calculate(graph, opinions, .45, random_state=83)
-    binned = calculator.calculate(graph, opinions, .45, random_state=83, method="binned", bins=4081)
-    assert (binned.worst_o, binned.worst_s) == (exact.worst_o, exact.worst_s)
-    assert (binned.rand_o, binned.rand_s) == calculator.calculate_indices(
-        MeasurementState.from_graph(graph, opinions), .45, random_state=83, method="binned",
-    )
-
-
-def test_constant_samples_keep_the_original_gaussian_and_no_fft(monkeypatch):
+def test_constant_samples_use_analytic_gaussian_without_fft(monkeypatch):
     from ehk.metrics import density
 
     graph, _ = _fixture()
-    opinions = np.zeros(17)
-    calculator = DistanceCalculator(use_js_divergence=True, min_bandwidth=.01, sample_count=17)
-    state = MeasurementState.from_graph(graph, opinions)
-    expected = calculator.calculate_indices(state, .45, random_state=83)
+    calculator = DistanceCalculator(sample_count=17)
+    state = MeasurementState.from_graph(graph, np.zeros(17))
+    expected = calculator.calculate_indices(state, .45, random_state=83, method="exact")
 
     def forbidden(*args, **kwargs):
-        pytest.fail("constant samples must use the original Gaussian PDF")
+        pytest.fail("constant samples must use the analytic Gaussian PDF")
 
     monkeypatch.setattr(density, "linear_binned_gaussian", forbidden)
-    assert calculator.calculate_indices(state, .45, random_state=83, method="binned") == expected
+    assert calculator.calculate_indices(state, .45, random_state=83) == expected
+    assert expected[1] == 1.
+    assert expected[0] != 0 and expected[0] <= 1.
 
 
 def test_parameter_key_tracks_mutated_parameters_and_actual_references():
-    calculator = DistanceCalculator(use_js_divergence=True, min_bandwidth=.01, sample_count=17)
+    calculator = DistanceCalculator(sample_count=17)
     old = calculator.parameter_key()
-    calculator.o_rand_vals[0] += .01
+    calculator.random_reference[0] += .01
     assert calculator.parameter_key() != old
     old = calculator.parameter_key()
     calculator.max_kde_samples = 19
     assert calculator.parameter_key() != old
 
 
-@pytest.mark.parametrize("options", [{"density_method": "unknown"}, {"density_method": "binned"}, {"bins": 4096}])
+@pytest.mark.parametrize("options", [{"density_method": "unknown"}, {"bins": 4096}])
 def test_invalid_backend_configuration_is_rejected(options):
     with pytest.raises(ValueError):
         DistanceCalculator(sample_count=17, **options)

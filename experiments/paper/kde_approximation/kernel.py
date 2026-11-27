@@ -54,26 +54,26 @@ class BinnedDistanceCalculator:
             from ehk.micro.observables import distance_collector
 
             reference = distance_collector
-        if not isinstance(reference, DistanceCalculator) or not reference.use_js_divergence:
+        if not isinstance(reference, DistanceCalculator):
             raise ValueError("an existing JS DistanceCalculator is required")
         _grid_stride(reference.axis, SUPPORTED_BINS[0])
         self.reference = reference
         self.axis = _readonly(reference.axis)
-        self._random_reference = _readonly(reference.o_rand_vals)
-        self._subjective_reference = _readonly(reference.s_worst_vals)
+        self._random_reference = _readonly(reference.random_reference)
+        self._subjective_reference = _readonly(reference.clustered_edge_reference)
         self._parameters = self._parameter_values()
 
     def _parameter_values(self):
         return tuple(getattr(self.reference, name) for name in (
-            "min_bandwidth", "sample_count", "max_kde_samples", "t_err", "k", "use_js_divergence",
+            "min_bandwidth", "sample_count", "max_kde_samples", "t_err", "k",
         ))
 
     def _check_reference(self):
         if (
             self._parameter_values() != self._parameters
             or not np.array_equal(self.reference.axis, self.axis)
-            or not np.array_equal(self.reference.o_rand_vals, self._random_reference)
-            or not np.array_equal(self.reference.s_worst_vals, self._subjective_reference)
+            or not np.array_equal(self.reference.random_reference, self._random_reference)
+            or not np.array_equal(self.reference.clustered_edge_reference, self._subjective_reference)
         ):
             raise ValueError("the bound DistanceCalculator changed after preparation was configured")
 
@@ -82,12 +82,15 @@ class BinnedDistanceCalculator:
         self._check_reference()
         if type(step) is not int or step < 0:
             raise ValueError("step must be a nonnegative integer")
-        state = MeasurementState.from_graph(graph, opinions)
+        return self.prepare_state(MeasurementState.from_graph(graph, opinions), epsilon, step)
+
+    def prepare_state(self, state, epsilon, step):
+        self._check_reference()
         objective = self.reference.prepare_opinion(state.opinions, epsilon, random_state=step)
         edge = self.reference.prepare_edge(state, random_state=step)
         return PreparedDistance(
             self, step, float(epsilon), objective.density, edge,
-            objective.objective_separation, objective.objective_reference, objective,
+            objective.separation, objective.clustered_reference, objective,
         )
 
     def _check_prepared(self, prepared):

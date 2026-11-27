@@ -53,7 +53,7 @@ def _bundle(tmp_path):
     atomic_json(data / "study/runtime/binding.json", {"binary_sha256": "original-binary", "stage_evidence": None})
     manifest = {"schema": 1, "planned": 1, "completed": 1, "plan_fingerprint": plan["plan_fingerprint"],
                 "source_dataset": str(tmp_path / "unmounted"),
-                "files": {str(p.relative_to(data)): sha(p) for p in data.rglob("*") if p.is_file()}}
+                "files": {p.relative_to(data).as_posix(): sha(p) for p in data.rglob("*") if p.is_file()}}
     atomic_json(data / "manifest.json", manifest)
     return root
 
@@ -171,7 +171,7 @@ def test_historical_import_requires_explicit_integral_only_policy(tmp_path):
 
 def test_prepare_authenticates_legacy_review_layout(tmp_path):
     bundle = _bundle(tmp_path)
-    saved = json.loads((bundle / "data/manifest.json").read_text())
+    saved = json.loads((bundle / "data/manifest.json").read_text(encoding="utf-8"))
     review = tmp_path / "review"
     review.mkdir()
     shutil.move(bundle / "data/study", review / "source")

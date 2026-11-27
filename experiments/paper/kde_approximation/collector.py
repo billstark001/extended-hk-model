@@ -18,7 +18,8 @@ from common.io.json import atomic_json, fingerprint, read_result, save_result, s
 from common.runtime.process import run_tasks
 from experiments.paper.metric_comparison import core, raw
 from experiments.paper.metric_comparison import report as baseline_reporting
-from experiments.paper.metric_comparison.evaluation import ExactMetricCache
+from ehk.metrics.evaluation import MeasurementEvaluator
+from ehk.metrics.state import MeasurementState
 
 PATH_KEYS = ("profile", "task_id", "stage", "arm")
 DEFAULT_BINS = (1021, 2041, 4081, 8161)
@@ -42,7 +43,7 @@ def _source_configuration():
     from . import kernel
 
     sources = {Path(__file__), Path(__file__).with_name("__main__.py"), Path(kernel.__file__),
-               Path(inspect.getfile(observables.get_indices)), Path(inspect.getfile(ExactMetricCache)),
+               Path(inspect.getfile(observables.get_indices)), Path(inspect.getfile(MeasurementEvaluator)),
                Path(smp_bindings.events_db.__file__), Path(smp_bindings.model_state.__file__),
                Path(smp_bindings.trajectory.__file__)}
     return {
@@ -187,36 +188,52 @@ def _benchmark_keys(points, paths, count):
     return result
 
 
-class CandidateEvaluator(ExactMetricCache):
-    """Use the unchanged adaptive driver with approximate distance and exact I_h."""
+def _state_key(record, step):
+    state, step, epsilon = MeasurementEvaluator._extract(record, step)
+    return (step, *MeasurementEvaluator._physical_keys(state, epsilon))
+
+
+class CandidateEvaluator(MeasurementEvaluator):
+    """Reuse canonical scalar caches and preserve per-resolution diagnostics."""
 
     def __init__(self, bins, shared):
-        super().__init__()
-        self.bins, self.shared = bins, shared
+        super().__init__(method="binned", bins=bins, calculator=shared.calculator.reference)
+        self.shared = shared
         self.diagnostics = {}
-        self._diagnostic_keys = {}
+        self._details = OrderedDict()
 
-    def _values(self, record, step):
-        key = self._key(record, int(step))
-        if key in self._entries:
-            self.hits += 1
-            self._entries.move_to_end(key)
-            self.diagnostics[(record.directory, int(step))] = self._diagnostic_keys[key]
-            return self._entries[key]
-        self.misses += 1
-        prepared, ih, input_sha = self.shared.prepare(record, int(step), key)
-        started = time.perf_counter()
-        ip, isub, diagnostics = self.shared.calculator.evaluate(prepared, self.bins)
-        self.shared.evaluate_seconds[self.bins] += time.perf_counter() - started
-        values = float(ip), float(isub), float(ih)
-        if not np.isfinite(values).all():
-            raise ValueError("approximate metric is nonfinite")
-        self._entries[key] = values
-        self.diagnostics[(record.directory, int(step))] = {**diagnostics, "same_input_sha": input_sha}
-        self._diagnostic_keys[key] = self.diagnostics[(record.directory, int(step))]
-        if len(self._entries) > self.max_entries:
-            dropped, _ = self._entries.popitem(last=False)
-            self._diagnostic_keys.pop(dropped, None)
+    def point(self, record, step):
+        self._observation = (record.directory, int(step))
+        return super().point(record, step)
+
+    def distance(self, record, step):
+        return self.point(record, step)[:2]
+
+    def _distance(self, state, step, epsilon, keys):
+        prepared, _, input_sha = self.shared.prepare_state(state, step, epsilon)
+        key = keys[:2]
+        if key not in self._details:
+            self._details[key] = ({}, {})
+        details = self._details[key]
+        self._details.move_to_end(key)
+        def measure(index):
+            started = time.perf_counter()
+            if index == 0:
+                value = self.calculator.opinion_index(prepared.objective, method="binned", bins=self.bins,
+                                                      diagnostics=details[0])
+            else:
+                value = self.calculator.edge_index(prepared.edge, method="binned", bins=self.bins,
+                                                   diagnostics=details[1])
+            self.shared.evaluate_seconds[self.bins] += time.perf_counter() - started
+            return value
+        values = (self._opinion.resolve(keys[0], lambda: measure(0)),
+                  self._edge.resolve(keys[1], lambda: measure(1)))
+        diagnostic = self.shared.calculator._diagnostics(prepared, method="linear_binned_gaussian", bins=self.bins)
+        for name, detail in (("opinion", details[0]), ("edge", details[1])):
+            diagnostic.update({f"{name}_{key}": value for key, value in detail.items()})
+        self.diagnostics[self._observation] = {**diagnostic, "same_input_sha": input_sha}
+        if len(self._details) > 512:
+            self._details.popitem(last=False)
         return values
 
 
@@ -226,21 +243,20 @@ class SharedInputs:
         self.inputs = OrderedDict()
         self.prepare_seconds = 0.
         self.evaluate_seconds = dict.fromkeys(bins, 0.)
-        self.keyer = ExactMetricCache()
         self.benchmarked = set()
 
-    def prepare(self, record, step, key=None):
-        from ehk.micro import observables
+    def prepare_state(self, state, step, epsilon):
+        from ehk.metrics.homophily import mean_state_edge_concordance, normalize_homophily
 
-        key = self.keyer._key(record, step) if key is None else key
+        key = (step, *MeasurementEvaluator._physical_keys(state, epsilon))
         if key in self.inputs:
             self.inputs.move_to_end(key)
             return self.inputs[key]
         started = time.perf_counter()
-        prepared = self.calculator.prepare(record.get_graph(step), record.opinions[step],
-                                           float(record.metadata["HKParams"]["Tolerance"]), step)
+        prepared = self.calculator.prepare_state(state, epsilon, step)
         self.prepare_seconds += time.perf_counter() - started
-        value = prepared, float(observables.calc_homophily(record, step)), _input_sha(key)
+        raw = mean_state_edge_concordance(state, epsilon)
+        value = prepared, float(normalize_homophily(raw, epsilon)), _input_sha(key)
         self.inputs[key] = value
         if len(self.inputs) > 16:
             self.inputs.popitem(last=False)
@@ -264,15 +280,15 @@ def _activity(steps, isub):
 
 
 def _iw(p, h, *, endpoint_complement=True):
-    from ehk.micro.observables import get_gradation_index_hp
+    from ehk.metrics.trajectory import pathway_index
 
-    return float(get_gradation_index_hp(np.asarray(p), np.asarray(h), endpoint_complement=endpoint_complement))
+    return float(pathway_index(np.asarray(p), np.asarray(h), endpoint_complement=endpoint_complement))
 
 
 def _timing(record, step, bins, repeats, calculator, identity):
     graph, opinions = record.get_graph(step), record.opinions[step]
     epsilon = float(record.metadata["HKParams"]["Tolerance"])
-    key = ExactMetricCache()._key(record, step)
+    key = _state_key(record, step)
     digest = _input_sha(key)
     rows = []
     for repeat in range(repeats):
@@ -303,73 +319,65 @@ def _timing(record, step, bins, repeats, calculator, identity):
 
 def _measure_path(entry, bins, repeats, shared, evaluators, *, endpoint_complement=True):
     from smp_bindings import RawSimulationRecord
+    from ehk.metrics.trajectory import sample_indices
 
     path, baseline_points, baseline_receipt = entry["path"], entry["points"], entry["baseline"]
     if core.endpoint_mode(baseline_receipt["result"]["path"]) != endpoint_complement:
-        raise ValueError("exact baseline receipt endpoint_complement differs from the selected policy")
+        raise ValueError("baseline receipt endpoint_complement differs from selected policy")
     identity = {name: path[name] for name in PATH_KEYS}
     directory = Path(path["raw_directory"])
     metadata = raw._validate_raw(directory, path, pd.DataFrame(baseline_points))
-    exact = {int(point["step"]): tuple(float(point[name]) for name in ("I_p", "I_s", "I_h"))
-             for point in baseline_points}
-    baseline_steps = baseline_receipt["result"]["evaluation"]["adaptive_steps"]
-    if (not baseline_steps or baseline_steps[0] != 0 or baseline_steps[-1] != int(path["end_step"])
-            or baseline_steps != sorted(set(baseline_steps))):
-        raise ValueError("baseline receipt has no valid full adaptive grid")
-    extra_calls, extra_seconds = 0, 0.
+    prepared_steps = tuple(int(point["step"]) for point in baseline_points)
+    source_points = {int(point["step"]): tuple(float(point[name]) for name in ("I_p", "I_s", "I_h"))
+                     for point in baseline_points}
     rows, path_rows, timings = [], [], []
     with RawSimulationRecord(str(directory.parent), metadata) as record:
         for evaluator in evaluators.values():
             evaluator.diagnostics.clear()
-        for step in baseline_steps:
-            if step not in exact:
-                started = time.perf_counter()
-                prepared, ih, _ = shared.prepare(record, int(step))
-                p, s, _ = shared.calculator.exact(prepared)
-                extra_seconds += time.perf_counter() - started
-                extra_calls += 1
-                exact[step] = float(p), float(s), ih
+        started_reference = time.perf_counter()
+        reference = MeasurementEvaluator(method="exact", calculator=shared.calculator.reference)
+        def exact_point(step):
+            return reference.point(record, int(step))
+        baseline_steps, h, p, s = sample_indices(record.max_step, exact_point)
+        baseline_steps = [int(step) for step in baseline_steps]
+        exact = {step: tuple(float(v) for v in exact_point(step))
+                 for step in sorted(set(prepared_steps) | set(baseline_steps))}
         exact_curve = np.array([exact[step] for step in baseline_steps])
-        baseline_iw = float(baseline_receipt["result"]["path"]["I_w"])
-        reconstructed = _iw(exact_curve[:, 0], exact_curve[:, 2], endpoint_complement=endpoint_complement)
-        if not np.isclose(reconstructed, baseline_iw, rtol=0, atol=64 * np.finfo(float).eps):
-            raise ValueError("reconstructed exact accepted curve differs from its frozen I_w")
+        baseline_iw = _iw(p, h, endpoint_complement=endpoint_complement)
+        extra_calls = len(set(baseline_steps) - set(prepared_steps))
+        extra_seconds = time.perf_counter() - started_reference
         active_step, active_threshold = _activity(baseline_steps, exact_curve[:, 1])
         for resolution, evaluator in evaluators.items():
             started_path = time.perf_counter()
             before_prepare, before_evaluate = shared.prepare_seconds, shared.evaluate_seconds[resolution]
             point_values = {}
-            for grid, steps in (("prepared", [int(point["step"]) for point in baseline_points]),
-                                ("baseline_adaptive", baseline_steps)):
+            for grid, steps in (("prepared", prepared_steps), ("baseline_adaptive", baseline_steps)):
                 for step in steps:
-                    values = (*evaluator.distance(record, step), evaluator.homophily(record, step))
+                    values = evaluator.point(record, step)
                     point_values[step] = values
-                    reference = exact[step]
-                    if values[2] != reference[2]:
+                    reference_values = exact[step]
+                    if values[2] != reference_values[2]:
                         raise ValueError("KDE experiment changed exact homophily")
-                    rows.append({
-                        **identity, "bins": resolution, "step": step, "grid": grid,
-                        **{f"exact_{name}": reference[index] for index, name in enumerate(METRICS)},
+                    rows.append({**identity, "bins": resolution, "step": step, "grid": grid,
+                        **{f"exact_{name}": reference_values[index] for index, name in enumerate(METRICS)},
+                        **{f"source_{name}": source_points.get(step, (None, None, None))[index] for index, name in enumerate(METRICS)},
                         **{f"approx_{name}": values[index] for index, name in enumerate(METRICS)},
-                        **evaluator.diagnostics.get((record.directory, step), {}),
-                    })
+                        **evaluator.diagnostics[(record.directory, step)]})
             steps, h, p, s = evaluator.indices(record)
             for index, step in enumerate(steps):
                 step = int(step)
-                reference = exact.get(step, (None, None, float(h[index])))
-                rows.append({
-                    **identity, "bins": resolution, "step": step, "grid": "candidate_adaptive",
-                    **{f"exact_{name}": reference[i] for i, name in enumerate(METRICS)},
+                reference_values = exact.get(step, (None, None, float(h[index])))
+                rows.append({**identity, "bins": resolution, "step": step, "grid": "candidate_adaptive",
+                    **{f"exact_{name}": reference_values[i] for i, name in enumerate(METRICS)},
+                    **{f"source_{name}": None for name in METRICS},
                     "approx_Ip": float(p[index]), "approx_Is": float(s[index]), "approx_Ih": float(h[index]),
-                    **evaluator.diagnostics.get((record.directory, step), {}),
-                })
+                    **evaluator.diagnostics[(record.directory, step)]})
             fixed = np.array([point_values[step] for step in baseline_steps])
             fixed_active, fixed_threshold = _activity(baseline_steps, fixed[:, 1])
             adaptive_active, adaptive_threshold = _activity(steps, s)
-            path_rows.append({
-                **identity, "bins": resolution, "start_step": int(path["start_step"]), "end_step": int(path["end_step"]),
-                "endpoint_complement": endpoint_complement,
-                "baseline_Iw": baseline_iw,
+            path_rows.append({**identity, "bins": resolution, "start_step": int(path["start_step"]),
+                "end_step": int(path["end_step"]), "endpoint_complement": endpoint_complement,
+                "baseline_Iw": baseline_iw, "source_Iw": baseline_receipt["result"]["path"]["I_w"],
                 "fixed_Iw": _iw(fixed[:, 0], fixed[:, 2], endpoint_complement=endpoint_complement),
                 "adaptive_Iw": _iw(p, h, endpoint_complement=endpoint_complement),
                 "baseline_steps_json": json.dumps(baseline_steps),
@@ -378,13 +386,11 @@ def _measure_path(entry, bins, repeats, shared, evaluators, *, endpoint_compleme
                 "adaptive_active_step": adaptive_active, "baseline_active_threshold": active_threshold,
                 "fixed_active_threshold": fixed_threshold, "adaptive_active_threshold": adaptive_threshold,
                 "activity_audit_status": "measured", "extra_exact_calls": extra_calls,
-                "extra_exact_seconds": extra_seconds,
-                "shared_prepare_seconds": shared.prepare_seconds - before_prepare,
+                "extra_exact_seconds": extra_seconds, "shared_prepare_seconds": shared.prepare_seconds - before_prepare,
                 "evaluate_seconds": shared.evaluate_seconds[resolution] - before_evaluate,
-                "candidate_path_seconds": time.perf_counter() - started_path,
-            })
+                "candidate_path_seconds": time.perf_counter() - started_path})
         for step in entry["benchmark_steps"]:
-            key = shared.keyer._key(record, int(step))
+            key = _state_key(record, int(step))
             if key not in shared.benchmarked:
                 shared.benchmarked.add(key)
                 timings.extend(_timing(record, int(step), bins, repeats, shared.calculator, identity))

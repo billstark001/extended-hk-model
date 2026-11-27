@@ -142,6 +142,9 @@ def load_inputs(preparation, baseline_report, collection, *, allow_partial=False
     if (not np.isfinite(exact_required[[f"exact_{m}" for m in METRICS]].to_numpy(float)).all()
             or not np.isfinite(points[[f"approx_{m}" for m in METRICS]].to_numpy(float)).all()):
         raise ValueError("required exact/approximate state values are missing or nonfinite")
+    for _, same_state in points.groupby([*PATH_KEYS, "step"], sort=False):
+        if any(same_state[f"exact_{m}"].dropna().nunique() > 1 for m in METRICS):
+            raise ValueError("exact reference changes between repeated observations of one frozen endpoint/state")
     exact_values = points[[f"exact_{m}" for m in METRICS]].to_numpy(float)
     if np.isinf(exact_values).any():
         raise ValueError("available exact state values are nonfinite")
@@ -162,8 +165,8 @@ def load_inputs(preparation, baseline_report, collection, *, allow_partial=False
             if name in frame and (frame[name].nunique(dropna=False) != 1 or not np.isfinite(frame[name]).all() or (frame[name] < 0).any()):
                 raise ValueError("shared exact reconstruction cost differs between KDE grids")
     matched = paths.merge(expected[[*PATH_KEYS, "end_step", "I_w"]], on=[*PATH_KEYS, "end_step"], validate="many_to_one", how="left")
-    if not _same(matched["baseline_Iw"], matched["I_w"]).all():
-        raise ValueError("collected exact Iw differs from the frozen baseline")
+    if not _same(matched["source_Iw"], matched["I_w"]).all():
+        raise ValueError("collected source Iw differs from the authenticated formal analysis")
     for endpoint in ("start", "end"):
         joined = points[points["grid"] == "prepared"].merge(
             expected[[*PATH_KEYS, f"{endpoint}_step", *[f"{endpoint}_{m}" for m in METRICS.values()]]],
@@ -171,8 +174,8 @@ def load_inputs(preparation, baseline_report, collection, *, allow_partial=False
         if len(joined) != len(paths):
             raise ValueError("a selected path lacks an exact prepared endpoint")
         for short, long in METRICS.items():
-            if not _same(joined[f"exact_{short}"], joined[f"{endpoint}_{long}"]).all():
-                raise ValueError(f"exact {long} differs from its frozen endpoint")
+            if not _same(joined[f"source_{short}"], joined[f"{endpoint}_{long}"]).all():
+                raise ValueError(f"source {long} differs from its authenticated endpoint")
     return points, paths, benchmarks, expected, {"preparation": prepared, "baseline": baseline,
                                                 "collection": collected, "configuration": configuration}
 
@@ -234,6 +237,13 @@ def trajectory_errors(paths):
 
 def paired_effects(points, endpoints):
     """Reuse existing contrasts and scopes, preserving states and terminal outcomes."""
+    exact_points = points[points["grid"] == "prepared"].drop_duplicates([*PATH_KEYS, "step"])
+    endpoints = endpoints.copy()
+    for endpoint in ("start", "end"):
+        exact = exact_points[[*PATH_KEYS, "step", *[f"exact_{name}" for name in METRICS]]].rename(
+            columns={"step": f"{endpoint}_step", **{f"exact_{short}": f"{endpoint}_{long}" for short, long in METRICS.items()}})
+        endpoints = endpoints.drop(columns=[f"{endpoint}_{long}" for long in METRICS.values()]).merge(
+            exact, on=[*PATH_KEYS, f"{endpoint}_step"], how="left", validate="one_to_one")
     baseline_pairs = paired_table(endpoints)
     if baseline_pairs.empty:
         return (pd.DataFrame(columns=[*PATH_KEYS, "bins", "metric", "delta_error"]),
@@ -452,7 +462,7 @@ def report(preparation, baseline_report, collection, output, *, make_figures=Tru
                         ("paired_trajectory_effects.csv", trajectory_pairs), ("benchmark_pairs.csv", timing_rows),
                         ("benchmark_summary.csv", timing_summary)):
         frame.to_csv(output / name, index=False)
-    (output / "report.md").write_text(markdown_report(points, paths, state_summary, trajectory_summary, effects, timing_summary, provenance))
+    (output / "report.md").write_text(markdown_report(points, paths, state_summary, trajectory_summary, effects, timing_summary, provenance), encoding="utf-8")
     if make_figures:
         figures(state_summary, trajectories, effects, timing_summary, output)
     result = {"schema": 1, "status": provenance["collection"]["status"], "scope": provenance["configuration"].get("selection", {}),

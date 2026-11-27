@@ -1,10 +1,9 @@
-"""Gaussian smoothing, continuous divergence metrics and KDE bandwidth policies."""
+"""Gaussian smoothing, sampled JS distance and KDE bandwidth policies."""
 
 from typing import Tuple, cast
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.integrate import quad, trapezoid
 from scipy.stats import gaussian_kde, norm
 
 
@@ -36,32 +35,6 @@ def compute_weighted_stats(
     return means, variances
 
 
-# Divergence metrics
-def kl_divergence_continuous(p_func, q_func, xmin=0, xmax=2, t_err=1e-13) -> float:
-    """Integrate KL(p || q) on [xmin, xmax], flooring both densities at t_err."""
-
-    def integrand(x):
-        p = max(p_func(x), t_err)
-        q = max(q_func(x), t_err)
-        return p * (np.log(p) - np.log(q))
-
-    val, _ = quad(integrand, xmin, xmax, limit=100)
-    return val
-
-
-def js_divergence_continuous(p_func, q_func, xmin=0, xmax=2, t_err=1e-13) -> float:
-    """Return the square root of integrated Jensen-Shannon divergence with a density floor."""
-
-    def integrand(x):
-        p = max(p_func(x), t_err)
-        q = max(q_func(x), t_err)
-        m = (p + q) / 2
-        return 0.5 * (p * (np.log(p) - np.log(m)) + q * (np.log(q) - np.log(m)))
-
-    val, _ = quad(integrand, xmin, xmax, limit=100)
-    return np.sqrt(val)
-
-
 LINSPACE_SMPL_COUNT = 256
 
 
@@ -72,21 +45,7 @@ def fast_trapz(y: NDArray, x: NDArray):
     return result
 
 
-def kl_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | int = LINSPACE_SMPL_COUNT, t_err=1e-13):
-    """Approximate KL on n uniform samples; when n is an array, use it as x and accept sampled p_func/q_func arrays."""
-    if isinstance(n, np.ndarray):
-        xs = n
-        p_vals = np.maximum(p_func, t_err)
-        q_vals = np.maximum(q_func, t_err)
-    else:
-        xs = np.linspace(xmin, xmax, n)
-        p_vals = np.maximum(p_func(xs), t_err)
-        q_vals = np.maximum(q_func(xs), t_err)
-    integrand = p_vals * (np.log(p_vals) - np.log(q_vals))
-    return trapezoid(integrand, xs)
-
-
-def js_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | int = LINSPACE_SMPL_COUNT, t_err=1e-13):
+def js_distance_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | int = LINSPACE_SMPL_COUNT, t_err=1e-13):
     """Approximate Jensen-Shannon distance on uniform samples; array n supplies the grid and sampled densities."""
     if isinstance(n, np.ndarray):
         xs = n
@@ -99,7 +58,8 @@ def js_divergence_continuous_fast(p_func, q_func, xmin=0, xmax=2, n: NDArray | i
     m_vals = 0.5 * (p_vals + q_vals)
     integrand = 0.5 * (p_vals * (np.log(p_vals) - np.log(m_vals)) + q_vals * (np.log(q_vals) - np.log(m_vals)))
     val = fast_trapz(integrand, xs)
-    return np.sqrt(val)
+    # Preserve JS nonnegativity when identical densities differ by a last bit.
+    return np.sqrt(np.maximum(val, 0.0))
 
 
 # KDE bandwidth helpers

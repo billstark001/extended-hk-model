@@ -492,7 +492,7 @@ def report(preparation, comparison, output, *, make_figures=True, allow_partial=
                         ("paired_interventions.csv.gz", paired), ("intervention_effects.csv", effects),
                         ("intervention_cells.csv", cells)):
         frame.to_csv(output / name, index=False)
-    (output / "report.md").write_text(markdown_report(endpoints, pathways, effects, provenance, peak_audit))
+    (output / "report.md").write_text(markdown_report(endpoints, pathways, effects, provenance, peak_audit), encoding="utf-8")
     if make_figures:
         figures(endpoints, pathways, effects, output, checkpoints)
     result = {"schema": 1, "status": provenance["comparison"]["status"], "paths": len(paths),

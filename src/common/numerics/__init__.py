@@ -16,12 +16,9 @@ from .kde import (  # noqa: F401
     fast_trapz,
     gaussian_kernel,
     get_kde_pdf,
-    js_divergence_continuous,
-    js_divergence_continuous_fast,
+    js_distance_continuous_fast,
     kde_min_bw_calc,
     kde_min_bw_factory,
-    kl_divergence_continuous,
-    kl_divergence_continuous_fast,
     min_bandwidth_enforcer,
 )
 

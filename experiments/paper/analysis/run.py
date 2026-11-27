@@ -45,9 +45,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Also collect independent P/E first passage using the native probe.",
     )
     parser.add_argument(
-        "--skip-metric-audit", action="store_true", help="Omit the raw reconstruction of historical metric conventions."
-    )
-    parser.add_argument(
         "--plan-only",
         action="store_true",
         help="Print the analysis plan without reading raw data or writing statistics.",
@@ -86,7 +83,6 @@ def main(argv: list[str] | None = None):
         limit=args.limit,
         force=args.force,
         include_pathway_probe=args.include_pathway_probe,
-        include_metric_audit=not args.skip_metric_audit,
         plan_only=args.plan_only,
         raw_root=args.raw_root,
         origin=args.origin,

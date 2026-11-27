@@ -8,7 +8,7 @@ import pytest
 from common.io.json import fingerprint
 from ehk.metrics.homophily import mean_followee_edge_concordance, uniform_concordance_probability
 from ehk.metrics.pathway import first_passage
-from ehk.micro.observables import get_gradation_index_hp
+from ehk.metrics.trajectory import pathway_index
 from experiments.paper.recommendation import design as cfg
 from experiments.paper.recommendation.analysis import (
     completed_cell_task_ids,
@@ -44,8 +44,8 @@ def test_edge_and_agent_weighting_are_explicit_and_iw_is_signed():
     graph = nx.DiGraph([(0, 1), (0, 2), (1, 0)])
     assert mean_followee_edge_concordance(graph, np.array([0, 0, 1]), 0.45) == pytest.approx(0.75)
     p, h = np.array([0, 0.5, 0.1]), np.array([0, 0, 1])
-    assert get_gradation_index_hp(p, h) == pytest.approx(0.7)
-    assert get_gradation_index_hp(p, h, endpoint_complement=False) == pytest.approx(-0.2)
+    assert pathway_index(p, h) == pytest.approx(0.7)
+    assert pathway_index(p, h, endpoint_complement=False) == pytest.approx(-0.2)
 
 
 def test_checkpoints_use_only_current_state_and_recent_activity():

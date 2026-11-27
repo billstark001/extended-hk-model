@@ -22,8 +22,9 @@ def test_micro_distance_adopts_4081_and_retains_explicit_exact():
     )
     assert observables.calc_distance(record, 13) == expected
     exact = MeasurementEvaluator(method="exact", calculator=observables.distance_collector)
-    assert exact.distance(record, 13) == observables.calc_distance_components(record, 13)[:2]
-    assert observables.distance_collector.density_method == "exact"
+    assert exact.distance(record, 13) == observables.distance_collector.calculate_indices(
+        MeasurementState.from_graph(graph, opinions[13]), .45, random_state=13, method="exact")
+    assert observables.distance_collector.density_method == "binned"
     assert max(abs(a - b) for a, b in zip(expected, exact.distance(record, 13))) > 1e-8
 
 

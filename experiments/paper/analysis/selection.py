@@ -19,7 +19,6 @@ def recorded_endpoint_complement(row: ScenarioStatistics) -> bool | None:
     metric = protocol.get("metrics", {})
     values = [
         getattr(row, "endpoint_complement", None),
-        getattr(row, "audit_endpoint_complement", None),
         protocol.get("endpoint_complement"),
         metric.get("endpoint_complement") if isinstance(metric, dict) else None,
     ]

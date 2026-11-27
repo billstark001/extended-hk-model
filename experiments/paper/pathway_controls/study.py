@@ -144,7 +144,8 @@ def analyze(directory, *, endpoint_complement=True):
     from smp_bindings import RawSimulationRecord
 
     from ehk.micro import observables
-    from ehk.micro.observables import get_gradation_index_hp, get_indices
+    from ehk.micro.observables import get_indices
+    from ehk.metrics.trajectory import pathway_index
     from ehk.metrics.protocol import metric_protocol
 
     directory = Path(directory).resolve()
@@ -181,7 +182,7 @@ def analyze(directory, *, endpoint_complement=True):
                         **task["coordinates"],
                         "arm": arm,
                         "horizon": record.max_step,
-                        "I_w": float(get_gradation_index_hp(p, h, endpoint_complement=endpoint_complement)),
+                        "I_w": float(pathway_index(p, h, endpoint_complement=endpoint_complement)),
                         "sampling": "paper adaptive grid",
                         "endpoint_complement": endpoint_complement,
                     }

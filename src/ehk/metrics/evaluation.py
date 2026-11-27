@@ -67,7 +67,7 @@ class MeasurementEvaluator:
         if self._calculator is None:
             from .polarization import DistanceCalculator
 
-            self._calculator = DistanceCalculator(use_js_divergence=True, min_bandwidth=.01, sample_count=500)
+            self._calculator = DistanceCalculator()
         return self._calculator
 
     @staticmethod

@@ -1,7 +1,7 @@
 from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
-from matplotlib import cm
+from matplotlib import cm, colormaps
 from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
 from sklearn.cluster import KMeans
@@ -25,18 +25,15 @@ SUMMARY_CURVE_QUANTILES = 16
 def _safe_curve(p_index: np.ndarray | None, h_index: np.ndarray | None) -> np.ndarray | None:
     if p_index is None or h_index is None:
         return None
+    if p_index.ndim != 1 or h_index.ndim != 1 or p_index.shape != h_index.shape:
+        raise ValueError("trajectory indices must be equal-length one-dimensional arrays")
     if p_index.size < 2 or h_index.size < 2:
         return None
-
-    n = min(p_index.size, h_index.size)
-    p = p_index[:n]
-    h = h_index[:n]
-
-    mask = np.isfinite(p) & np.isfinite(h)
+    mask = np.isfinite(p_index) & np.isfinite(h_index)
     if np.count_nonzero(mask) < 2:
         return None
 
-    points = np.column_stack((p[mask], h[mask]))
+    points = np.column_stack((p_index[mask], h_index[mask]))
     if points.shape[0] < 2:
         return None
     return points
@@ -72,7 +69,7 @@ def _group_data(
 
 
 def _density_image(
-    curves: List[Tuple[np.ndarray, float]], cmap, norm: Normalize, p_max: float, bins: int = HEATMAP_BINS
+    curves: List[Tuple[np.ndarray, float]], cmap, norm: Normalize, p_bounds: tuple[float, float], bins: int = HEATMAP_BINS
 ) -> np.ndarray | None:
     if not curves:
         return None
@@ -81,12 +78,12 @@ def _density_image(
     grad_sums = np.zeros((bins, bins), dtype=float)
 
     for points, grad in curves:
-        hist, x_edges, y_edges = np.histogram2d(points[:, 0], points[:, 1], bins=bins, range=((0.0, p_max), (0.0, 1.0)))
+        hist, x_edges, y_edges = np.histogram2d(points[:, 0], points[:, 1], bins=bins, range=(p_bounds, (0.0, 1.0)))
         weighted_hist, _, _ = np.histogram2d(
             points[:, 0],
             points[:, 1],
             bins=bins,
-            range=((0.0, p_max), (0.0, 1.0)),
+            range=(p_bounds, (0.0, 1.0)),
             weights=np.full(points.shape[0], grad, dtype=float),
         )
         counts += hist
@@ -185,8 +182,9 @@ def plot_p_h_index_trajectories() -> Figure:
     fig.subplots_adjust(left=0.07, right=0.89, bottom=0.08, top=0.96, wspace=0.10, hspace=0.14)
 
     axes_arr = np.array(axes)
-    cmap = cm.get_cmap("coolwarm")
+    cmap = colormaps["coolwarm"]
     all_curves = [entry for group in grouped.values() for entry in group]
+    p_min = min(0.0, min((float(points[:, 0].min()) for points, _ in all_curves), default=0.0))
     p_max = max((float(points[:, 0].max()) for points, _ in all_curves), default=1.0)
     p_max = max(1.0, p_max)
     grad_max = max((abs(g) for _, g in all_curves), default=1.0)
@@ -197,11 +195,11 @@ def plot_p_h_index_trajectories() -> Figure:
             ax = axes_arr[i_rt, i_rs]
             curves = grouped[(rt, rs_type, retain_count)]
 
-            density_img = _density_image(curves, cmap, norm, p_max)
+            density_img = _density_image(curves, cmap, norm, (p_min, p_max))
             if density_img is not None:
                 ax.imshow(
                     density_img,
-                    extent=(0, p_max, 0, 1),
+                    extent=(p_min, p_max, 0, 1),
                     origin="lower",
                     interpolation="bilinear",
                     aspect="auto",
@@ -221,7 +219,7 @@ def plot_p_h_index_trajectories() -> Figure:
 
             eps = 0.05
 
-            ax.set_xlim(-eps, p_max + eps)
+            ax.set_xlim(p_min - eps, p_max + eps)
             ax.set_ylim(0 - eps, 1 + eps)
             ax.set_facecolor("white")
             ax.grid(True, linestyle="--", linewidth=0.5)

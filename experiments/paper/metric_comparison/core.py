@@ -94,7 +94,7 @@ def _bundle_layout(bundle):
     else:
         raise ValueError(f"no supported authenticated summary manifest: {bundle}")
     _authenticate_files(data, manifest)
-    required = {str((study / name).relative_to(data)) for name in ("plan.json", "runtime/binding.json")}
+    required = {(study / name).relative_to(data).as_posix() for name in ("plan.json", "runtime/binding.json")}
     if not required <= manifest["files"].keys():
         raise ValueError("portable manifest does not authenticate its plan and binding")
     return data, study, manifest_path, manifest
@@ -177,7 +177,7 @@ def prepare(bundles, output, *, raw_roots=None):
                 tasks.append({**task_ids, "task_fingerprint": fingerprint(task),
                               "metadata_json": json.dumps(metadata, sort_keys=True)})
                 record_path = study / f"records/{task['id']}.json.gz"
-                relative = str(record_path.relative_to(data))
+                relative = record_path.relative_to(data).as_posix()
                 if not record_path.is_file():
                     source["missing_tasks"].append(task["id"])
                     continue

@@ -14,7 +14,7 @@ def normalize_homophily(raw_homophily: float, epsilon: float) -> float:
 
     baseline = uniform_concordance_probability(epsilon)
     if baseline >= 1:
-        return 1.0 if raw_homophily >= 1 else 0.0
+        raise ValueError("homophily normalization requires a uniform baseline strictly below one (epsilon < 2)")
     return max(0.0, (raw_homophily - baseline) / (1 - baseline))
 
 

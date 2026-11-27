@@ -94,8 +94,13 @@ def test_measurement_reuses_existing_exact_states_and_full_prefix_iw(tmp_path, m
             return None
 
     monkeypatch.setattr(smp_bindings, "RawSimulationRecord", SavedRecord)
-    monkeypatch.setattr(observables, "calc_distance_components", lambda record, step: (calls.append(step) or step / 100, .2, 0., 0.))
-    monkeypatch.setattr(observables, "calc_homophily", lambda record, step: .4)
+    class Evaluator:
+        def point(self, record, step):
+            calls.append(step)
+            return step / 100, .2, .4
+        def indices(self, record):
+            return trajectory.sample_indices(record.max_step, lambda step: self.point(record, step))
+    monkeypatch.setattr("ehk.metrics.evaluation.MeasurementEvaluator", Evaluator)
     from ehk.metrics import trajectory
 
     monkeypatch.setattr(trajectory, "sample_indices", lambda end, point: (

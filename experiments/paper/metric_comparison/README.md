@@ -39,7 +39,7 @@ python -m experiments.paper.metric_comparison collect-raw \
   --output /path/to/collection --max-paths 2
 ```
 
-Omit `--max-paths` to process every prepared path. Collection uses persistent `RawSimulationRecord` histories and evaluates `observables.calc_distance` for `I_p,I_s` and `calc_homophily` for `I_h` at the exact prepared states. Full-path `I_w` uses `get_indices` and `get_gradation_index_hp`, retaining their adaptive sampling. Chronological signed trapezoids include `(1-I_p(T))*I_h(T)` by default. `collect-raw`, `collect` and the pipeline `run` accept `--no-endpoint-complement` for the observed integral alone. Their configuration, path tables and receipts retain the boolean, and changing it requires a new destination.
+Omit `--max-paths` to process every prepared path. Collection uses persistent `RawSimulationRecord` histories and evaluates `observables.the canonical `MeasurementEvaluator` for `I_p,I_s,I_h` at the exact prepared states. Full-path `I_w` uses the shared evaluator and `pathway_index`, retaining their adaptive sampling. Chronological signed trapezoids include `(1-I_p(T))*I_h(T)` by default. `collect-raw`, `collect` and the pipeline `run` accept `--no-endpoint-complement` for the observed integral alone. Their configuration, path tables and receipts retain the boolean, and changing it requires a new destination.
 
 Collection resumes by path and binds its configuration and metric-source hashes. `--raw-root PROFILE=DATASET` supplies relocated roots. A changed bound source, parameter or root override requires a new collection directory. Per-path receipts hash raw metadata, observations, trajectory manifests, initial graphs and event databases. Cached metrics recheck these hashes when raw sources are available. The trajectory reader also verifies chunk checksums.
 
@@ -102,3 +102,5 @@ python -m experiments.paper.metric_comparison.run \
 ```
 
 The pipeline writes `collection/`, `alignment/` and `report/`, with phase/status in `run_status.json` and path-level progress in `collection/progress.json`. Use `--collection /path/to/existing-collection` to reuse authenticated receipts from an interrupted collection. The same frozen collection configuration is required. Existing alignment/report destinations are never overwritten. Only the identified first-read source-change failure may retry under the same configuration; missing records or other failures stop the pipeline before analysis. A complete report also verifies the existing KDE opinion-peak counts against authenticated saved endpoint opinions and retains their comparison with confidence-component outcomes.
+
+Formal collections use B=4081 and the clustered-reference JS-distance similarity. The numerical KDE study computes exact references internally using that same formula.

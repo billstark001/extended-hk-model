@@ -36,12 +36,12 @@ def _source_configuration():
     from ehk.metrics.trajectory import sample_indices
     from ehk.micro import observables
 
-    from .evaluation import ExactMetricCache
+    from ehk.metrics.evaluation import MeasurementEvaluator
 
     sources = {
         Path(inspect.getfile(item)).resolve()
         for item in (RawSimulationRecord, mean_followee_edge_concordance, DistanceCalculator, observables.calc_distance,
-                     adaptive_discrete_sampling, area_under_curve, get_kde_pdf, ExactMetricCache,
+                     adaptive_discrete_sampling, area_under_curve, get_kde_pdf, MeasurementEvaluator,
                      MeasurementState, sample_indices, FittedDensity)
     }
     calculator = observables.distance_collector
@@ -51,11 +51,11 @@ def _source_configuration():
         "versions": {"python": sys.version.split()[0], "numpy": np.__version__, "scipy": scipy.__version__},
         "distance_parameters": {
             name: getattr(calculator, name)
-            for name in ("min_bandwidth", "sample_count", "max_kde_samples", "t_err", "k", "use_js_divergence")
+            for name in ("min_bandwidth", "sample_count", "max_kde_samples", "t_err", "k")
         },
         "path_sampling": IW_SAMPLING_METHOD,
-        "density_evaluation": "exact Gaussian KDE retained for the original metric comparison",
-        "opinion_point_sampling": "exact_prepared_steps; existing_calc_distance_random_state_equals_step",
+        "density_evaluation": "canonical linear-binned Gaussian KDE; 4081 internal bins",
+        "opinion_point_sampling": "saved_prepared_steps; absolute_step_rng_seed",
         "homophily_weighting": "positive_out_degree_users_equal_weight; existing_normalize_homophily",
         "prefix": "full_saved_history_from_step_zero",
     }
@@ -143,10 +143,10 @@ def _raw_sources(directory):
 def _measure(directory, path, points, metrics=None, *, endpoint_complement=True):
     from smp_bindings import RawSimulationRecord
 
-    from .evaluation import ExactMetricCache
+    from ehk.metrics.evaluation import MeasurementEvaluator
 
     if metrics is None:
-        metrics = ExactMetricCache(cross_records=False)
+        metrics = MeasurementEvaluator()
     metadata = _validate_raw(directory, path, points)
     with RawSimulationRecord(str(directory.parent), metadata) as record:
         if record.max_step != int(path["end_step"]):
@@ -155,8 +155,7 @@ def _measure(directory, path, points, metrics=None, *, endpoint_complement=True)
         values = []
         for point in points.to_dict("records"):
             step = int(point["step"])
-            ip, isub = metrics.distance(record, step)
-            ih = metrics.homophily(record, step)
+            ip, isub, ih = metrics.point(record, step)
             if not np.isfinite([ip, isub, ih]).all():
                 raise ValueError(f"existing metric is not finite at step {step}")
             values.append({
@@ -168,9 +167,9 @@ def _measure(directory, path, points, metrics=None, *, endpoint_complement=True)
         steps, h, p, _ = metrics.indices(record)
         if not len(steps) or int(steps[0]) != 0 or int(steps[-1]) != record.max_step:
             raise ValueError("existing trajectory-index calculation omitted the full prefix")
-        from ehk.micro.observables import get_gradation_index_hp
+        from ehk.metrics.trajectory import pathway_index
 
-        iw = float(get_gradation_index_hp(p, h, endpoint_complement=endpoint_complement))
+        iw = float(pathway_index(p, h, endpoint_complement=endpoint_complement))
         if not np.isfinite(iw):
             raise ValueError("existing pathway index is not finite")
         trajectory = {
@@ -185,9 +184,9 @@ def _measure(directory, path, points, metrics=None, *, endpoint_complement=True)
 
 def _collect_group(job):
     """One worker handles one initial state and shares only exact scalar evaluations."""
-    from .evaluation import ExactMetricCache
+    from ehk.metrics.evaluation import MeasurementEvaluator
 
-    cache = ExactMetricCache()
+    cache = MeasurementEvaluator()
     statuses = []
     output = Path(job["output"])
     for entry in job["paths"]:
@@ -225,11 +224,12 @@ def _collect_group(job):
                 })
                 status["status"] = "complete"
         statuses.append(status)
-    return {"paths": statuses, "cache_hits": cache.hits, "cache_misses": cache.misses}
+    return {"paths": statuses, "cache_hits": sum(v["hits"] for v in cache.cache_info().values()),
+            "cache_misses": sum(v["misses"] for v in cache.cache_info().values())}
 
 
 def collect_raw(preparation, output, *, max_paths=None, raw_roots=None, workers=1, endpoint_complement=True):
-    """Collect exact existing indices, with process workers and per-path recovery."""
+    """Collect canonical indices, with process workers and per-path recovery."""
     from .core import authenticate_preparation, endpoint_mode
     from ehk.metrics.protocol import metric_protocol
 
@@ -247,7 +247,6 @@ def collect_raw(preparation, output, *, max_paths=None, raw_roots=None, workers=
     points = pd.read_csv(preparation / "points.csv.gz", keep_default_na=False, float_precision="round_trip", low_memory=False)
     groups = points.groupby(list(PATH_KEYS), sort=False).indices
     protocol = metric_protocol(endpoint_complement=endpoint_complement)
-    protocol["distance_kde"].update(evaluation="exact", bins=None)
     configuration = {
         "schema": 1, "preparation_fingerprint": fingerprint(manifest),
         "metrics": _source_configuration(), "raw_roots": raw_roots,

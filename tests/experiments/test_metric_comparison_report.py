@@ -151,7 +151,7 @@ def test_report_authenticates_and_renders_scientific_artifacts(tmp_path, monkeyp
     result = report(prep, compared, output)
     assert result["status"] == "complete"
     assert (output / "report.md").is_file()
-    assert "middle_consensus_gains" in (output / "report.md").read_text()
+    assert "middle_consensus_gains" in (output / "report.md").read_text(encoding="utf-8")
     assert (output / "checkpoint_states.csv").is_file()
     assert (output / "kde_confidence_crosstab.csv").is_file()
     assert (output / "kde_stratified_states.csv").is_file()
@@ -215,8 +215,8 @@ def _peak_source(tmp_path, *, archived_count=2):
     (data / "tables").mkdir()
     pd.DataFrame([{"task_id": task_id, "stage": "middle", "arm": "switch", "end_step": 32,
                    "opinion_peaks": archived_count}]).to_csv(data / "tables/runs.csv.gz", index=False)
-    manifest = json.loads((data / "manifest.json").read_text())
-    manifest["files"] = {str(p.relative_to(data)): sha(p) for p in data.rglob("*")
+    manifest = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
+    manifest["files"] = {p.relative_to(data).as_posix(): sha(p) for p in data.rglob("*")
                          if p.is_file() and p.name != "manifest.json"}
     atomic_json(data / "manifest.json", manifest)
     prepared = tmp_path / "prepared-peaks"

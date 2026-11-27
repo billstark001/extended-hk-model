@@ -9,7 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.stats import kurtosis, skew
 
-from common.numerics import adaptive_discrete_sampling, area_under_curve, first_more_or_equal_than
+from common.numerics import adaptive_discrete_sampling, first_more_or_equal_than
 from common.pipeline import Context
 from ehk.metrics.evaluation import MeasurementEvaluator
 from ehk.metrics.homophily import mean_followee_edge_concordance, normalize_homophily
@@ -140,20 +140,14 @@ def get_retweeted_tweets_lifecycle_raw_stats(scenario_record: RawSimulationRecor
     return retweeted_lifespans, retweeted_opinions
 
 
-distance_collector = DistanceCalculator(use_js_divergence=True, min_bandwidth=0.01, sample_count=500)
+distance_collector = DistanceCalculator()
 
 
-def calc_distance(rec: RawSimulationRecord, step: int):
+def calc_distance(rec: RawSimulationRecord, step: int, *, evaluator=None):
     """Evaluate the adopted B=4081 distance indices on one saved state."""
-    return MeasurementEvaluator(calculator=distance_collector).distance(rec, int(step))
-
-
-def calc_distance_components(rec: RawSimulationRecord, step: int):
-    """Retain original exact KDE and archived directions for explicit audits."""
-    result = distance_collector.calculate(
-        rec.get_graph(step), rec.opinions[step], rec.metadata["HKParams"]["Tolerance"], random_state=step
-    )
-    return result.rand_o, result.rand_s, 1 - result.worst_o, 1 - result.worst_s
+    if evaluator is None:
+        evaluator = MeasurementEvaluator(calculator=distance_collector)
+    return evaluator.distance(rec, int(step))
 
 
 def calc_homophily(rec: RawSimulationRecord, step: int):
@@ -220,61 +214,9 @@ def get_backdrop_rates(p_index: NDArray, h_index: NDArray, g_index: NDArray):
     return p_backdrop, h_backdrop, g_backdrop
 
 
-def get_gradation_index_hp(p_index, h_index, *, endpoint_complement=True):
-    """Compute I_w, including the terminal contribution unless explicitly disabled."""
-    return pathway_index(p_index, h_index, endpoint_complement=endpoint_complement)
-
-
 @c.selector("gradation_index_hp")
 def _selected_gradation_index_hp(p_index, h_index, endpoint_complement):
-    return get_gradation_index_hp(p_index, h_index, endpoint_complement=endpoint_complement)
-
-
-@c.selector("metric_audit")
-def get_metric_audit(
-    scenario_record: RawSimulationRecord, x_indices, p_index, g_index, h_index, rho_post, endpoint_complement=True
-):
-    """Recompute historical conventions from raw states, without replacing the main indices.
-
-    A missing initial feed is never imputed. All staged convention comparisons
-    use the same available observations and disclose their actual prefix.
-    """
-    legacy = np.array([calc_distance_components(scenario_record, int(t))[2:] for t in x_indices])
-    epsilon = scenario_record.metadata["HKParams"]["Tolerance"]
-    old_baseline = epsilon - epsilon**2 / 8
-    new_baseline = epsilon - epsilon**2 / 4
-    legacy_h = np.maximum(0, (rho_post - old_baseline) / (1 - old_baseline))
-    corrected_post_h = np.maximum(0, (rho_post - new_baseline) / (1 - new_baseline))
-    valid = np.isfinite(legacy[:, 0]) & np.isfinite(p_index) & np.isfinite(legacy_h) & np.isfinite(h_index)
-
-    def integral(p, h, *, complement=True):
-        if not np.any(valid):
-            return float("nan")
-        return area_under_curve(np.array([p[valid], h[valid]]), complement=1 if complement else None)
-
-    variants = {
-        "legacy_reconstructed": integral(legacy[:, 0], legacy_h),
-        "correct_uniform_baseline": integral(legacy[:, 0], corrected_post_h),
-        "use_edge_endpoints": integral(legacy[:, 0], h_index),
-        "use_random_reference_distance": integral(np.sqrt(np.maximum(0, p_index)), h_index),
-        "use_js_divergence": integral(p_index, h_index),
-        "remove_endpoint_complement": integral(p_index, h_index, complement=False),
-        "revised_full_trajectory": get_gradation_index_hp(p_index, h_index, endpoint_complement=endpoint_complement),
-        "full_trajectory_with_complement": get_gradation_index_hp(p_index, h_index, endpoint_complement=True),
-        "full_trajectory_without_complement": get_gradation_index_hp(p_index, h_index, endpoint_complement=False),
-    }
-    return {
-        "legacy_p_index": legacy[:, 0],
-        "legacy_g_index": legacy[:, 1],
-        "legacy_h_index": legacy_h,
-        "corrected_post_h_index": corrected_post_h,
-        "legacy_pathway_integral": variants["legacy_reconstructed"],
-        "pathway_variants": variants,
-        "audit_prefix_start": int(x_indices[valid][0]) if np.any(valid) else None,
-        "audit_missing_steps": np.asarray(x_indices)[~valid],
-        "audit_sampling": "revised adaptive observation grid; convention comparisons share finite observations",
-        "audit_endpoint_complement": endpoint_complement,
-    }
+    return pathway_index(p_index, h_index, endpoint_complement=endpoint_complement)
 
 
 def interp(x0, x1, p):

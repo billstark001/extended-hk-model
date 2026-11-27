@@ -73,7 +73,7 @@ def test_preparation_uses_same_graph_inventory_as_raw_collection(tmp_path, graph
     atomic_json(data / "manifest.json", {
         "schema": 1, "planned": 1, "completed": 1, "plan_fingerprint": plan["plan_fingerprint"],
         "source_dataset": str(dataset),
-        "files": {str(path.relative_to(data)): sha(path) for path in data.rglob("*") if path.is_file()},
+        "files": {path.relative_to(data).as_posix(): sha(path) for path in data.rglob("*") if path.is_file()},
     })
     output = tmp_path / "preparation"
     report = core.prepare([data.parent], output)

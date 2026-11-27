@@ -199,7 +199,6 @@ def get_statistics_for_mode(
     active_threshold=0.98,
     min_inactive_value=0.75,
     include_pathway_probe=False,
-    include_metric_audit=True,
     endpoint_complement=True,
 ):
     from smp_bindings import RawSimulationRecord
@@ -235,8 +234,6 @@ def get_statistics_for_mode(
         hk_params = _extract_hk_params(actual_metadata)
         selected_common_stats = _build_common_stats(config.common_stats)
         selected_extra_stats = config.extra_stats_builder()
-        if include_metric_audit:
-            selected_extra_stats.update(c.metric_audit)
         if include_pathway_probe:
             selected_extra_stats.update(
                 {
@@ -282,7 +279,6 @@ def run_mode(
     limit=None,
     force=False,
     include_pathway_probe=False,
-    include_metric_audit=True,
     plan_only=False,
     raw_root=None,
     origin=None,
@@ -309,7 +305,6 @@ def run_mode(
         get_statistics_for_mode,
         mode=mode,
         include_pathway_probe=include_pathway_probe,
-        include_metric_audit=include_metric_audit,
         endpoint_complement=endpoint_complement,
     )
     scenarios = mode_config.scenarios()
@@ -326,7 +321,6 @@ def run_mode(
             "workspace_available": os.path.isdir(scenario_base_path),
             "metric_revision": METRIC_REVISION,
             "include_pathway_probe": include_pathway_probe,
-            "include_metric_audit": include_metric_audit,
             "endpoint_complement": endpoint_complement,
             "tasks": scenarios,
         }
@@ -341,7 +335,6 @@ def run_mode(
         protocol={
             "common_statistics": mode_config.common_stats,
             "metric_revision": METRIC_REVISION,
-            "metric_audit": include_metric_audit,
             "endpoint_complement": endpoint_complement,
             "first_passage": {
                 "cadence": OBSERVATION_INTERVAL,

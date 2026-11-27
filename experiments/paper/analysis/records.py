@@ -41,12 +41,6 @@ STATISTIC_FIELDS = (
     "g_backdrop",
     "opinion_diff_seg_mean",
     "opinion_diff_seg_std",
-    "legacy_p_index",
-    "legacy_g_index",
-    "legacy_h_index",
-    "corrected_post_h_index",
-    "legacy_pathway_integral",
-    "pathway_variants",
 )
 
 

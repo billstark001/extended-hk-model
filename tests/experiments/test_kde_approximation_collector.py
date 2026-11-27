@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import networkx as nx
 import numpy as np
+import numpy.testing
 import pandas as pd
 import pytest
 
@@ -27,23 +28,37 @@ def no_native_processes(monkeypatch):
 
 class FakeCalculator:
     exact_calls = 0
-
+    def __init__(self):
+        self.reference = self
+    def parameter_key(self):
+        return ("fixture",)
     def prepare(self, graph, opinions, epsilon, step):
-        return SimpleNamespace(step=step, epsilon=epsilon)
-
+        return self.prepare_state(None, epsilon, step)
+    def prepare_state(self, state, epsilon, step):
+        return SimpleNamespace(step=step, epsilon=epsilon, objective=step, edge=step)
+    def prepare_opinion(self, opinions, epsilon, *, random_state):
+        return random_state
+    def prepare_edge(self, state, *, random_state):
+        return random_state
+    def opinion_index(self, step, *, method, bins=None, diagnostics=None):
+        if diagnostics is not None: diagnostics.update(negative_count=0)
+        return .1 + step / 100 + (0 if method == "exact" else .001 / bins)
+    def edge_index(self, step, *, method, bins=None, diagnostics=None):
+        if diagnostics is not None: diagnostics.update(negative_count=0)
+        return .5 + step / 100 + (0 if method == "exact" else .002 / bins)
+    def _diagnostics(self, prepared, *, method, bins=None):
+        return {"method": method, "bins": bins, "stride": None,
+                "opinion_bandwidth": .01, "edge_bandwidth": .01,
+                "opinion_constant": False, "edge_constant": False, "opinion_samples": 6, "edge_samples": 4}
     def exact(self, prepared):
         type(self).exact_calls += 1
-        return .1 + prepared.step / 100, .5 + prepared.step / 100, {"method": "exact"}
-
+        return self.opinion_index(prepared.step, method="exact"), self.edge_index(prepared.step, method="exact"), self._diagnostics(prepared, method="exact")
     def evaluate(self, prepared, bins):
-        return (.1 + prepared.step / 100 + .001 / bins, .5 + prepared.step / 100 + .002 / bins,
-                {"method": "linear_binned_gaussian", "bins": bins, "stride": (bins - 1) // 255,
-                 "opinion_bandwidth": .01, "edge_bandwidth": .01,
-                 "opinion_constant": False, "edge_constant": False, "opinion_samples": 6, "edge_samples": 4})
+        return self.opinion_index(prepared.step, method="binned", bins=bins), self.edge_index(prepared.step, method="binned", bins=bins), self._diagnostics(prepared, method="linear_binned_gaussian", bins=bins)
 
 
 def _fake_indices(end, point):
-    steps = np.array([0, 2, 8])
+    steps = np.array([0, 4, 8] if point(0)[0] == .1 else [0, 2, 8])
     values = np.array([point(int(step)) for step in steps])
     return steps, values[:, 2], values[:, 0], values[:, 1]
 
@@ -108,7 +123,7 @@ def evidence(tmp_path, monkeypatch):
             return None
 
     monkeypatch.setattr(smp_bindings, "RawSimulationRecord", Record)
-    monkeypatch.setattr(observables, "calc_homophily", lambda *args: .2)
+    monkeypatch.setattr("ehk.metrics.homophily.mean_state_edge_concordance", lambda state, epsilon: .399375 + .2 * (1 - .399375))
     monkeypatch.setattr(trajectory, "sample_indices", _fake_indices)
     return preparation, baseline, frames
 
@@ -133,7 +148,8 @@ def test_three_grids_keep_baseline_curve_and_activity_cost_separate(tmp_path, ev
         assert row["baseline_active_step"] == row["fixed_active_step"] == row["adaptive_active_step"] == 8
     off_grid = points[(points["grid"] == "candidate_adaptive") & (points["step"] == 2)]
     assert off_grid["exact_Ip"].isna().all() and off_grid["exact_Is"].isna().all()
-    assert (points["approx_Ih"] == .2).all() and (points["exact_Ih"] == .2).all()
+    np.testing.assert_allclose(points["approx_Ih"], .2, rtol=0, atol=1e-15)
+    np.testing.assert_allclose(points["exact_Ih"], .2, rtol=0, atol=1e-15)
     # Identical cross-branch states still retain their own point diagnostics.
     assert points["opinion_bandwidth"].notna().all()
     config = json.loads((output / "configuration.json").read_text())

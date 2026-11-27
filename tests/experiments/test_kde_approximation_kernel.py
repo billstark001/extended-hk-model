@@ -5,12 +5,14 @@ import subprocess
 
 import networkx as nx
 import numpy as np
+import numpy.testing
 import pytest
 from scipy.stats import norm
 
 from ehk.metrics import polarization
+from ehk.metrics.state import MeasurementState
 from ehk.metrics.density import linear_binned_gaussian
-from ehk.metrics.polarization import DistanceCalculator, ideal_dist_worst_obj_array
+from ehk.metrics.polarization import DistanceCalculator, clustered_objective_density
 from experiments.paper.kde_approximation import kernel
 
 
@@ -24,7 +26,7 @@ def no_native_processes(monkeypatch):
 
 @pytest.fixture
 def reference():
-    return DistanceCalculator(use_js_divergence=True, min_bandwidth=.01, sample_count=12, max_kde_samples=37)
+    return DistanceCalculator(min_bandwidth=.01, sample_count=12, max_kde_samples=37)
 
 
 def _graph(n=12):
@@ -56,7 +58,7 @@ def test_prepare_matches_original_sampling_rng_order_bandwidth_and_exact_values(
         return result
 
     monkeypatch.setattr(polarization, "get_kde_pdf", fit)
-    expected = distance_collector.calculate(graph, opinions, .45, random_state=31)
+    expected = distance_collector.calculate_indices(MeasurementState.from_graph(graph, opinions), .45, random_state=31, method="exact")
     calculator = kernel.BinnedDistanceCalculator(distance_collector)
     prepared = calculator.prepare(graph, opinions, .45, 31)
     assert [len(values) for values in captured] == [10000] * 4
@@ -65,7 +67,7 @@ def test_prepare_matches_original_sampling_rng_order_bandwidth_and_exact_values(
     assert prepared.opinion.bandwidth == fitted[0].cho_cov[0, 0]
     assert prepared.edge.bandwidth == fitted[1].cho_cov[0, 0]
     ip, isub, diagnostics = calculator.exact(prepared)
-    assert (ip, isub) == (expected.rand_o, expected.rand_s)
+    assert (ip, isub) == expected
     assert diagnostics["method"] == "exact"
 
 
@@ -79,7 +81,7 @@ def test_objective_reference_uses_complete_pairs_not_the_kde_subsample(reference
     assert prepared.objective_separation == expected
     subset = prepared.opinion.samples
     assert float(np.mean(subset[subset >= .45])) != expected
-    np.testing.assert_array_equal(prepared.objective_reference, ideal_dist_worst_obj_array(
+    np.testing.assert_array_equal(prepared.objective_reference, clustered_objective_density(
         reference.axis, expected, 37, reference.min_bandwidth,
     ))
     assert not prepared.opinion.samples.flags.writeable
@@ -99,8 +101,8 @@ def test_experiment_selects_resolutions_and_records_canonical_component_diagnost
     calculator = kernel.BinnedDistanceCalculator(reference)
     prepared = calculator.prepare(_graph(), np.linspace(-1, 1, 12), .45, 0)
     assert prepared.opinion is prepared.objective.density
-    assert prepared.objective_reference is prepared.objective.objective_reference
-    assert prepared.objective_separation == prepared.objective.objective_separation
+    assert prepared.objective_reference is prepared.objective.clustered_reference
+    assert prepared.objective_separation == prepared.objective.separation
     calculator.exact(prepared)
     for bins in kernel.SUPPORTED_BINS:
         _, _, diagnostics = calculator.evaluate(prepared, bins)
@@ -147,10 +149,10 @@ def test_constant_samples_keep_original_fallback_for_every_resolution(reference)
     graph, opinions = _graph(), np.zeros(12)
     calculator = kernel.BinnedDistanceCalculator(reference)
     prepared = calculator.prepare(graph, opinions, .45, 0)
-    expected = reference.calculate(graph, opinions, .45, random_state=0)
+    expected = reference.calculate_indices(MeasurementState.from_graph(graph, opinions), .45, random_state=0, method="exact")
     for bins in kernel.SUPPORTED_BINS:
         ip, isub, diagnostics = calculator.evaluate(prepared, bins)
-        assert (ip, isub) == (expected.rand_o, expected.rand_s)
+        assert (ip, isub) == expected
         assert diagnostics["opinion_constant"] and diagnostics["edge_constant"]
         assert diagnostics["opinion_fft_length"] == diagnostics["edge_fft_length"] == 0
         assert diagnostics["stride"] == (bins - 1) // 255

@@ -8,10 +8,10 @@ import pytest
 
 from common.storage.documents import DocumentStore
 from ehk.metrics.homophily import mean_followee_edge_concordance
-from ehk.micro.observables import calc_active_step, get_gradation_index_hp, get_metric_audit
+from ehk.micro.observables import calc_active_step
+from ehk.metrics.trajectory import pathway_index
 from experiments.paper.analysis.records import ScenarioStatistics, StatisticsStore
 from experiments.paper.analysis.statistics import analysis_protocol
-from experiments.paper.pathway_index.audit import analyze
 
 
 def test_documents_roundtrip_arrays_metadata_nonfinite_and_atomic_upserts(tmp_path):
@@ -41,11 +41,11 @@ def test_documents_roundtrip_arrays_metadata_nonfinite_and_atomic_upserts(tmp_pa
 def test_edge_threshold_and_signed_path_integral_follow_paper_definition():
     graph = nx.DiGraph([(0, 1)])
     assert mean_followee_edge_concordance(graph, np.array([0.0, 0.45]), 0.45) == 0
-    assert get_gradation_index_hp(np.array([0, 0.5, 0.1]), np.array([0, 0, 1])) == pytest.approx(0.7)
-    assert get_gradation_index_hp(
+    assert pathway_index(np.array([0, 0.5, 0.1]), np.array([0, 0, 1])) == pytest.approx(0.7)
+    assert pathway_index(
         np.array([0, 0.5, 0.1]), np.array([0, 0, 1]), endpoint_complement=False
     ) == pytest.approx(-0.2)
-    assert get_gradation_index_hp(np.array([0, 0.2]), np.array([0.5, 0.5])) == pytest.approx(0.5)
+    assert pathway_index(np.array([0, 0.2]), np.array([0.5, 0.5])) == pytest.approx(0.5)
 
 
 def test_activity_uses_terminal_reference_and_falls_back_if_never_crossed():
@@ -61,58 +61,6 @@ def test_activity_already_above_criterion_starts_at_initial_observation():
     assert result[:3] == (0, 0, 1.0)
     np.testing.assert_array_equal(result[3], [1.0])
     assert result[4] == 1.0
-
-
-@pytest.mark.parametrize("endpoint_complement", [True, False])
-def test_raw_metric_audit_preserves_missing_feed_and_separates_conventions(monkeypatch, tmp_path, endpoint_complement):
-    from ehk.micro import observables
-
-    class Raw:
-        metadata = {"HKParams": {"Tolerance": 0.45}}
-
-    monkeypatch.setattr(observables, "calc_distance_components", lambda raw, t: (t / 100, 0.2, 0.1 + t / 100, 0.3))
-    steps = np.array([0, 10, 20])
-    audit = get_metric_audit(
-        Raw(),
-        steps,
-        np.array([0.0, 0.1, 0.2]),
-        np.array([0.1, 0.2, 0.3]),
-        np.array([0.0, 0.5, 1.0]),
-        np.array([np.nan, 0.6, 0.8]),
-        endpoint_complement=endpoint_complement,
-    )
-    assert audit["audit_prefix_start"] == 10
-    assert np.array_equal(audit["audit_missing_steps"], [0])
-    assert np.isnan(audit["legacy_h_index"][0])
-    expected = 0.9 if endpoint_complement else 0.1
-    assert audit["audit_endpoint_complement"] is endpoint_complement
-    assert audit["pathway_variants"]["revised_full_trajectory"] == pytest.approx(expected)
-    assert audit["pathway_variants"]["full_trajectory_with_complement"] == pytest.approx(0.9)
-    assert audit["pathway_variants"]["full_trajectory_without_complement"] == pytest.approx(0.1)
-    path = tmp_path / "stats.sqlite"
-    with StatisticsStore(path) as store:
-        store.put(
-            ScenarioStatistics(
-                name="case",
-                origin="raw",
-                recsys_type="OpinionM9",
-                post_retain_count=0,
-                decay=0.05,
-                rewiring=0.05,
-                repost_rate=0.1,
-                step=20,
-                pathway_integral=expected,
-                endpoint_complement=endpoint_complement,
-                **audit,
-            ),
-            analysis_id="fixture",
-            mode="gradation",
-        )
-    report = analyze(path, [], tmp_path / "audit")
-    assert report["partial_legacy_reconstructions"] == 1
-    assert not report["full_campaign_validated"]
-    assert "not a validated" in report["cutoff_status"]
-    assert (tmp_path / "audit/pathway_group_migration.csv").is_file()
 
 
 def test_document_statistics_reject_legacy_wide_tables(tmp_path):

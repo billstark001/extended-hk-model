@@ -4,7 +4,7 @@ This independent experiment evaluates linear binning and Gaussian convolution fo
 
 The experiment starts only after the baseline collection, alignment and report confirm complete coverage. Its configuration and receipts bind the baseline generation, selected tasks, raw sources and numerical implementation. Original experiment seeds, plans, simulation-binary identities and result files remain unchanged.
 
-`I_w` includes `(1-I_p(T))*I_h(T)` by default in the exact baseline, fixed-grid approximation and independently adaptive approximation. `--no-endpoint-complement` selects the observed integral alone for all three. The selected convention must match the baseline and is recorded in configuration, path outputs and receipts. Historical metric-comparison baselines without this flag are uncompleted and require that explicit option; changing the convention requires a new destination and a matching baseline.
+`I_w` includes `(1-I_p(T))*I_h(T)` by default in the internal exact reference, fixed-grid approximation and independently adaptive approximation. `--no-endpoint-complement` selects the observed integral alone for all three. The selected convention must match the baseline and is recorded in configuration, path outputs and receipts. Historical metric-comparison baselines without this flag are uncompleted and require that explicit option; changing the convention requires a new destination and a matching baseline.
 
 ## Numerical scope
 
@@ -42,3 +42,5 @@ The 16-step observation export is never substituted for the exact adaptive integ
 Kernel benchmarks pair exact and approximate methods on identical prepared states. Preparation and density-evaluation costs are distinguished, and single-candidate timing includes its preparation cost. Cache-validation time from the earlier baseline run is not used as an exact-computation benchmark.
 
 The collection writes per-path receipts, coverage and progress; the report writes error tables, matched intervention comparisons and scientific figures. A report requires complete selected-cohort coverage. Results describe approximation error and measured performance; no candidate automatically becomes the production implementation.
+
+The formal source cohort uses B=4081. This numerical study recomputes exact reference curves from raw history and keeps the formal source values separately in `source_*` columns.

@@ -10,6 +10,7 @@ import pytest
 from ehk.metrics.evaluation import MeasurementEvaluator
 from ehk.metrics.homophily import mean_followee_edge_concordance, normalize_homophily
 from ehk.metrics.polarization import DistanceCalculator
+from ehk.metrics.state import MeasurementState
 
 
 class Record:
@@ -170,13 +171,13 @@ def test_calculator_parameter_change_does_not_reuse_stale_distance_results():
 
 def test_reference_density_mutation_is_part_of_the_distance_cache_identity():
     record = Record()
-    calculator = DistanceCalculator(use_js_divergence=True, min_bandwidth=.01, sample_count=4)
+    calculator = DistanceCalculator(min_bandwidth=.01, sample_count=4)
     evaluator = MeasurementEvaluator(method="exact", calculator=calculator)
     evaluator.distance(record, 1)
-    calculator.o_rand_vals[0] *= 1.001
-    expected = calculator.calculate(record.graph, record.opinions[1], .45, random_state=1)
+    calculator.random_reference[0] *= 1.001
+    expected = calculator.calculate_indices(MeasurementState.from_graph(record.graph, record.opinions[1]), .45, random_state=1, method="exact")
     actual = evaluator.distance(record, 1)
-    np.testing.assert_allclose(actual, [expected.rand_o, expected.rand_s], rtol=1e-13, atol=1e-14)
+    np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-14)
     assert evaluator.cache_info()["opinion"]["misses"] == evaluator.cache_info()["edge"]["misses"] == 2
 
 
@@ -212,12 +213,12 @@ def test_explicit_exact_mode_preserves_old_sampling_with_an_opinion_cache_hit(dt
     opinions = np.random.default_rng(21).uniform(-1, 1, 12).astype(dtype)
     first = Record(nx.DiGraph([(i, (i + 1) % 12) for i in range(12)]), opinions, epsilon=.45)
     second = Record(nx.complete_graph(12, create_using=nx.DiGraph), opinions, epsilon=.45)
-    calculator = DistanceCalculator(use_js_divergence=True, min_bandwidth=.01, sample_count=12, max_kde_samples=37)
+    calculator = DistanceCalculator(min_bandwidth=.01, sample_count=12, max_kde_samples=37)
     evaluator = MeasurementEvaluator(method="exact", calculator=calculator)
     evaluator.point(first, 3)
-    expected = calculator.calculate(second.graph, second.opinions[3], .45, random_state=3)
+    expected = calculator.calculate_indices(MeasurementState.from_graph(second.graph, second.opinions[3]), .45, random_state=3, method="exact")
     actual = evaluator.point(second, 3)
-    np.testing.assert_allclose(actual[:2], [expected.rand_o, expected.rand_s], rtol=1e-13, atol=1e-14)
+    np.testing.assert_allclose(actual[:2], expected, rtol=1e-13, atol=1e-14)
     assert actual[2] == normalize_homophily(mean_followee_edge_concordance(second.graph, second.opinions[3], .45), .45)
     assert evaluator.cache_info()["opinion"]["hits"] == 1
 
@@ -228,7 +229,7 @@ def test_default_binned_mode_matches_the_frozen_experiment_kernel(dtype):
 
     opinions = np.random.default_rng(13).uniform(-1, 1, 12).astype(dtype)
     record = Record(nx.complete_graph(12, create_using=nx.DiGraph), opinions, epsilon=.35)
-    calculator = DistanceCalculator(use_js_divergence=True, min_bandwidth=.01, sample_count=12, max_kde_samples=37)
+    calculator = DistanceCalculator(min_bandwidth=.01, sample_count=12, max_kde_samples=37)
     reference = BinnedDistanceCalculator(calculator)
     prepared = reference.prepare(record.graph, record.opinions[2], .35, 2)
     expected = reference.evaluate(prepared, 4081)
@@ -239,7 +240,7 @@ def test_default_binned_mode_matches_the_frozen_experiment_kernel(dtype):
 
 def test_missing_edges_remain_nonfinite_and_are_not_filled_with_zero():
     record = Record(nx.empty_graph(4, create_using=nx.DiGraph))
-    calculator = DistanceCalculator(use_js_divergence=True, min_bandwidth=.01, sample_count=4)
+    calculator = DistanceCalculator(min_bandwidth=.01, sample_count=4)
     evaluator = MeasurementEvaluator(method="exact", calculator=calculator)
     ip, isub, ih = evaluator.point(record, 0)
     assert np.isfinite(ip) and np.isnan(isub) and np.isnan(ih)
