@@ -222,6 +222,21 @@ def test_explicit_exact_mode_preserves_old_sampling_with_an_opinion_cache_hit(dt
     assert evaluator.cache_info()["opinion"]["hits"] == 1
 
 
+@pytest.mark.parametrize("dtype", [np.float64, np.float32])
+def test_default_binned_mode_matches_the_frozen_experiment_kernel(dtype):
+    from experiments.paper.kde_approximation.kernel import BinnedDistanceCalculator
+
+    opinions = np.random.default_rng(13).uniform(-1, 1, 12).astype(dtype)
+    record = Record(nx.complete_graph(12, create_using=nx.DiGraph), opinions, epsilon=.35)
+    calculator = DistanceCalculator(use_js_divergence=True, min_bandwidth=.01, sample_count=12, max_kde_samples=37)
+    reference = BinnedDistanceCalculator(calculator)
+    prepared = reference.prepare(record.graph, record.opinions[2], .35, 2)
+    expected = reference.evaluate(prepared, 4081)
+    evaluator = MeasurementEvaluator(calculator=calculator)
+    actual = evaluator.point(record, 2)
+    np.testing.assert_allclose(actual[:2], expected[:2], rtol=1e-12, atol=1e-14)
+
+
 def test_missing_edges_remain_nonfinite_and_are_not_filled_with_zero():
     record = Record(nx.empty_graph(4, create_using=nx.DiGraph))
     calculator = DistanceCalculator(use_js_divergence=True, min_bandwidth=.01, sample_count=4)
