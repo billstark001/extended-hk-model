@@ -20,15 +20,28 @@ def normalize_homophily(raw_homophily: float, epsilon: float) -> float:
 
 def mean_followee_edge_concordance(graph, opinions, epsilon: float) -> float:
     """Average each positive-out-degree user's concordant follow-edge fraction."""
+    from .state import MeasurementState
+
+    return mean_state_edge_concordance(MeasurementState.from_graph(graph, opinions), epsilon)
+
+
+def mean_state_edge_concordance(state, epsilon: float) -> float:
+    """Reuse a measurement state's edge distances and positive out-degrees.
+
+    Historical float32 opinions are promoted before subtracting, as in the
+    original homophily calculation. Float64 state measurements reuse the same
+    edge-distance array as the distance indices.
+    """
     import numpy as np
 
-    edges = np.asarray(list(graph.edges), dtype=int).reshape(-1, 2)
+    edges = state.edges
     if not len(edges):
         return float("nan")
-    x = np.asarray(opinions, dtype=float)
+    x = np.asarray(state.opinions, dtype=float)
     sources, targets = edges.T
-    concordant = np.abs(x[sources] - x[targets]) < epsilon
-    degree = np.bincount(sources)
-    close = np.bincount(sources, weights=concordant)
+    distances = state.edge_distances if state.opinions.dtype == x.dtype else np.abs(x[sources] - x[targets])
+    concordant = distances < epsilon
+    degree = state.out_degree
+    close = np.bincount(sources, weights=concordant, minlength=len(degree))
     valid = degree > 0
     return float(np.mean(close[valid] / degree[valid]))
