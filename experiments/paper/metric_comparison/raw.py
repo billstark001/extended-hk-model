@@ -6,8 +6,9 @@ import inspect
 import json
 import re
 import sys
+import threading
 import time
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 
 import numpy as np
@@ -16,7 +17,7 @@ import scipy
 
 from common.experiments.lifecycle import interruptible, session_lock
 from common.experiments.plans import freeze_manifest
-from common.experiments.progress import Progress
+from common.experiments.progress import Progress, duration
 from common.io.json import atomic_json, fingerprint, sha
 from common.runtime.process import run_tasks
 from common.storage.documents import DocumentWrite, DocumentWriter, encode_document
@@ -153,6 +154,36 @@ def _raw_sources(directory):
     return {path.name: sha(path) for path in sorted(files)}
 
 
+@dataclass
+class PathHeartbeat:
+    label: str
+    phase: str = "reading saved history"
+    step: int = 0
+    queries: int = 0
+    _started: float = field(init=False)
+    _stop: threading.Event = field(init=False, repr=False)
+    _thread: threading.Thread = field(init=False, repr=False)
+
+    def __enter__(self):
+        self._started = time.monotonic()
+        self._stop = threading.Event()
+        def tick():
+            while not self._stop.wait(10):
+                print(f"PATH {self.label} | {self.phase} | step {self.step} | queries {self.queries} | "
+                      f"elapsed {duration(time.monotonic() - self._started)}", file=sys.stderr, flush=True)
+        self._thread = threading.Thread(target=tick, daemon=True)
+        self._thread.start()
+        return self
+
+    def sample(self, step):
+        self.step = int(step)
+        self.queries += 1
+
+    def __exit__(self, *args):
+        self._stop.set()
+        self._thread.join()
+
+
 def _measure(directory: Path, path: PreparedPath, points: tuple[PreparedPoint, ...], metrics=None,
              *, endpoint_complement=True) -> PathMeasurement:
     from smp_bindings import RawSimulationRecord
@@ -161,21 +192,25 @@ def _measure(directory: Path, path: PreparedPath, points: tuple[PreparedPoint, .
     metrics = metrics or MeasurementEvaluator()
     metadata = _validate_raw(directory, path, points)
     identity = path.identity
-    with RawSimulationRecord(str(directory.parent), metadata) as saved:
+    with PathHeartbeat(path.key.label) as heartbeat, RawSimulationRecord(str(directory.parent), metadata) as saved:
         record = MeasurementRecord.from_saved_record(saved)
         if record.max_step != path.end_step:
             raise ValueError("raw trajectory has a different final step")
+        heartbeat.phase = "prepared observations"
         values = []
         for point in points:
             step = point.step
             ip, isub, ih = metrics.point(record, step)
+            heartbeat.sample(step)
             if not np.isfinite([ip, isub, ih]).all():
                 raise ValueError(f"existing metric is not finite at step {step}")
             values.append(MetricPoint(identity.profile, identity.task_id, identity.stage, identity.arm,
                                       identity.plan_fingerprint, identity.binary_sha256, identity.raw_record,
                                       step, float(ip), float(isub), float(ih)))
+        heartbeat.phase = "adaptive full-prefix trajectory"
         def point(step):
             result = metrics.point(record, int(step))
+            heartbeat.sample(step)
             return result
         steps, h, p, _ = sample_indices(record.max_step, point)
         if not len(steps) or int(steps[0]) != 0 or int(steps[-1]) != record.max_step:
@@ -301,6 +336,14 @@ def collect_raw(preparation, output, *, max_paths=None, raw_roots=None, workers=
                           event=lambda job, state, **details: terminal_progress.event(job.paths[0].path.key.label, state))
         except BaseException as error:
             failure = error
+        # A cache hit changes execution progress, not the committed scientific generation.
+        previous_path = output / "collection.json"
+        if failure is None and len(outcomes) == len(paths) and all(item.status == "cached" for item in outcomes.values()) and previous_path.is_file():
+            previous = core.load_contract(previous_path, CollectionManifest)
+            if previous.status == "complete" and previous.preparation_fingerprint == configuration.preparation_fingerprint:
+                core._authenticate_files(output, previous)
+                progress("complete")
+                return previous
         all_points, all_paths, statuses = [], [], []
         for path in selected_paths:
             identity = path.identity

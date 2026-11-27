@@ -1,7 +1,9 @@
 """Persistent paired execution, independent of any scientific study protocol."""
 
 from pathlib import Path
+import sys
 
+from common.experiments.progress import Progress
 from dataclasses import replace
 
 from common.experiments.execution import TaskAdapter, execute_tasks
@@ -145,15 +147,17 @@ def run_dataset(directory, binary, workers, *, plan_factory, binding_factory, ta
 
         def execute() -> RunStatus:
             state = "complete"
+            progress = Progress(len(tasks), stream=sys.stderr)
             try:
                 pending = []
                 for task in tasks:
                     if cached(task):
                         journal.event(task.id, "cached")
+                        progress.event(task.id, "cached")
                     else:
                         pending.append(task)
                 adapter = TaskAdapter(lambda task: task.id, cached, run, save)
-                execute_tasks(pending, adapter, workers=workers, journal=journal, raise_failures=False)
+                execute_tasks(pending, adapter, workers=workers, journal=journal, progress=progress, raise_failures=False)
             except BaseException as error:
                 state = "interrupted" if isinstance(error, KeyboardInterrupt) else "failed"
                 raise

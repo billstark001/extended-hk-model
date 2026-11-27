@@ -38,7 +38,11 @@ def test_control_analysis_records_the_selected_endpoint_policy_and_resumes(tmp_p
         np.array([0,8]),np.array([.25,.5]),np.array([.3,.5]),np.array([.4,.6])))
     first = study.analyze(tmp_path, endpoint_complement=endpoint_complement)
     assert first.arms == 1
+    study.analyze(tmp_path, endpoint_complement=endpoint_complement)
     assert calls == ["compute"]
+    (raw / "additional-channel.dat").write_bytes(b"source changed")
+    study.analyze(tmp_path, endpoint_complement=endpoint_complement)
+    assert calls == ["compute","compute"]
     saved = pd.read_csv(tmp_path / "analysis/pathway_integrals.csv").iloc[0]
     assert saved["I_w"] == pytest.approx(expected)
     assert bool(saved["endpoint_complement"]) == endpoint_complement
@@ -53,7 +57,7 @@ def test_control_cli_defaults_to_complement_and_can_disable_it(tmp_path,monkeypa
     calls=[]
     monkeypatch.setattr(cli,"analyze",lambda *args,**kwargs:calls.append((args,kwargs)))
     cli.main(["analyze","--directory",str(tmp_path),*flag])
-    assert calls==[((tmp_path,),{"endpoint_complement":expected})]
+    assert calls==[((tmp_path,),{"endpoint_complement":expected,"concurrency":4,"force":False})]
 
 
 def test_snapshot_plot_reads_analyzed_sqlite_with_raw_checkpoints_disconnected(tmp_path,monkeypatch):

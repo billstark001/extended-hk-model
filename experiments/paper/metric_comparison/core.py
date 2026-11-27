@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
+import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pandas as pd
 
+from common.experiments.artifacts import ArtifactCache
 from common.experiments.lifecycle import session_lock
 from common.experiments.plans import freeze_manifest
+from common.experiments.progress import Progress
 from common.io.json import atomic_json, canonical, fingerprint, sha
 from common.storage.documents import DocumentWriter, encode_document
 from ehk.domain import (
@@ -206,7 +210,7 @@ def _export_frame(output, name, frame, *, writer=None):
 
 
 def prepare(bundles, output, *, raw_roots=None) -> PreparationManifest:
-    """Extract typed records into a fresh preparation without running a simulation."""
+    """Resume per-task extraction; no raw trajectory or metric calculation runs."""
     from experiments.paper.recommendation_shared import storage
     import ehk.domain
     import smp_bindings.domain
@@ -214,9 +218,13 @@ def prepare(bundles, output, *, raw_roots=None) -> PreparationManifest:
     output = Path(output).expanduser().resolve()
     roots = {profile: str(Path(root).expanduser().resolve()) for profile, root in (raw_roots or {}).items()}
     layouts = []
+    verification = Progress(len(bundles), stream=sys.stderr)
     for source in bundles:
+        label = str(source)
+        verification.event(label, "running")
         base = _bundle_layout(source)
         layouts.append(replace(base, raw_root=Path(roots.get(base.plan.profile, str(base.raw_root)))))
+        verification.event(label, "complete")
     if not layouts or set(roots) - {layout.plan.profile for layout in layouts}:
         raise ValueError("at least one bundle and only selected raw-root profiles are required")
     identities = [(layout.plan.profile, task.id) for layout in layouts for task in layout.plan.tasks]
@@ -225,30 +233,57 @@ def prepare(bundles, output, *, raw_roots=None) -> PreparationManifest:
     inputs = PreparationInputs(1, tuple(PreparationInput(str(item.bundle), sha(item.manifest_path), item.plan.plan_fingerprint)
                                        for item in layouts), roots, sha(__file__),
         {str(Path(module.__file__).resolve()): sha(module.__file__) for module in (storage,ehk.domain,smp_bindings.domain)})
-    if output.exists() and any(output.iterdir()):
-        raise ValueError("preparation output already exists; select a new destination")
+    if output.exists() and any(output.iterdir()) and not (output / "preparation_inputs.json").is_file():
+        raise ValueError("output already exists without matching preparation inputs; select a new destination")
     output.mkdir(parents=True, exist_ok=True)
     all_points, all_paths, all_tasks, sources = [], [], [], []
+    extraction_changed = False
+    progress = Progress(len(identities), stream=sys.stderr)
     with session_lock(output / "runtime"), DocumentWriter(output / "analysis.sqlite") as writer:
         freeze_manifest(output / "preparation_inputs.json", inputs)
         for layout in layouts:
             available, missing = 0, []
             with StudyStore(layout.study, readonly=True) as store:
                 for task in layout.plan.tasks:
-                    saved = store.get_task(task, layout.plan)
-                    task_row = PreparedTaskRow(layout.plan.profile, task.id, layout.plan.plan_fingerprint,
-                                               fingerprint(task), canonical(task.metadata))
-                    extracted = (PreparedTaskCheckpoint(fingerprint(inputs), fingerprint(task), False, task_row, (), ())
-                                 if saved is None else _prepare_task(layout, task, saved.result, fingerprint(inputs)))
+                    label = f"{layout.plan.profile}/{task.id}"
+                    progress.event(label, "running")
+                    key = fingerprint((fingerprint(inputs), layout.plan.plan_fingerprint, task.id))
+                    document = writer.get("metric_comparison.prepare_tasks", key)
+                    cached = document is not None
+                    if cached:
+                        extracted = parse_dataclass(PreparedTaskCheckpoint, document)
+                    else:
+                        saved = store.get_task(task, layout.plan)
+                        task_row = PreparedTaskRow(layout.plan.profile, task.id, layout.plan.plan_fingerprint,
+                                                   fingerprint(task), canonical(task.metadata))
+                        extracted = (PreparedTaskCheckpoint(fingerprint(inputs), fingerprint(task), False, task_row, (), ())
+                                     if saved is None else _prepare_task(layout, task, saved.result, fingerprint(inputs)))
+                        writer.put("metric_comparison.prepare_tasks", key, extracted)
+                    from .raw import _required_files
+                    refreshed = tuple(replace(path,available=not (missing_files := _required_files(Path(path.raw_directory))),
+                        missing_files=canonical(missing_files)) for path in extracted.paths)
+                    if refreshed != extracted.paths:
+                        extracted=replace(extracted,paths=refreshed)
+                        writer.put("metric_comparison.prepare_tasks",key,extracted)
+                        extraction_changed=True
+                    extraction_changed |= not cached
+                    if extracted.input_fingerprint != fingerprint(inputs) or extracted.task_fingerprint != fingerprint(task):
+                        raise ValueError("preparation checkpoint differs from the frozen inputs")
                     all_tasks.append(extracted.task)
                     all_points.extend(extracted.points)
                     all_paths.extend(extracted.paths)
                     available += extracted.available
                     if not extracted.available:
                         missing.append(task.id)
+                    progress.event(label, "cached" if cached else "complete")
             sources.append(PreparationSource(str(layout.bundle), str(layout.manifest_path), sha(layout.manifest_path),
                            layout.plan.plan_fingerprint, layout.plan.profile, len(layout.plan.tasks), available,
                            tuple(missing), str(layout.raw_root), layout.binding))
+        previous_path=output/"preparation.json"
+        if not extraction_changed and previous_path.is_file():
+            previous=load_contract(previous_path,PreparationManifest)
+            _authenticate_files(output,previous)
+            return previous
         _export_frame(output, "points.csv.gz", rows_frame(all_points, PreparedPoint).reindex(columns=POINT_FIELDS), writer=writer)
         _export_frame(output, "paths.csv", rows_frame(all_paths, PreparedPath).reindex(columns=PATH_FIELDS), writer=writer)
         _export_frame(output, "tasks.csv", rows_frame(all_tasks, PreparedTaskRow), writer=writer)
@@ -320,29 +355,34 @@ def compare(preparation, collection, output) -> ComparisonManifest:
     if source.preparation_sha256 != sha(preparation / "preparation.json"):
         raise ValueError("canonical collection belongs to a different preparation")
     inputs = ComparisonInputs(sha(preparation / "preparation.json"), sha(collection / "collection.json"), sha(__file__))
-    if output.exists() and any(output.iterdir()):
-        raise ValueError("alignment output already exists; select a new destination")
+    if output.exists() and any(output.iterdir()) and not (output / "comparison_inputs.json").is_file():
+        raise ValueError("output already exists without matching comparison inputs")
     output.mkdir(parents=True, exist_ok=True)
     with session_lock(output / "runtime"):
         freeze_manifest(output / "comparison_inputs.json", inputs)
-        coverage = {}
-        status = "complete"
-        for name, expected, keys, metrics in (
-            ("points", _read_points(preparation), POINT_KEYS, POINT_METRICS),
-            ("paths", read_table(preparation, "paths.csv"), PATH_KEYS, PATH_METRICS),
-        ):
-            table = "indices.csv.gz" if name == "points" else "pathways.csv"
-            incoming = _validate_measurements(read_table(collection, table), expected, keys, metrics,
-                paths=name == "paths", endpoint_complement=source.endpoint_complement)
-            joined = expected.merge(incoming[[*keys, *metrics]], on=keys, how="left", validate="one_to_one", indicator="metric_coverage")
-            _export_frame(output, f"{name}_aligned.csv.gz", joined)
-            pending = int((joined["metric_coverage"] != "both").sum())
-            coverage[name] = Coverage(len(expected), len(incoming), pending)
-            if pending:
-                status = "pending_metrics"
-        result = ComparisonManifest(schema=SCHEMA, status=status, coverage=coverage,
-            endpoint_complement=source.endpoint_complement, preparation_sha256=inputs.preparation_sha256,
-            collection_sha256=inputs.collection_sha256,
-            files={path.name: sha(path) for path in output.iterdir() if path.is_file()})
-        atomic_json(output / "comparison.json", result)
-        return result
+        def produce(stage):
+            coverage = {}
+            status = "complete"
+            for name, expected, keys, metrics in (
+                ("points", _read_points(preparation), POINT_KEYS, POINT_METRICS),
+                ("paths", read_table(preparation, "paths.csv"), PATH_KEYS, PATH_METRICS),
+            ):
+                table = "indices.csv.gz" if name == "points" else "pathways.csv"
+                incoming = _validate_measurements(read_table(collection, table), expected, keys, metrics,
+                    paths=name == "paths", endpoint_complement=source.endpoint_complement)
+                joined = expected.merge(incoming[[*keys, *metrics]], on=keys, how="left", validate="one_to_one", indicator="metric_coverage")
+                _export_frame(stage, f"{name}_aligned.csv.gz", joined)
+                pending = int((joined["metric_coverage"] != "both").sum())
+                coverage[name] = Coverage(len(expected), len(incoming), pending)
+                if pending:
+                    status = "pending_metrics"
+            result = ComparisonManifest(schema=SCHEMA, status=status, coverage=coverage,
+                endpoint_complement=source.endpoint_complement, preparation_sha256=inputs.preparation_sha256,
+                collection_sha256=inputs.collection_sha256,
+                files={path.name: sha(path) for path in stage.iterdir() if path.is_file()})
+            atomic_json(stage / "comparison.json", result)
+        artifact = ArtifactCache(output / "runtime/cache").materialize("comparison", inputs, produce)
+        for path in artifact.iterdir():
+            if path.is_file() and path.name != "artifact.json":
+                shutil.copy2(path, output / path.name)
+        return load_contract(output / "comparison.json", ComparisonManifest)

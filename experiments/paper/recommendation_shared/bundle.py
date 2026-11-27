@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ehk.domain import BundleManifest, Plan, parse_dataclass, read_plan
 from common.io.json import atomic_json, sha
+from common.experiments.lifecycle import session_lock
 from common.storage.documents import DocumentStore, DocumentWriter
 
 from .analysis import read_study
@@ -57,6 +58,11 @@ def export_bundle(dataset, output, *, require_complete=False):
     if not records:
         raise ValueError("no completed recommendation arms")
     output.mkdir(parents=True, exist_ok=True)
+    with session_lock(output / "runtime"):
+        return _export_locked(dataset, output, plan, require_complete=require_complete)
+
+
+def _export_locked(dataset, output, plan, *, require_complete):
     _recover_data(output)
     stage = Path(tempfile.mkdtemp(prefix=".export-", dir=output))
     try:
@@ -102,15 +108,16 @@ def export_bundle(dataset, output, *, require_complete=False):
 
 def read_bundle_manifest(bundle):
     bundle = Path(bundle).resolve()
-    _recover_data(bundle)
-    manifest = parse_dataclass(BundleManifest, json.loads((bundle / "data/manifest.json").read_text()))
-    if manifest.schema != SCHEMA:
-        raise ValueError("unsupported manuscript data schema")
-    for relative, expected in manifest.files.items():
-        path = bundle / "data" / relative
-        if not path.resolve().is_relative_to((bundle / "data").resolve()) or sha(path) != expected:
-            raise ValueError(f"portable data changed: {relative}")
-    return manifest
+    with session_lock(bundle / "runtime"):
+        _recover_data(bundle)
+        manifest = parse_dataclass(BundleManifest, json.loads((bundle / "data/manifest.json").read_text()))
+        if manifest.schema != SCHEMA:
+            raise ValueError("unsupported manuscript data schema")
+        for relative, expected in manifest.files.items():
+            path = bundle / "data" / relative
+            if not path.resolve().is_relative_to((bundle / "data").resolve()) or sha(path) != expected:
+                raise ValueError(f"portable data changed: {relative}")
+        return manifest
 
 
 def main(argv=None):

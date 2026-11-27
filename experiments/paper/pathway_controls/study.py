@@ -5,8 +5,10 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+from common.experiments.execution import TaskAdapter, execute_tasks
 from common.experiments.lifecycle import interruptible, session_lock
 from common.experiments.plans import freeze_manifest
+from common.experiments.progress import Progress
 from common.io.json import fingerprint, sha
 from common.storage.documents import DocumentStore, DocumentWriter
 from ehk.domain import FullResult, freeze_plan, parse_dataclass, parse_metadata, read_plan, rows_frame
@@ -93,14 +95,24 @@ def export_snapshots(directory) -> SnapshotIndex:
     directory = Path(directory).resolve()
     plan = read_plan(directory / "plan.json")
     rows = []
+    meter = Progress(len(plan.tasks))
     with DocumentStore(directory / "analysis.sqlite") as store:
+        previous = store.get("controls.index", plan.plan_fingerprint)
+        retained = {} if previous is None else {row.snapshot_key: row for row in parse_dataclass(SnapshotIndex, previous).snapshots}
         for task in plan.tasks:
+            meter.event(task.id, "running")
             _initial_pair(directory, task, ARMS)
             for arm in ARMS:
                 for step in plan.protocol.snapshot_steps:
                     source = _checkpoint(directory, task, arm, step)
                     source_hash = sha(source)
                     key = fingerprint([plan.plan_fingerprint, task.id, arm, step])
+                    cached = retained.get(key)
+                    if cached is not None and cached.checkpoint_sha256 == source_hash:
+                        saved = store.get("controls.snapshots", key)
+                        if saved is not None and fingerprint(parse_dataclass(SnapshotInput, saved)) == cached.state_fingerprint:
+                            rows.append(cached)
+                            continue
                     snapshot = snapshot_input(source)
                     if sha(source) != source_hash:
                         raise RuntimeError(f"control checkpoint changed during export: {source}")
@@ -109,6 +121,7 @@ def export_snapshots(directory) -> SnapshotIndex:
                     store.put("controls.snapshots", key, snapshot)
                     rows.append(SnapshotEntry(task.id, task.coordinates.case, task.coordinates.replicate, arm, step,
                         source.relative_to(directory).as_posix(), source_hash, key, fingerprint(snapshot)))
+            meter.event(task.id, "complete")
         index = SnapshotIndex(1, plan.plan_fingerprint, tuple(rows))
         store.put("controls.index", plan.plan_fingerprint, index)
     return index
@@ -142,11 +155,13 @@ def _compute_arm(job: ArmJob) -> ArmMeasurement:
     return ArmMeasurement(job.identity, rows, integral)
 
 
-def analyze(directory, *, endpoint_complement=True):
-    """Compute typed per-arm results serially and persist them in SQLite."""
+def analyze(directory, *, endpoint_complement=True, concurrency=1, force=False):
+    """Resume verified per-arm results; parallel workers never open the output DB."""
     from ehk.micro import observables
     from ehk.metrics.protocol import metric_protocol
 
+    if type(concurrency) is not int or concurrency < 1:
+        raise ValueError("positive analysis concurrency required")
     directory = Path(directory).resolve()
     output = directory / "analysis"
     with session_lock(output / "runtime"), interruptible():
@@ -168,10 +183,20 @@ def analyze(directory, *, endpoint_complement=True):
                                    plan.protocol.horizon, endpoint_complement, identity, fingerprint(identity)))
         completed: dict[str, ArmMeasurement] = {}
         with DocumentWriter(output / "analysis.sqlite") as store:
-            for job in jobs:
-                record = _compute_arm(job)
+            def cached(job):
+                saved = store.get("controls.arm_metrics", job.key)
+                if saved is None:
+                    return False
+                record = parse_dataclass(ArmMeasurement, saved)
+                if record.identity != job.identity:
+                    raise ValueError(f"control cached identity differs: {job.id}")
+                completed[job.id] = record
+                return True
+            def save(job, record):
                 store.put("controls.arm_metrics", job.key, record)
                 completed[job.id] = record
+            execute_tasks(jobs, TaskAdapter(lambda job: job.id, cached, _compute_arm, save),
+                          workers=concurrency, executor="process" if concurrency > 1 else "thread", force=force)
             rows = [row for job in jobs for row in completed[job.id].indices]
             summaries = [completed[job.id].integral for job in jobs]
             receipt = MetricReceipt(plan.plan_fingerprint, len(index.snapshots), sha(observables.__file__), None,

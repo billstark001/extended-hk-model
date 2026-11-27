@@ -27,7 +27,10 @@ class Progress:
         with self.lock:
             now = self.clock()
             if state == "running":
-                self.starts.setdefault(identifier, now)
+                if identifier not in self.starts:
+                    self.starts[identifier] = now
+                    print(f"RUN [{len(self.finished)}/{self.total}] {identifier} | running",
+                          file=self.stream, flush=True)
                 return
             if state not in ("complete", "cached", "failed", "deferred") or identifier in self.finished:
                 return

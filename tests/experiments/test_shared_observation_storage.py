@@ -132,6 +132,19 @@ def test_explicit_import_canonicalizes_windows_relative_paths(tmp_path):
     assert sha(record) == original
 
 
+def test_bundle_export_and_manifest_validation_share_one_exclusive_session(tmp_path, monkeypatch):
+    from experiments.paper.recommendation_shared import bundle
+
+    source, output = tmp_path / "source", tmp_path / "bundle"
+    task, plan, _, result = fixture_study(source)
+    monkeypatch.setattr(bundle, "read_study", lambda directory: (plan, {task.id: result}))
+    with session_lock(output / "runtime"):
+        with pytest.raises(RuntimeError, match="already active"):
+            bundle.export_bundle(source, output)
+        with pytest.raises(RuntimeError, match="already active"):
+            bundle.read_bundle_manifest(output)
+    assert not (output / "data").exists()
+    assert not list(output.glob(".export-*"))
 
 
 @pytest.mark.parametrize("corruption", ["task_schema", "task_id", "task_plan", "arm_key", "arm_schema", "arm_id", "arm_plan", "arm_stage", "arm_name"])

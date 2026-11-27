@@ -197,7 +197,7 @@ def test_receipt_recovery_does_not_repeat_computation(tmp_path, evidence, monkey
     monkeypatch.setattr(collector, "_measure_path", lambda *args: pytest.fail("completed path was recalculated"))
     result = collector.collect(preparation, baseline, output, **options)
     assert result.status == "complete"
-    assert all(row.status == "cached" for row in result.paths)
+    assert all(row.status == "complete" for row in result.paths)
     with DocumentStore(output / "analysis.sqlite", readonly=True) as store:
         assert list(store.values("kde_approximation.paths")) == original
 
@@ -391,3 +391,30 @@ def KdeReportFixture():
         endpoint_complement=True,selected_tasks=1,selected_paths=1,baseline_paths=1,baseline_points=2,bins=(1021,),
         measured_rows=6,preparation_sha256="p",baseline_report_sha256="b",collection_sha256="c",configuration_sha256="f",
         report_source_sha256="r",paired_analysis_source_sha256="a")
+
+
+def test_completed_paired_timings_survive_failure_before_path_commit(tmp_path,evidence,monkeypatch):
+    preparation,baseline,_=evidence
+    output=tmp_path/"recover-timing"
+    original_measure,original_timing=collector._measure_path,collector._timing
+    timing_calls=[]
+    def measured(*args,**kwargs):
+        timing_calls.append(args[1])
+        return original_timing(*args,**kwargs)
+    def interrupted(*args,**kwargs):
+        original_measure(*args,**kwargs)
+        raise KeyboardInterrupt("after timing, before receipt commit")
+    monkeypatch.setattr(collector,"_timing",measured)
+    monkeypatch.setattr(collector,"_measure_path",interrupted)
+    with pytest.raises(KeyboardInterrupt,match="before receipt"):
+        collector.collect(preparation,baseline,output,workers=1,benchmark_states=2,repeats=1)
+    before=len(timing_calls)
+    assert before>0
+    with DocumentStore(output/"analysis.sqlite",readonly=True) as store:
+        assert list(store.values("kde_approximation.paths"))==[]
+    monkeypatch.setattr(collector,"_measure_path",original_measure)
+    result=collector.collect(preparation,baseline,output,workers=1,benchmark_states=2,repeats=1)
+    assert result.status=="complete" and len(timing_calls)==before
+    timings=pd.read_csv(output/"benchmarks.csv")
+    assert not timings.empty and set(timings.bins)==set(collector.DEFAULT_BINS)
+    assert not timings.duplicated(["same_input_sha","repeat","bins"]).any()

@@ -9,8 +9,11 @@ import numpy as np
 import pandas as pd
 
 from dataclasses import fields
+import shutil
 
+from common.experiments.artifacts import ArtifactCache
 from common.experiments.lifecycle import session_lock
+from common.experiments.plans import freeze_manifest
 from common.experiments.progress import Progress
 import sys
 from ehk.domain import TerminalResult, parse_dataclass, rows_frame, to_wire
@@ -500,14 +503,25 @@ def _produce_report(preparation, comparison, output, *, make_figures=True, allow
 
 
 def report(preparation, comparison, output, *, make_figures=True, allow_partial=False):
-    """Produce an authenticated report in a fresh destination."""
+    """Resume an authenticated report generation using the common artifact cache."""
     output = Path(output).resolve()
     load_aligned(preparation, comparison, allow_partial=allow_partial)
-    if output.exists() and any(output.iterdir()):
-        raise ValueError("report output already exists; select a new destination")
+    inputs = ReportInputs(sha(Path(preparation) / "preparation.json"), sha(Path(comparison) / "comparison.json"),
+        {str(Path(inspect.getfile(helper)).resolve()): sha(inspect.getfile(helper))
+         for helper in (report,opinion_peak_count,first_passage,mean_interval)},
+        make_figures, allow_partial)
+    if output.exists() and any(output.iterdir()) and not (output / "report_inputs.json").is_file():
+        raise ValueError("report output already exists without matching inputs")
     output.mkdir(parents=True, exist_ok=True)
     with session_lock(output / "runtime"):
-        return _produce_report(preparation, comparison, output, make_figures=make_figures, allow_partial=allow_partial)
+        freeze_manifest(output / "report_inputs.json", inputs)
+        def produce(stage):
+            _produce_report(preparation, comparison, stage, make_figures=make_figures, allow_partial=allow_partial)
+        artifact = ArtifactCache(output / "runtime/cache").materialize("report", inputs, produce)
+        for path in artifact.iterdir():
+            if path.is_file() and path.name != "artifact.json":
+                shutil.copy2(path, output / path.name)
+        return load_contract(output / "report.json", ReportManifest)
 
 
 def main(argv=None):

@@ -9,6 +9,9 @@ import inspect
 import json
 from pathlib import Path
 from dataclasses import dataclass, fields
+import shutil
+from common.experiments.artifacts import ArtifactCache
+from common.experiments.plans import freeze_manifest
 from common.experiments.lifecycle import session_lock
 from ehk.domain import rows_frame, to_wire
 from experiments.paper.metric_comparison.core import load_contract
@@ -491,14 +494,24 @@ def _produce_report(preparation, baseline_report, collection, output, *, make_fi
 
 
 def report(preparation,baseline_report,collection,output,*,make_figures=True,allow_partial=False):
-    """Produce an authenticated report in a fresh destination."""
     output = Path(output).resolve()
-    load_inputs(preparation, baseline_report, collection, allow_partial=allow_partial)
-    if output.exists() and any(output.iterdir()):
-        raise ValueError("report output already exists; select a new destination")
-    output.mkdir(parents=True, exist_ok=True)
-    with session_lock(output / "runtime"):
-        return _produce_report(preparation, baseline_report, collection, output, make_figures=make_figures, allow_partial=allow_partial)
+    load_inputs(preparation,baseline_report,collection,allow_partial=allow_partial)
+    inputs = ReportInputs(sha(Path(preparation)/"preparation.json"),sha(Path(collection)/"collection.json"),
+        {str(Path(inspect.getfile(mean_interval)).resolve()):sha(inspect.getfile(mean_interval)),
+         str(Path(__file__).resolve()):sha(__file__),str(Path(baseline_report)/"report.json"):sha(Path(baseline_report)/"report.json")},
+        make_figures,allow_partial)
+    if output.exists() and any(output.iterdir()) and not (output/"report_inputs.json").is_file():
+        raise ValueError("report output already exists without matching inputs")
+    output.mkdir(parents=True,exist_ok=True)
+    with session_lock(output/"runtime"):
+        freeze_manifest(output/"report_inputs.json",inputs)
+        def produce(stage):
+            _produce_report(preparation,baseline_report,collection,stage,make_figures=make_figures,allow_partial=allow_partial)
+        artifact = ArtifactCache(output/"runtime/cache").materialize("report",inputs,produce)
+        for path in artifact.iterdir():
+            if path.is_file() and path.name != "artifact.json":
+                shutil.copy2(path,output/path.name)
+        return load_contract(output/"report.json",Report)
 
 
 def main(argv=None):

@@ -138,8 +138,10 @@ def test_report_authenticates_counts_and_never_fills_unmeasured_candidate_states
     assert all(sha(destination / name) == expected for name, expected in result.files.items())
     assert "没有据此宣布科学结论等价" in (destination / "report.md").read_text(encoding="utf-8")
     assert "不能外推整轮加速" in (destination / "report.md").read_text(encoding="utf-8")
-    with pytest.raises(ValueError, match="already exists"):
-        report(prep, baseline, collection, destination, make_figures=False)
+    def forbidden(*args,**kwargs):
+        pytest.fail("resuming the authenticated report started a new calculation")
+    monkeypatch.setattr("experiments.paper.kde_approximation.report._produce_report",forbidden)
+    assert report(prep,baseline,collection,destination,make_figures=False) == result
 
 
 def test_fixed_and_adaptive_errors_and_step_changes_remain_separate(tmp_path):

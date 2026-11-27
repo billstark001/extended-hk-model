@@ -238,6 +238,7 @@ class SharedInputs:
         self.inputs = OrderedDict()
         self.prepare_seconds = 0.
         self.evaluate_seconds = dict.fromkeys(bins, 0.)
+        self.benchmarks = OrderedDict()
 
     def prepare_state(self, state, step, epsilon):
         from ehk.metrics.homophily import mean_state_edge_concordance, normalize_homophily
@@ -322,13 +323,15 @@ def _measure_path(entry: PathEntry, bins, repeats, shared, evaluators, *, endpoi
     prepared_steps = tuple(point.step for point in baseline_points)
     source_points = {point.step: (point.I_p, point.I_s, point.I_h) for point in baseline_points}
     rows, path_rows, timings = [], [], []
-    with RawSimulationRecord(str(directory.parent), metadata) as saved:
+    with raw.PathHeartbeat(identity.label) as heartbeat, RawSimulationRecord(str(directory.parent), metadata) as saved:
         record = MeasurementRecord.from_saved_record(saved)
         for evaluator in evaluators.values():
             evaluator.diagnostics.clear()
         started_reference = time.perf_counter()
         reference = MeasurementEvaluator(method="exact", calculator=shared.calculator.reference)
+        heartbeat.phase = "exact reference adaptive grid"
         def exact_point(step):
+            heartbeat.sample(step)
             return reference.point(record, int(step))
         baseline_steps, h, p, s = sample_indices(record.max_step, exact_point)
         baseline_steps = tuple(int(step) for step in baseline_steps)
@@ -343,9 +346,11 @@ def _measure_path(entry: PathEntry, bins, repeats, shared, evaluators, *, endpoi
             started_path = time.perf_counter()
             before_prepare, before_evaluate = shared.prepare_seconds, shared.evaluate_seconds[resolution]
             point_values = {}
+            heartbeat.phase = f"B={resolution} frozen grids"
             for grid, steps in (("prepared", prepared_steps), ("baseline_adaptive", baseline_steps)):
                 for step in steps:
                     values = evaluator.point(record, step)
+                    heartbeat.sample(step)
                     point_values[step] = values
                     reference_values = exact[step]
                     if values[2] != reference_values[2]:
@@ -354,7 +359,9 @@ def _measure_path(entry: PathEntry, bins, repeats, shared, evaluators, *, endpoi
                     rows.append(PointRow(identity.profile, identity.task_id, identity.stage, identity.arm,
                         resolution, step, grid, *reference_values, *source_points.get(step, (None, None, None)),
                         *values, detail.diagnostic, detail.same_input_sha))
+            heartbeat.phase = f"B={resolution} independent adaptive grid"
             def candidate_point(step):
+                heartbeat.sample(step)
                 return evaluator.point(record, int(step))
             steps, h, p, s = sample_indices(record.max_step, candidate_point)
             for index, step in enumerate(steps):
@@ -375,8 +382,18 @@ def _measure_path(entry: PathEntry, bins, repeats, shared, evaluators, *, endpoi
                 active_threshold, fixed_threshold, adaptive_threshold, "measured", extra_calls, extra_seconds,
                 shared.prepare_seconds - before_prepare, shared.evaluate_seconds[resolution] - before_evaluate,
                 time.perf_counter() - started_path))
+        heartbeat.phase = "paired kernel timing"
         for step in entry.benchmark_steps:
-            timings.extend(_timing(record, step, bins, repeats, shared.calculator, identity))
+            key = _state_key(record, step)
+            if key not in shared.benchmarks:
+                # Only complete paired measurements enter the worker-local cache.
+                shared.benchmarks[key]=tuple(_timing(record,step,bins,repeats,shared.calculator,identity))
+                if len(shared.benchmarks)>64:
+                    shared.benchmarks.popitem(last=False)
+            shared.benchmarks.move_to_end(key)
+            # The receipt owns the result even when an earlier path never committed.
+            timings.extend(shared.benchmarks[key])
+            heartbeat.sample(step)
     return PathResult(tuple(rows), tuple(path_rows), tuple(timings))
 
 
@@ -510,6 +527,13 @@ def collect(preparation, baseline, output, *, bins=DEFAULT_BINS, max_tasks=32, f
                     event=lambda job,state,**details: terminal.event(job.entries[0].path.key.label,state))
         except BaseException as error:
             failure = error
+        previous_path = output / "collection.json"
+        if failure is None and len(outcomes) == len(selected) and all(item.status == "cached" for item in outcomes.values()) and previous_path.is_file():
+            previous = core.load_contract(previous_path,CollectionManifest)
+            if previous.status == "complete" and previous.configuration_sha256 == sha(output / "configuration.json"):
+                core._authenticate_files(output,previous)
+                progress("complete")
+                return previous
         point_rows,path_rows,timing_rows,statuses = [],[],[],[]
         for identity in selection.path_keys:
             document = writer.get("kde_approximation.paths",fingerprint(identity))

@@ -97,16 +97,17 @@ def test_raw_metadata_mismatch_rejected_before_metrics(tmp_path,monkeypatch):
         raw._validate_raw(tmp_path/"disk"/path.raw_record,replace(path,epsilon=.8),points)
 
 
-def test_collection_reuses_committed_values_without_raw_disk(tmp_path,monkeypatch):
+def test_collection_recovery_preserves_committed_generation_without_raw_disk(tmp_path,monkeypatch):
     prep,path,_=_prepared(tmp_path,monkeypatch,available=True)
     monkeypatch.setattr(raw,"_measure",lambda *args,**kwargs:f.measurement(path))
     output=tmp_path/"collection"
     first=raw.collect_raw(prep,output)
+    before=sha(output/"collection.json")
     monkeypatch.setattr(raw,"_required_files",lambda _: ("unmounted",))
     monkeypatch.setattr(raw,"_measure",lambda *args,**kwargs:pytest.fail("committed metrics recomputed"))
     second=raw.collect_raw(prep,output)
-    assert second.status=="complete" and second.completed_paths==1
-    assert second.paths[0].status=="cached"
+    assert first==second and second.completed_paths==1
+    assert sha(output/"collection.json")==before
     assert json.loads((output/"progress.json").read_text())["counts"]["cached"]==1
 
 

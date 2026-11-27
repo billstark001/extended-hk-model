@@ -1,7 +1,9 @@
 """Recorded metrics, paired statistics and table helpers shared by recommendation studies."""
 
 from importlib import import_module
+import sys
 
+from common.experiments.progress import Progress
 from itertools import chain
 from pathlib import Path
 from dataclasses import fields
@@ -70,11 +72,14 @@ def read_study(directory: Path, study: str | None = None, *, profiles=None):
         raise ValueError("unsupported recommendation design version")
 
     records = {}
+    progress = Progress(len(plan.tasks), stream=sys.stderr)
     with StudyStore(directory, readonly=True) as store:
         for task in plan.tasks:
+            progress.event(task.id, "running")
             entry = store.get_task(task, plan)
             if entry is not None:
                 records[task.id] = entry.result
+            progress.event(task.id, "complete" if entry is not None else "deferred")
     return plan, records
 
 
