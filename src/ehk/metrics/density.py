@@ -18,7 +18,14 @@ class FittedDensity:
     constant: bool
 
 
-def linear_binned_gaussian(samples, axis, bandwidth, bins=BINNED_POINTS, *, diagnostics=None):
+@dataclass
+class DensityDiagnostics:
+    negative_count: int = 0
+    minimum_before_clip: float | None = None
+    fft_length: int = 0
+
+
+def linear_binned_gaussian(samples, axis, bandwidth, bins=BINNED_POINTS, *, diagnostics: DensityDiagnostics | None = None):
     """Bin mass linearly and convolve with a zero-padded, untruncated Gaussian.
 
     B-1 must be a multiple of the original grid's 255 intervals, so every
@@ -55,21 +62,30 @@ def linear_binned_gaussian(samples, axis, bandwidth, bins=BINNED_POINTS, *, diag
     if minimum < -roundoff:
         raise ValueError("FFT density is negative beyond floating-point roundoff")
     if diagnostics is not None:
-        diagnostics.update(negative_count=int(np.count_nonzero(fine < 0)), minimum_before_clip=minimum, fft_length=int(length))
+        diagnostics.negative_count = int(np.count_nonzero(fine < 0))
+        diagnostics.minimum_before_clip = minimum
+        diagnostics.fft_length = int(length)
     return np.maximum(fine, 0)[::stride]
 
 
-def evaluate_density(density: FittedDensity | None, axis, *, method, bins=BINNED_POINTS, diagnostics=None):
+def evaluate_density(
+    density: FittedDensity | None, axis, *, method, bins=BINNED_POINTS,
+    diagnostics: DensityDiagnostics | None = None,
+):
     """Evaluate only the observed density; constant samples keep their original PDF."""
     if method not in ("exact", "binned"):
         raise ValueError("density method must be 'exact' or 'binned'")
     if density is None:
         if diagnostics is not None:
-            diagnostics.update(negative_count=0, minimum_before_clip=None, fft_length=0)
+            diagnostics.negative_count = 0
+            diagnostics.minimum_before_clip = None
+            diagnostics.fft_length = 0
         return np.full_like(axis, np.nan)
     if method == "exact" or density.constant:
         values = density.pdf(axis)
         if diagnostics is not None:
-            diagnostics.update(negative_count=0, minimum_before_clip=float(np.min(values)), fft_length=0)
+            diagnostics.negative_count = 0
+            diagnostics.minimum_before_clip = float(np.min(values))
+            diagnostics.fft_length = 0
         return values
     return linear_binned_gaussian(density.samples, axis, density.bandwidth, bins, diagnostics=diagnostics)

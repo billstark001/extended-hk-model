@@ -1,12 +1,19 @@
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
+from common.io.json import json_default
 
 from experiments.paper.analysis.tasks import get_mode_names, run_mode
 
 DEFAULT_STAT_CONCURRENCY = 6
+
+
+def _positive_int(value):
+    result = int(value)
+    if result < 1:
+        raise argparse.ArgumentTypeError("concurrency must be positive")
+    return result
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -19,12 +26,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-c",
         "--concurrency",
-        type=int,
-        default=None,
-        help=(
-            "Worker process count. Resolve order: CLI arg > STAT_THREAD_COUNT env > "
-            f"default ({DEFAULT_STAT_CONCURRENCY})."
-        ),
+        type=_positive_int,
+        default=DEFAULT_STAT_CONCURRENCY,
+        help=f"Worker process count (default {DEFAULT_STAT_CONCURRENCY}).",
     )
     parser.add_argument("--database", type=Path, help="Independent document statistics database.")
     parser.add_argument("--raw-root", type=Path, help="Direct directory containing the raw scenario subdirectories.")
@@ -32,6 +36,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--origin", help="Explicit source dataset label; direct raw-root paths default to their absolute path."
     )
     parser.add_argument("--limit", type=int, help="Analyze only the first N planned tasks, for a bounded smoke run.")
+    parser.add_argument("--tasks", nargs="+", help="Explicit task names from the selected design; omission selects all tasks.")
+    parser.add_argument(
+        "--metadata-source", choices=("record", "original-design"), default="record",
+        help="Read recorded metadata, or explicitly declare the original design for historical records lacking metadata.json.",
+    )
     parser.add_argument(
         "--endpoint-complement", action=argparse.BooleanOptionalAction, default=True,
         help="Include (1-I_p(T))*I_h(T) in I_w (default); --no-endpoint-complement keeps only the observed integral.",
@@ -52,20 +61,6 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _resolve_concurrency(cli_value: int | None) -> int:
-    if cli_value is not None:
-        return max(cli_value, 1)
-
-    env_value_raw = os.environ.get("STAT_THREAD_COUNT")
-    if env_value_raw is not None and env_value_raw.strip() != "":
-        try:
-            return max(int(env_value_raw.strip()), 1)
-        except ValueError:
-            return DEFAULT_STAT_CONCURRENCY
-
-    return DEFAULT_STAT_CONCURRENCY
-
-
 def main(argv: list[str] | None = None):
     if argv is None:
         argv = sys.argv[1:]
@@ -74,11 +69,10 @@ def main(argv: list[str] | None = None):
     if args.instance_name is None and args.raw_root is None:
         parser.error("provide an instance_name or --raw-root")
 
-    concurrency = _resolve_concurrency(args.concurrency)
     result = run_mode(
         args.mode,
         args.instance_name,
-        concurrency,
+        args.concurrency,
         database=args.database,
         limit=args.limit,
         force=args.force,
@@ -87,10 +81,14 @@ def main(argv: list[str] | None = None):
         raw_root=args.raw_root,
         origin=args.origin,
         endpoint_complement=args.endpoint_complement,
+        task_names=args.tasks,
+        metadata_source=args.metadata_source,
     )
-    print(json.dumps(result, indent=2))
+    print(json.dumps(result, indent=2, default=json_default))
     return result
 
 
 if __name__ == "__main__":
-    main()
+    result = main()
+    if result.state in ("partial", "failed", "interrupted"):
+        raise SystemExit(1)

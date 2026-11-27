@@ -8,8 +8,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from common.experiments.plans import read_plan
-from common.io.json import atomic_json, fingerprint, read_result, sha
+from dataclasses import fields
+
+from common.experiments.lifecycle import session_lock
+from common.experiments.progress import Progress
+import sys
+from ehk.domain import TerminalResult, parse_dataclass, rows_frame, to_wire
+from common.io.json import atomic_json, sha
 from ehk.metrics.pathway import (
     EXCESS_THRESHOLD,
     OBSERVATION_INTERVAL,
@@ -18,10 +23,15 @@ from ehk.metrics.pathway import (
     first_passage,
 )
 from ehk.metrics.polarization import opinion_peak_count
-from experiments.paper.recommendation_shared.analysis import mean_interval, outcome
+from experiments.paper.recommendation_shared.analysis import mean_interval
 
 from .core import (PATH_KEYS, POINT_KEYS, _arms, _authenticate_files, _bundle_layout, authenticate_preparation,
-                   endpoint_mode, validate_endpoint_column)
+                   endpoint_mode, validate_endpoint_column, load_contract)
+from .contracts import (AlignedEvidence, ComparisonManifest, ReportManifest, PeakAudit, ReportInputs,
+    EndpointRequest, ArchivedPeak, EndpointFeature, PathKey, PathwayInput, ClassifiedPath, table_records)
+
+from experiments.paper.recommendation_shared.storage import read_table, write_table, task_digest
+from experiments.paper.recommendation_shared.analysis import read_study
 
 STATE_METRICS = ("separation", "I_p", "excess_concordance", "I_h", "I_s", "edge_concordance", "pair_concordance")
 LABELS = {"separation": "P", "I_p": "$I_p$", "excess_concordance": "E", "I_h": "$I_h$",
@@ -33,19 +43,20 @@ START_VALIDATION_EPS = 64 * np.finfo(np.float64).eps
 
 
 def _csv(path):
-    return pd.read_csv(path, float_precision="round_trip", low_memory=False)
+    path = Path(path)
+    return read_table(path.parent, path.name)
 
 
 def load_aligned(preparation, comparison, *, allow_partial=False):
     """Authenticate the input generation; no metric calculation occurs here."""
     preparation, comparison = Path(preparation).resolve(), Path(comparison).resolve()
     manifest = authenticate_preparation(preparation)
-    compared = json.loads((comparison / "comparison.json").read_text())
+    compared = load_contract(comparison / "comparison.json", ComparisonManifest)
     _authenticate_files(comparison, compared)
-    if compared["preparation_sha256"] != sha(preparation / "preparation.json"):
+    if compared.preparation_sha256 != sha(preparation / "preparation.json"):
         raise ValueError("comparison belongs to another preparation")
-    if compared["status"] != "complete" and not allow_partial:
-        raise ValueError("legacy metrics remain pending; use --allow-partial only for a labeled interim report")
+    if compared.status != "complete" and not allow_partial:
+        raise ValueError("canonical metrics remain pending; use --allow-partial only for a labeled interim report")
     points, paths = (_csv(comparison / name) for name in ("points_aligned.csv.gz", "paths_aligned.csv.gz"))
     policy = endpoint_mode(compared)
     # Pending rows have no I_w and therefore no claimed endpoint policy.
@@ -54,14 +65,18 @@ def load_aligned(preparation, comparison, *, allow_partial=False):
     paths["endpoint_complement"] = policy
     if points.duplicated(POINT_KEYS).any() or paths.duplicated(PATH_KEYS).any():
         raise ValueError("duplicate aligned state or trajectory identity")
-    if len(points) != manifest["points"] or len(paths) != manifest["paths"]:
+    if len(points) != manifest.points or len(paths) != manifest.paths:
         raise ValueError("aligned tables differ from the prepared cohort")
     if not set(STATE_METRICS) <= set(points) or not {"I_w", "terminal_json", "start_step", "end_step"} <= set(paths):
         raise ValueError("aligned tables omit required state or trajectory fields")
     if not allow_partial and (not np.isfinite(points[list(STATE_METRICS)].to_numpy(float)).all()
                               or not np.isfinite(paths["I_w"].to_numpy(float)).all()):
-        raise ValueError("complete comparison contains missing/nonfinite legacy metrics")
-    return points, paths, {"preparation": manifest, "comparison": compared}
+        raise ValueError("complete comparison contains missing/nonfinite canonical metrics")
+    return points, paths, AlignedEvidence(manifest, compared)
+
+
+def _terminal_outcome(terminal: TerminalResult) -> str:
+    return "unresolved" if terminal.status != "absorbed" else ("consensus", "two groups", "three or more groups")[min(terminal.k_major, 3) - 1]
 
 
 def endpoint_table(points, paths):
@@ -76,81 +91,74 @@ def endpoint_table(points, paths):
                for name in ("separation", "excess_concordance")]].isna().any().any():
         raise ValueError("a prepared trajectory endpoint has no exact recorded observation")
     result["followup_steps"] = result["end_step"] - result["start_step"]
-    result["terminal_outcome"] = result["terminal_json"].map(lambda text: outcome({"terminal": json.loads(text)}))
+    result["terminal_outcome"] = result["terminal_json"].map(lambda text: _terminal_outcome(parse_dataclass(TerminalResult, json.loads(text))))
     return result
 
 
 def endpoint_features(preparation, endpoints):
-    """Count existing KDE modes on authenticated saved final opinions, including references."""
+    """Count existing KDE modes on authenticated saved final opinions."""
     manifest = authenticate_preparation(preparation)
-    if not manifest.get("sources"):
+    if not manifest.sources:
         raise ValueError("endpoint peak counts require authenticated local summary sources")
     if endpoints.duplicated(PATH_KEYS).any():
         raise ValueError("duplicate endpoint identity for KDE feature join")
-    requested = {tuple(row[name] for name in PATH_KEYS): row for row in endpoints.to_dict("records")}
+    requested = {PathKey(row.profile, row.task_id, row.stage, row.arm): row
+                 for row in table_records(endpoints, EndpointRequest)}
     rows = []
     source_sha = sha(Path(inspect.getfile(opinion_peak_count)))
-    for source in manifest["sources"]:
-        bundle = Path(source["bundle"])
-        data, study, manifest_path, source_manifest = _bundle_layout(bundle)
-        if sha(manifest_path) != source["manifest_sha256"]:
+    progress = Progress(len(endpoints), stream=sys.stderr)
+    for source in manifest.sources:
+        layout = _bundle_layout(source.bundle)
+        if sha(layout.manifest_path) != source.manifest_sha256:
             raise ValueError("endpoint summary manifest differs from the prepared generation")
-        plan = read_plan(study / "plan.json")
-        profile = plan["profile"]
-        if plan["plan_fingerprint"] != source["plan_fingerprint"] or profile != source["profile"]:
+        plan, profile = layout.plan, layout.plan.profile
+        if plan.plan_fingerprint != source.plan_fingerprint or profile != source.profile:
             raise ValueError("endpoint summary plan differs from the prepared cohort")
-        archived = {}
-        archived_table = ""
+        archived, archived_table = {}, ""
         relative_table = "tables/runs.csv.gz"
-        if relative_table in source_manifest["files"]:
-            archived_table = str(data / relative_table)
+        if relative_table in layout.manifest.files:
+            archived_table = str(layout.data / relative_table)
             saved = _csv(archived_table)
-            required = ["task_id", "stage", "arm", "end_step", "opinion_peaks"]
+            required = ["task_id", "stage", "arm", "end_step", "opinion_peaks", "raw_record"]
             if not set(required) <= set(saved) or saved.duplicated(required[:3]).any():
                 raise ValueError("authenticated endpoint count table has ambiguous identities")
-            archived = {tuple([profile, row["task_id"], row["stage"], row["arm"]]): row
-                        for row in saved.to_dict("records")}
-        for task in plan["tasks"]:
-            record_path = study / "records" / (task["id"] + ".json.gz")
-            if not record_path.is_file():
+            archived = {PathKey(profile, row.task_id, row.stage, row.arm): row
+                        for row in table_records(saved, ArchivedPeak)}
+        _, records = read_study(layout.study)
+        for task in plan.tasks:
+            record = records.get(task.id)
+            if record is None:
                 continue
-            record = read_result(record_path)
-            if record["task_fingerprint"] != fingerprint(task):
-                raise ValueError("endpoint summary does not match its frozen task")
-            record_sha = sha(record_path)
-            for stage, arm, summary, _ in _arms(profile, record["result"]):
-                key = (profile, task["id"], stage, arm)
+            record_sha = task_digest(layout.study, task, plan)
+            for route in _arms(record):
+                summary = route.observation
+                key = PathKey(profile, task.id, route.stage, route.name)
+                progress.event(key.label, "running")
                 if key not in requested:
                     raise ValueError("authenticated endpoint summary is outside the prepared cohort")
-                path = requested[key]
-                end_step = summary["endpoints"][-1]["step"]
-                if "plan_fingerprint" in path and path["plan_fingerprint"] != plan["plan_fingerprint"]:
+                path, end_step = requested[key], summary.endpoints[-1].step
+                if path.plan_fingerprint != plan.plan_fingerprint:
                     raise ValueError("endpoint count plan identity differs from its prepared trajectory")
-                if end_step != path["end_step"] or summary.get("stopped_at", end_step) != end_step:
+                if end_step != path.end_step or summary.stopped_at != end_step:
                     raise ValueError("endpoint count horizon differs from its prepared trajectory")
-                if "raw_record" in path and summary["raw_record"] != path["raw_record"]:
+                if summary.raw_record != path.raw_record:
                     raise ValueError("endpoint count raw identity differs from its prepared trajectory")
-                opinions = np.asarray(summary["final_opinions"], dtype=np.float64)
-                if opinions.ndim != 1 or len(opinions) != task["metadata"]["NodeCount"] or not np.isfinite(opinions).all():
+                opinions = np.asarray(summary.final_opinions, dtype=np.float64)
+                if opinions.ndim != 1 or len(opinions) != task.metadata.NodeCount or not np.isfinite(opinions).all():
                     raise ValueError("endpoint summary final opinions are missing, nonfinite or wrong-sized")
-                count = int(opinion_peak_count(opinions))
-                previous = archived.get(key)
+                count, previous = int(opinion_peak_count(opinions)), archived.get(key)
                 saved_count = np.nan
                 if previous is not None:
-                    if previous["end_step"] != end_step:
-                        raise ValueError("authenticated saved peak count has a different endpoint horizon")
-                    if "raw_record" in previous and previous["raw_record"] != summary["raw_record"]:
-                        raise ValueError("authenticated saved peak count has a different raw identity")
-                    saved_count = previous["opinion_peaks"]
+                    if previous.end_step != end_step or previous.raw_record != summary.raw_record:
+                        raise ValueError("authenticated saved peak count has different horizon/raw identity")
+                    saved_count = previous.opinion_peaks
                     if not np.isfinite(saved_count) or saved_count < 1 or saved_count % 1:
                         raise ValueError("authenticated saved peak count is not a positive integer")
-                rows.append({**dict(zip(PATH_KEYS, key)), "end_step": end_step,
-                             "opinion_peaks": count, "saved_opinion_peaks": saved_count,
-                             "saved_count_matches": count == saved_count if previous is not None else None,
-                             "summary_sha256": record_sha, "summary_path": str(record_path),
-                             "peak_implementation_sha256": source_sha,
-                             "saved_count_table": archived_table if previous is not None else ""})
-    features = pd.DataFrame(rows)
+                rows.append(EndpointFeature(profile, task.id, route.stage, route.name, end_step, count,
+                    saved_count, count == saved_count if previous is not None else None, record_sha,
+                    str(layout.study / "analysis.sqlite"), source_sha, archived_table if previous is not None else ""))
+                progress.event(key.label, "complete")
+    features = rows_frame(rows, EndpointFeature)
     if len(features) != len(endpoints) or features.duplicated(PATH_KEYS).any():
         raise ValueError("authenticated final-opinion summaries do not cover the prepared endpoint cohort exactly")
     return features
@@ -166,19 +174,19 @@ def attach_endpoint_features(endpoints, features):
 
 
 def peak_summaries(endpoints):
-    """Cross-tabulate two existing endpoint descriptions without assigning a truth label."""
     keys = [*STRATA, "stage", "arm", "start_step", "end_step", "opinion_peaks"]
     cross = endpoints.groupby([*keys, "terminal_outcome"], dropna=False, sort=False).size().reset_index(name="paths")
-    rows = []
-    for key, frame in endpoints.groupby(keys, dropna=False, sort=False):
-        matched = frame[frame[["end_I_p", "end_I_h"]].notna().all(axis=1)]
-        for metric in ("I_p", "I_h", "separation", "excess_concordance"):
-            values = matched[f"end_{metric}"]
-            rows.append({**dict(zip(keys, key)), "metric": metric, "requested_paths": len(frame),
-                         "matched_paths": len(matched), "mean": values.mean(), "median": values.median(),
-                         "minimum": values.min(), "maximum": values.max()})
-    return cross, pd.DataFrame(rows)
-
+    tables = []
+    for metric in ("I_p", "I_h", "separation", "excess_concordance"):
+        matched = endpoints[endpoints[["end_I_p", "end_I_h"]].notna().all(axis=1)]
+        stats = matched.groupby(keys, dropna=False, sort=False)[f"end_{metric}"].agg(
+            matched_paths="size", mean="mean", median="median", minimum="min", maximum="max")
+        requested = endpoints.groupby(keys, dropna=False, sort=False).size().rename("requested_paths")
+        frame = requested.to_frame().join(stats).reset_index()
+        frame["matched_paths"] = frame["matched_paths"].fillna(0).astype(int)
+        frame["metric"] = metric
+        tables.append(frame)
+    return cross, pd.concat(tables, ignore_index=True)
 
 def checkpoint_table(endpoints):
     """Use each task/stage's hold arm once, without duplicating shared starts."""
@@ -195,106 +203,96 @@ def checkpoint_table(endpoints):
 
 def checkpoint_summaries(checkpoints):
     keys = [*STRATA, "stage", "step"]
-    rows = []
-    for key, frame in checkpoints.groupby(keys, dropna=False, sort=False):
-        for metric in STATE_METRICS:
-            values = frame[metric].dropna()
-            rows.append({**dict(zip(keys, key)), "metric": metric, "checkpoints": len(frame),
-                         "available": len(values), "mean": values.mean(), "median": values.median(),
-                         "minimum": values.min(), "maximum": values.max()})
-    return pd.DataFrame(rows)
-
+    tables = []
+    for metric in STATE_METRICS:
+        frame = checkpoints.groupby(keys, dropna=False, sort=False)[metric].agg(
+            checkpoints="size", available="count", mean="mean", median="median", minimum="min", maximum="max").reset_index()
+        frame["metric"] = metric
+        tables.append(frame)
+    return pd.concat(tables, ignore_index=True)
 
 def pathway_table(points, endpoints):
     """Apply the existing first-passage implementation, retaining staged prefixes."""
     groups = {key: frame.sort_values("step") for key, frame in points.groupby(PATH_KEYS, sort=False)}
     rows = []
-    for path in endpoints.to_dict("records"):
-        key = tuple(path[name] for name in PATH_KEYS)
+    for path in table_records(endpoints, PathwayInput):
+        key = (path.profile, path.task_id, path.stage, path.arm)
         window = groups[key]
         full = window
-        if path["profile"] == "staged" and path["stage"] != "reference":
-            reference_key = ("staged", path["task_id"], "reference", "reference")
+        if path.profile == "staged" and path.stage != "reference":
+            reference_key = ("staged", path.task_id, "reference", "reference")
             if reference_key not in groups:
                 raise ValueError("staged first-passage classification requires the shared reference prefix")
             reference = groups[reference_key]
-            checkpoint = reference[reference["step"] == path["start_step"]]
+            checkpoint = reference[reference["step"] == path.start_step]
             if len(checkpoint) != 1:
                 raise ValueError("reference lacks the exact intervention checkpoint")
             for name in ("separation", "excess_concordance"):
                 if checkpoint.iloc[0][name] != window.iloc[0][name]:
                     raise ValueError("staged branch and reference disagree at the intervention checkpoint")
-            full = pd.concat([reference[reference["step"] < path["start_step"]], window], ignore_index=True)
+            full = pd.concat([reference[reference["step"] < path.start_step], window], ignore_index=True)
         steps = full["step"].to_numpy(int)
-        if steps[0] != 0 or steps[-1] != path["end_step"] or np.any(np.diff(steps) != OBSERVATION_INTERVAL):
+        if steps[0] != 0 or steps[-1] != path.end_step or np.any(np.diff(steps) != OBSERVATION_INTERVAL):
             raise ValueError("first-passage comparison requires the complete original 16-step grid")
         passage = first_passage(full[["step", "separation", "excess_concordance"]].itertuples(index=False, name=None))
-        rows.append({**{name: path[name] for name in (*PATH_KEYS, *STRATA[1:], "influence", "rewiring", "repost",
-                                                   "start_step", "end_step", "followup_steps", "I_w", "terminal_outcome")},
-                     "pathway": passage.label, "separation_step": passage.separation_step,
-                     "segregation_step": passage.segregation_step,
-                     "prefix_observations": len(full) - len(window)})
-    return pd.DataFrame(rows)
+        rows.append(ClassifiedPath(*(getattr(path, item.name) for item in fields(PathwayInput)),
+            passage.label, passage.separation_step, passage.segregation_step, len(full) - len(window)))
+    return rows_frame(rows, ClassifiedPath)
 
 
 def state_summaries(endpoints):
-    """Describe endpoint states by design stratum; repeated time points are not replicates."""
     keys = [*STRATA, "stage", "arm", "start_step", "end_step", "terminal_outcome"]
-    rows = []
-    for key, frame in endpoints.groupby(keys, dropna=False, sort=False):
-        for metric in STATE_METRICS:
-            values = frame[f"end_{metric}"].dropna()
-            rows.append({**dict(zip(keys, key)), "metric": metric, "paths": len(frame), "available": len(values),
-                         "mean": values.mean(), "median": values.median(), "minimum": values.min(), "maximum": values.max()})
-    return pd.DataFrame(rows)
-
+    tables = []
+    for metric in STATE_METRICS:
+        frame = endpoints.groupby(keys, dropna=False, sort=False)[f"end_{metric}"].agg(
+            paths="size", available="count", mean="mean", median="median", minimum="min", maximum="max").reset_index()
+        frame["metric"] = metric
+        tables.append(frame)
+    return pd.concat(tables, ignore_index=True)
 
 def pathway_summaries(paths):
     keys = [*STRATA, "stage", "arm", "start_step", "end_step", "pathway"]
-    rows = []
-    for key, frame in paths.groupby(keys, dropna=False, sort=False):
-        values = frame["I_w"].dropna()
-        rows.append({**dict(zip(keys, key)), "paths": len(frame), "available_I_w": len(values),
-                     "I_w_mean": values.mean(), "I_w_median": values.median(),
-                     "I_w_minimum": values.min(), "I_w_maximum": values.max()})
-    return pd.DataFrame(rows)
-
+    return paths.groupby(keys, dropna=False, sort=False)["I_w"].agg(
+        paths="size", available_I_w="count", I_w_mean="mean", I_w_median="median",
+        I_w_minimum="min", I_w_maximum="max").reset_index()
 
 def paired_table(endpoints):
     """Keep contrasts within task, stage and identical absolute follow-up horizons."""
-    rows = []
+    tables = []
+    design = [*STRATA[1:], "influence", "rewiring", "repost", "start_step", "end_step", "followup_steps"]
     for profile, treatment, control in CONTRASTS:
         selected = endpoints[endpoints["profile"] == profile]
         keys = ["task_id", "stage"]
         left, right = (selected[selected["arm"] == arm].set_index(keys) for arm in (treatment, control))
         paired = left.join(right, how="inner", lsuffix="_treatment", rsuffix="_control")
-        for key, pair in paired.iterrows():
-            for name in ("start_step", "end_step", "sensitivity", "epsilon", "history", "influence", "rewiring", "repost"):
-                if pair[name + "_treatment"] != pair[name + "_control"]:
-                    raise ValueError(f"paired interventions differ in {name}")
-            for metric in ("separation", "excess_concordance", "I_p", "I_h", "I_s"):
-                a, b = pair[f"start_{metric}_treatment"], pair[f"start_{metric}_control"]
-                tolerance = START_VALIDATION_EPS * max(1.0, abs(a), abs(b)) if metric.startswith("I_") else 0.0
-                if np.isfinite(a) and np.isfinite(b) and abs(a - b) > tolerance:
-                    raise ValueError(f"paired interventions start at different {metric} states")
-            row = {"profile": profile, "task_id": key[0], "stage": key[1], "treatment": treatment,
-                   "control": control, "contrast": f"{treatment}_minus_{control}",
-                   **{name: pair[name + "_control"] for name in (*STRATA[1:], "influence", "rewiring", "repost",
-                                                                "start_step", "end_step", "followup_steps")}}
-            for metric in STATE_METRICS:
-                row[f"start_{metric}"] = pair[f"start_{metric}_control"]
-                row[f"start_difference_{metric}"] = pair[f"start_{metric}_treatment"] - pair[f"start_{metric}_control"]
-                row[f"control_{metric}"] = pair[f"end_{metric}_control"]
-                row[f"treatment_{metric}"] = pair[f"end_{metric}_treatment"]
-                row[f"delta_{metric}"] = row[f"treatment_{metric}"] - row[f"control_{metric}"]
-            row["control_outcome"] = pair["terminal_outcome_control"]
-            row["treatment_outcome"] = pair["terminal_outcome_treatment"]
-            row["consensus_gain"] = row["treatment_outcome"] == "consensus" and row["control_outcome"] != "consensus"
-            row["consensus_loss"] = row["treatment_outcome"] != "consensus" and row["control_outcome"] == "consensus"
-            row["legacy_pair_available"] = all(np.isfinite(row[f"delta_{name}"]) for name in STATE_METRICS)
-            rows.append(row)
-    return pd.DataFrame(rows)
-
+        if paired.empty:
+            continue
+        for name in ("start_step", "end_step", "sensitivity", "epsilon", "history", "influence", "rewiring", "repost"):
+            if (paired[name + "_treatment"] != paired[name + "_control"]).any():
+                raise ValueError(f"paired interventions differ in {name}")
+        for metric in ("separation", "excess_concordance", "I_p", "I_h", "I_s"):
+            a, b = paired[f"start_{metric}_treatment"], paired[f"start_{metric}_control"]
+            tolerance = START_VALIDATION_EPS * np.maximum(1, np.maximum(a.abs(), b.abs())) if metric.startswith("I_") else 0.
+            if (np.isfinite(a) & np.isfinite(b) & ((a - b).abs() > tolerance)).any():
+                raise ValueError(f"paired interventions start at different {metric} states")
+        frame = paired[[name + "_control" for name in design]].rename(
+            columns={name + "_control": name for name in design}).reset_index()
+        frame["profile"], frame["treatment"], frame["control"] = profile, treatment, control
+        frame["contrast"] = f"{treatment}_minus_{control}"
+        for metric in STATE_METRICS:
+            frame[f"start_{metric}"] = paired[f"start_{metric}_control"].to_numpy()
+            frame[f"start_difference_{metric}"] = (paired[f"start_{metric}_treatment"] - paired[f"start_{metric}_control"]).to_numpy()
+            frame[f"control_{metric}"] = paired[f"end_{metric}_control"].to_numpy()
+            frame[f"treatment_{metric}"] = paired[f"end_{metric}_treatment"].to_numpy()
+            frame[f"delta_{metric}"] = frame[f"treatment_{metric}"] - frame[f"control_{metric}"]
+        frame["control_outcome"] = paired["terminal_outcome_control"].to_numpy()
+        frame["treatment_outcome"] = paired["terminal_outcome_treatment"].to_numpy()
+        frame["consensus_gain"] = (frame["treatment_outcome"] == "consensus") & (frame["control_outcome"] != "consensus")
+        frame["consensus_loss"] = (frame["treatment_outcome"] != "consensus") & (frame["control_outcome"] == "consensus")
+        frame["metric_pair_available"] = np.isfinite(frame[[f"delta_{name}" for name in STATE_METRICS]].to_numpy()).all(axis=1)
+        tables.append(frame)
+    columns = ["profile", *keys, *design, "treatment", "control", "contrast"]
+    return pd.concat(tables, ignore_index=True) if tables else pd.DataFrame(columns=columns)
 
 def intervention_scopes(pairs):
     """Prespecified existing design/state subsets; no thresholds are fitted."""
@@ -317,24 +315,23 @@ def intervention_scopes(pairs):
 
 def effect_summaries(pairs, *, by_cell=False):
     rows = []
+    keys = [*STRATA, "stage", "contrast"] + (["influence", "rewiring", "repost"] if by_cell else [])
+    columns = [*keys, "scope", "metric", "requested_pairs", "pending_pairs", "n", "mean", "lo", "hi", "sum_delta",
+        "negative", "zero", "positive", "consensus_gains", "consensus_losses", "start_steps", "end_steps", "followup_steps"]
     for scope, requested in intervention_scopes(pairs):
-        keys = [*STRATA, "stage", "contrast"] + (["influence", "rewiring", "repost"] if by_cell else [])
         for key, group in requested.groupby(keys, dropna=False, sort=False):
-            matched = group[group["legacy_pair_available"]]
+            matched = group[group["metric_pair_available"]]
             for metric in STATE_METRICS:
                 values = matched[f"delta_{metric}"]
-                rows.append({**dict(zip(keys, key)), "scope": scope, "metric": metric,
-                             "requested_pairs": len(group), "pending_pairs": len(group) - len(matched),
-                             **mean_interval(values), "sum_delta": values.sum() if len(values) else np.nan,
-                             "negative": int((values < 0).sum()), "zero": int((values == 0).sum()),
-                             "positive": int((values > 0).sum()),
-                             "consensus_gains": int(matched["consensus_gain"].sum()),
-                             "consensus_losses": int(matched["consensus_loss"].sum()),
-                             "start_steps": json.dumps(sorted(group["start_step"].unique().tolist())),
-                             "end_steps": json.dumps(sorted(group["end_step"].unique().tolist())),
-                             "followup_steps": json.dumps(sorted(group["followup_steps"].unique().tolist()))})
-    return pd.DataFrame(rows)
-
+                interval = mean_interval(values)
+                rows.append((*key, scope, metric, len(group), len(group) - len(matched),
+                    interval.n, interval.mean, interval.lo, interval.hi, values.sum() if len(values) else np.nan,
+                    int((values < 0).sum()), int((values == 0).sum()), int((values > 0).sum()),
+                    int(matched["consensus_gain"].sum()), int(matched["consensus_loss"].sum()),
+                    json.dumps(sorted(group["start_step"].unique().tolist())),
+                    json.dumps(sorted(group["end_step"].unique().tolist())),
+                    json.dumps(sorted(group["followup_steps"].unique().tolist()))))
+    return pd.DataFrame(rows, columns=columns)
 
 def _save(fig, output, stem):
     for suffix in ("png", "pdf", "svg"):
@@ -428,15 +425,15 @@ def figures(endpoints, pathways, effects, output, checkpoints=None):
 def markdown_report(endpoints, pathways, effects, provenance, peak_audit=None):
     available = int(endpoints["end_I_p"].notna().sum())
     text = ["# 同一干预轨迹上的两套指标比较", "",
-            f"报告读取 {len(endpoints)} 条已准备路径；其中 {available} 条具有终点旧指标。来源比较状态：`{provenance['comparison']['status']}`。",
+            f"报告读取 {len(endpoints)} 条已准备路径；其中 {available} 条具有终点主指标。来源比较状态：`{provenance.comparison.status}`。",
             "", "## 比较对象与边界", "",
             "状态图只比较同一节点/网络状态下的指标，不把它们解释为可互换量。I_h 对有正出度用户等权；C_edge 对有向边等权。E=C_edge−C_pair 使用当前意见构成作基线。共识与多个内部同信群体都可有较高 I_h，这不构成 I_h 失效。",
-            "", "旧指标指原有指标族，本报告采用本次采集记录的现有实现；它不自动复原早期档案中使用过的不同基线、计数对象或末点补项。主图只使用核心条件；敏感性条件在CSV中单列，未与核心合并。",
-            "", "现有I_p是相对随机意见距离分布的JS比，不保证在共识时归零，也不保证小于等于1；因此ΔI_p不能直接替代ΔP或已记录的共识恢复，正负号不自动表示干预优劣。图和表保留原计算值，不裁剪到[0,1]。",
+            "", "主指标采用本次采集记录的单一L协议及B=4081数值实现；旧档案需从原始状态重算，不能改标签后混入。主图只使用核心条件；敏感性条件在CSV中单列，未与核心合并。",
+            "", "I_p=1−JS-distance(实际距离分布,聚集参考)/JS-distance(聚集参考,随机参考)，度量聚集参考相似度，至多为1并可为负；共识时未必归零。因此ΔI_p不能直接替代ΔP或已记录的共识恢复，正负号不自动表示干预优劣。图和表保留原计算值，不裁剪到[0,1]。",
             "", "端点主图按正文已有的KDE意见峰数着色：I_h保留同信性职责，峰数补充意见分布形态；两者的组合不需由I_h独自承担共识/多群区分。KDE峰数与置信分量终态在交叉表中并列，前者使用现有opinion_peak_count，受既有带宽与峰检测规则影响；后者沿用原记录，取决于置信间距、直径与群体质量条件。两者互不充当真值。逐峰数的Ip/Ih/P/E概览使用同一批两套状态量均齐备的端点。",
-            "", "检查点状态另用每个task/stage的hold分支起点表示一次，避免把多个分支的共同起点当作多个样本。中/晚期起点图不按未来终态着色；其中P=.4和E=.1仅沿用既有状态阈值。晚期仍由原活动判据确定，阈值线仅供状态参照。配对起点的旧指标允许64倍float64机器epsilon的舍入差（按数值尺度缩放），P/E仍要求精确一致；这只用于验证，不改动保存值。逐对起点差保留在配对CSV。",
-            "", f"I_w 保留已有自适应采样与完整0至终点的积分；endpoint_complement={endpoint_mode(provenance['comparison'])}，表示{'包含' if endpoint_mode(provenance['comparison']) else '不含'}终点补项(1−I_p(T))I_h(T)。路径标签使用已有16步观测、P=.4与E=.1的首次越阈顺序，未调阈值、未按I_w=.6另造分类。simultaneous表示同一次观测越阈。staged分支保留共享前缀，标签与该分支的实际终点对应。",
-            "", "每个stage的切换结果在该检查点后512步评价，绝对终点可不同；timing的state−fixed使用相同完整终点。不同stage的I_w或终点效应不混作同一时机实验。敏感性条件与核心设计分开；用于比较旧/新终点效应的任务集合完全相同。", "",
+            "", "检查点状态另用每个task/stage的hold分支起点表示一次，避免把多个分支的共同起点当作多个样本。中/晚期起点图不按未来终态着色；其中P=.4和E=.1仅沿用既有状态阈值。晚期仍由原活动判据确定，阈值线仅供状态参照。配对起点的主指标允许64倍float64机器epsilon的舍入差（按数值尺度缩放），P/E仍要求精确一致；这只用于验证，不改动保存值。逐对起点差保留在配对CSV。",
+            "", f"I_w 保留已有自适应采样与完整0至终点的积分；endpoint_complement={endpoint_mode(provenance.comparison)}，表示{'包含' if endpoint_mode(provenance.comparison) else '不含'}终点补项(1−I_p(T))I_h(T)。路径标签使用已有16步观测、P=.4与E=.1的首次越阈顺序，未调阈值、未按I_w=.6另造分类。simultaneous表示同一次观测越阈。staged分支保留共享前缀，标签与该分支的实际终点对应。",
+            "", "每个stage的切换结果在该检查点后512步评价，绝对终点可不同；timing的state−fixed使用相同完整终点。不同stage的I_w或终点效应不混作同一时机实验。敏感性条件与核心设计分开；用于比较主指标与P/E终点效应的任务集合完全相同。", "",
             "## 预设干预子集", "", "| 子集 | 比较 | 配对数 | ΔP [95%区间] | ΔI_p [95%区间] | ΔE [95%区间] | ΔI_h [95%区间] |", "|---|---|---:|---|---|---|---|---|"]
     def estimate(row):
         if row.empty or not row.iloc[0]["n"]:
@@ -453,7 +450,7 @@ def markdown_report(endpoints, pathways, effects, provenance, peak_audit=None):
             n = int(p.iloc[0]["n"]) if not p.empty else 0
             text.append(f"| {scope} ({stage}) | {contrast} | {n} | {estimate(p)} | {estimate(ip)} | {estimate(e)} | {estimate(ih)} |")
     text.extend(["", "中期P≥.4、E<.1子集另外拆成已有置信分量分类下的转共识任务和其余任务。`intervention_effects.csv` 保留各组的差值总和、配对数和均值，可判断平均效应是否由少数大幅恢复主导；不把少数案例写成普遍改善。",
-                 "", "旧/新指标的变化方向不一致时，应回看同一任务的意见构成与网络状态。较低P、较低I_p和较低E分别回答不同问题，报告没有通过新标量或标签一致率将它们合并。当前数据只支持所列采样社区、参数和观察窗口中的比较。",
+                 "", "主指标与P/E的变化方向不一致时，应回看同一任务的意见构成与网络状态。较低P、较低I_p和较低E分别回答不同问题，报告没有通过新标量或标签一致率将它们合并。当前数据只支持所列采样社区、参数和观察窗口中的比较。",
                  "", "## 输出与来源", "", "- `endpoint_states.csv.gz`：逐路径端点、参数和终态。",
                  "- `endpoint_features.csv.gz`：来自已认证本地summary.final_opinions的既有KDE峰数、原表复核值与来源。参考轨迹也逐条计算。",
                  "- `kde_confidence_crosstab.csv`、`kde_stratified_states.csv`：已有峰数与置信终态的交叉计数、按峰数分层的Ip/Ih/P/E概览；没有准确率或真值标签。",
@@ -463,27 +460,24 @@ def markdown_report(endpoints, pathways, effects, provenance, peak_audit=None):
                  "- `paired_interventions.csv.gz`、`intervention_effects.csv`、`intervention_cells.csv`：严格成对的干预对照及预设子集。",
                  "- 科学图提供PNG/PDF/SVG，`report.json`记录输入及输出哈希。", ""])
     if peak_audit is not None:
-        text.extend([f"峰数来源复核：计算 {peak_audit['computed_paths']} 条端点；其中 {peak_audit['archived_comparisons']} 条与认证旧runs表逐条比较，{peak_audit['archived_differences']} 条不同。当前helper值和旧表值分别保留，不把差异改写为分类准确率。", ""])
+        text.extend([f"峰数来源复核：计算 {peak_audit.computed_paths} 条端点；其中 {peak_audit.archived_comparisons} 条与认证旧runs表逐条比较，{peak_audit.archived_differences} 条不同。当前helper值和旧表值分别保留，不把差异改写为分类准确率。", ""])
     return "\n".join(text)
 
 
-def report(preparation, comparison, output, *, make_figures=True, allow_partial=False):
+def _produce_report(preparation, comparison, output, *, make_figures=True, allow_partial=False):
     output = Path(output).resolve()
-    if output.exists():
-        raise ValueError("report output already exists; choose a new directory")
     points, paths, provenance = load_aligned(preparation, comparison, allow_partial=allow_partial)
     endpoints = endpoint_table(points, paths)
     features = endpoint_features(preparation, endpoints)
     endpoints = attach_endpoint_features(endpoints, features)
     peak_cross, peak_states = peak_summaries(endpoints)
     audited = features[features["saved_count_matches"].notna()]
-    peak_audit = {"computed_paths": len(features), "archived_comparisons": len(audited),
-                  "archived_differences": int((~audited["saved_count_matches"].astype(bool)).sum())}
+    peak_audit = PeakAudit(len(features), len(audited), int((~audited["saved_count_matches"].astype(bool)).sum()))
     checkpoints = checkpoint_table(endpoints)
     pathways = pathway_table(points, endpoints)
     paired = paired_table(endpoints)
     effects, cells = effect_summaries(paired), effect_summaries(paired, by_cell=True)
-    output.mkdir(parents=True)
+    output.mkdir(parents=True, exist_ok=True)
     for name, frame in (("endpoint_states.csv.gz", endpoints), ("state_summary.csv", state_summaries(endpoints)),
                         ("endpoint_features.csv.gz", features), ("kde_confidence_crosstab.csv", peak_cross),
                         ("kde_stratified_states.csv", peak_states),
@@ -491,20 +485,29 @@ def report(preparation, comparison, output, *, make_figures=True, allow_partial=
                         ("pathway_comparison.csv.gz", pathways), ("pathway_summary.csv", pathway_summaries(pathways)),
                         ("paired_interventions.csv.gz", paired), ("intervention_effects.csv", effects),
                         ("intervention_cells.csv", cells)):
+        write_table(output, name, frame)
         frame.to_csv(output / name, index=False)
     (output / "report.md").write_text(markdown_report(endpoints, pathways, effects, provenance, peak_audit), encoding="utf-8")
     if make_figures:
         figures(endpoints, pathways, effects, output, checkpoints)
-    result = {"schema": 1, "status": provenance["comparison"]["status"], "paths": len(paths),
-              "endpoint_complement": endpoint_mode(provenance["comparison"]),
-              "points": len(points), "paired_interventions": len(paired),
-              "endpoint_peak_count_audit": peak_audit,
-              "preparation_sha256": sha(Path(preparation) / "preparation.json"),
-              "comparison_sha256": sha(Path(comparison) / "comparison.json"),
-              "report_source_sha256": sha(Path(__file__)),
-              "files": {p.name: sha(p) for p in output.iterdir() if p.is_file()}}
+    result = ReportManifest(schema=1, status=provenance.comparison.status, paths=len(paths),
+        endpoint_complement=endpoint_mode(provenance.comparison), points=len(points), paired_interventions=len(paired),
+        endpoint_peak_count_audit=peak_audit, preparation_sha256=sha(Path(preparation) / "preparation.json"),
+        comparison_sha256=sha(Path(comparison) / "comparison.json"), report_source_sha256=sha(Path(__file__)),
+        files={p.name: sha(p) for p in output.iterdir() if p.is_file()})
     atomic_json(output / "report.json", result)
     return result
+
+
+def report(preparation, comparison, output, *, make_figures=True, allow_partial=False):
+    """Produce an authenticated report in a fresh destination."""
+    output = Path(output).resolve()
+    load_aligned(preparation, comparison, allow_partial=allow_partial)
+    if output.exists() and any(output.iterdir()):
+        raise ValueError("report output already exists; select a new destination")
+    output.mkdir(parents=True, exist_ok=True)
+    with session_lock(output / "runtime"):
+        return _produce_report(preparation, comparison, output, make_figures=make_figures, allow_partial=allow_partial)
 
 
 def main(argv=None):
@@ -517,7 +520,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     result = report(args.preparation, args.comparison, args.output,
                     make_figures=not args.no_figures, allow_partial=args.allow_partial)
-    print(json.dumps({k: v for k, v in result.items() if k != "files"}, indent=2))
+    print(json.dumps({k: v for k, v in to_wire(result).items() if k != "files"}, indent=2))
 
 
 if __name__ == "__main__":

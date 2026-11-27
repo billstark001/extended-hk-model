@@ -1,7 +1,6 @@
 """Authenticated portable summary bundles for independent recommendation studies."""
 
 import argparse
-import gzip
 import json
 import shutil
 import tempfile
@@ -9,17 +8,19 @@ from datetime import datetime, timezone
 from importlib import import_module
 from pathlib import Path
 
-from common.experiments.plans import read_plan
+from ehk.domain import BundleManifest, Plan, parse_dataclass, read_plan
 from common.io.json import atomic_json, sha
+from common.storage.documents import DocumentStore, DocumentWriter
 
 from .analysis import read_study
+from .storage import DATABASE, LOCATIONS, DatasetLocation, dataset_raw_root
 
-SCHEMA = 1
+SCHEMA = 2
 
 
 def analyze_study(directory, output, *, make_figures=True):
     """Dispatch by the frozen profile without importing another study's figure code."""
-    profile = read_plan(Path(directory) / "plan.json")["profile"]
+    profile = read_plan(Path(directory) / "plan.json").profile
     packages = {
         "staged": "recommendation",
         "staged_timing": "recommendation",
@@ -34,19 +35,13 @@ def analyze_study(directory, output, *, make_figures=True):
     )
 
 
-def _compress_csv(path):
-    with path.open("rb") as source, path.with_suffix(".csv.gz").open("wb") as target:
-        with gzip.GzipFile(filename="", mode="wb", fileobj=target, mtime=0) as stream:
-            shutil.copyfileobj(source, stream)
-
-
 def _recover_data(output):
     current, backup = output / "data", output / ".previous-data"
     if not backup.exists():
         return
     if current.exists():
-        manifest = json.loads((current / "manifest.json").read_text())
-        if manifest["schema"] != SCHEMA or any(sha(current / name) != expected for name, expected in manifest["files"].items()):
+        manifest = parse_dataclass(BundleManifest, json.loads((current / "manifest.json").read_text()))
+        if manifest.schema != SCHEMA or any(sha(current / name) != expected for name, expected in manifest.files.items()):
             raise ValueError("interrupted portable-data replacement requires inspection")
         shutil.rmtree(backup)
     else:
@@ -66,31 +61,27 @@ def export_bundle(dataset, output, *, require_complete=False):
     stage = Path(tempfile.mkdtemp(prefix=".export-", dir=output))
     try:
         study = stage / "study"
-        (study / "records").mkdir(parents=True)
+        study.mkdir(parents=True)
         shutil.copy2(dataset / "plan.json", study / "plan.json")
-        for identifier in records:
-            shutil.copy2(dataset / "records" / f"{identifier}.json.gz", study / "records" / f"{identifier}.json.gz")
-        for relative in ("snapshot.json", "runtime/binding.json"):
-            source = dataset / relative
-            if source.is_file():
-                (study / relative).parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, study / relative)
+        with DocumentStore(dataset / DATABASE, readonly=True) as store:
+            store.backup(study / DATABASE)
+        with DocumentWriter(study / DATABASE) as store:
+            store.put(LOCATIONS, plan.plan_fingerprint, DatasetLocation(raw_root=str(dataset_raw_root(dataset, plan))))
+            store.seal()
+        binding = study / "runtime/binding.json"
+        binding.parent.mkdir(parents=True)
+        shutil.copy2(dataset / "runtime/binding.json", binding)
         tables = stage / "tables"
         report = analyze_study(study, tables, make_figures=False)
-        if report["source_plan"] != plan["plan_fingerprint"]:
+        if report.source_plan != plan.plan_fingerprint:
             raise ValueError("the source plan changed during export; retry with a stable design")
-        if require_complete and not report["complete"]:
-            raise ValueError(f"recommendation study is incomplete: {report['completed']}/{report['planned']}")
-        for path in tables.glob("*.csv"):
-            _compress_csv(path)
-            path.unlink()
-        manifest = {
-            "schema": SCHEMA, "exported_at_utc": datetime.now(timezone.utc).isoformat(),
-            "source_dataset": str(dataset), "plan_fingerprint": plan["plan_fingerprint"],
-            "profile": plan["profile"], "available_records": report["available_records"],
-            "completed": report["completed"], "planned": report["planned"],
-            "files": {str(path.relative_to(stage)): sha(path) for path in sorted(stage.rglob("*")) if path.is_file()},
-        }
+        if require_complete and not report.complete:
+            raise ValueError(f"recommendation study is incomplete: {report.completed}/{report.planned}")
+        manifest = BundleManifest(schema=SCHEMA, exported_at_utc=datetime.now(timezone.utc).isoformat(),
+            source_dataset=str(dataset_raw_root(dataset, plan)), observation_dataset=str(dataset),
+            plan_fingerprint=plan.plan_fingerprint, profile=plan.profile,
+            available_records=report.available_records, completed=report.completed, planned=report.planned,
+            files={path.relative_to(stage).as_posix(): sha(path) for path in sorted(stage.rglob("*")) if path.is_file()})
         atomic_json(stage / "manifest.json", manifest)
         backup = output / ".previous-data"
         current = output / "data"
@@ -109,12 +100,13 @@ def export_bundle(dataset, output, *, require_complete=False):
     return manifest
 
 
-def _bundle_manifest(bundle):
+def read_bundle_manifest(bundle):
+    bundle = Path(bundle).resolve()
     _recover_data(bundle)
-    manifest = json.loads((bundle / "data/manifest.json").read_text())
-    if manifest["schema"] != SCHEMA:
+    manifest = parse_dataclass(BundleManifest, json.loads((bundle / "data/manifest.json").read_text()))
+    if manifest.schema != SCHEMA:
         raise ValueError("unsupported manuscript data schema")
-    for relative, expected in manifest["files"].items():
+    for relative, expected in manifest.files.items():
         path = bundle / "data" / relative
         if not path.resolve().is_relative_to((bundle / "data").resolve()) or sha(path) != expected:
             raise ValueError(f"portable data changed: {relative}")
@@ -130,7 +122,7 @@ def main(argv=None):
     export.add_argument("--require-complete", action="store_true", help="Reject incomplete data and retain any prior export")
     args = parser.parse_args(argv)
     manifest = export_bundle(args.dataset, args.output, require_complete=args.require_complete)
-    print(json.dumps(manifest, indent=2))
+    print(json.dumps(manifest.__json__(), indent=2))
 
 
 if __name__ == "__main__":

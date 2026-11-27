@@ -1,15 +1,22 @@
 """Interim figures keep parameter coverage and actual bridge exposure explicit."""
 
 import json
+from dataclasses import replace
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
 
+from ehk.domain import Binding, freeze_plan, to_wire
+from tests.experiments.recommendation_fixtures import (
+    arm, plan as fixture_plan, stage, staged)
+from experiments.paper.recommendation.design import generate_tasks
+from common.io.json import atomic_json
 from experiments.paper.recommendation import plot
 from experiments.paper.recommendation_shared import plot as shared_plot
 from experiments.paper.recommendation_shared.analysis import EFFECTS
+from experiments.paper.recommendation_shared.storage import StudyStore
 
 
 def test_coverage_distinguishes_unplanned_and_unfinished_cells(tmp_path, monkeypatch):
@@ -77,21 +84,29 @@ def test_effects_select_one_parameter_cell_without_pooling(tmp_path, monkeypatch
 
 def test_interim_analyze_pools_only_complete_cells_and_keeps_source_hashes(tmp_path, monkeypatch):
     directory = tmp_path / "source"
-    (directory / "records").mkdir(parents=True)
+    directory.mkdir()
     tasks, rows = [], []
+    template = generate_tasks("staged")[0]
     for identifier, setting in (("a0", "a"), ("a1", "a"), ("b0", "b"), ("b1", "b")):
-        tasks.append({"id": identifier, "setting": setting, "sensitivity": "core", "replicate": int(identifier[-1]),
-                      "metadata": {"HKParams": {"Tolerance": 0.45, "Influence": 0.01 if setting == "a" else 0.03,
-                                                "RewiringRate": 0.3, "RepostRate": 0.1}, "PostRetainCount": 0}})
+        metadata = replace(template.metadata, HKParams=replace(template.metadata.HKParams,
+                           Tolerance=.45, Influence=.01 if setting == "a" else .03,
+                           RewiringRate=.3, RepostRate=.1), PostRetainCount=0)
+        tasks.append(replace(template, id=identifier, setting=setting, sensitivity="core",
+                             replicate=int(identifier[-1]), metadata=metadata))
         if identifier == "b1":
             continue
-        (directory / "records" / (identifier + ".json.gz")).write_bytes(identifier.encode())
         for arm in ("hold", "switch"):
             rows.append({"task_id": identifier, "setting": setting, "sensitivity": "core", "epsilon": 0.45,
                          "history": 0, "repost": 0.1, "stage": "late", "arm": arm,
                          **dict.fromkeys(EFFECTS, 0.0)})
-    plan = {"tasks": tasks, "profile": "staged", "plan_fingerprint": "fixture"}
-    records = {identifier: {"stages": {"late": {}}} for identifier in ("a0", "a1", "b0")}
+    plan = freeze_plan(directory / "plan.json", fixture_plan(tasks=tasks))
+    binding = Binding(binary_sha256="interim-plot-fixture")
+    atomic_json(directory / "runtime/binding.json", binding)
+    records = {identifier: staged({"late": stage()}) for identifier in ("a0", "a1", "b0")}
+    with StudyStore(directory) as store:
+        for task in tasks:
+            if task.id in records:
+                store.put_task(task, records[task.id], plan=plan, binding=binding)
     frame = pd.DataFrame(rows)
     monkeypatch.setattr(plot, "read_study", lambda directory: (plan, records))
     monkeypatch.setattr(plot, "study_tables", lambda plan, records, **kwargs: (frame, frame))
@@ -102,25 +117,26 @@ def test_interim_analyze_pools_only_complete_cells_and_keeps_source_hashes(tmp_p
     monkeypatch.setattr(plot, "_plot_scope", lambda study, sample, *args, **kwargs:
                         scopes.append((set(sample["task_id"]), kwargs["title"])))
     report = plot.analyze(directory, tmp_path / "analysis")
-    assert report["completed"] == 3 and report["planned"] == 4 and report["complete"] is False
-    assert report["pooled_figures"] == {"rule": "completed_parameter_cells_only", "tasks": 2, "cells": 1}
-    assert report["stage_gate"]["status"] == "pending"
-    assert set(report["record_sha256"]) == {"a0", "a1", "b0"}
+    assert report.completed == 3 and report.planned == 4 and report.complete is False
+    assert to_wire(report.pooled_figures) == {"rule": "completed_parameter_cells_only", "tasks": 2, "cells": 1}
+    assert report.stage_gate.status == "pending"
+    assert set(report.record_sha256) == {"a0", "a1", "b0"}
     assert scopes[-1][0] == {"a0", "a1"} and "1 complete cells, 2 tasks" in scopes[-1][1]
     assert any(ids == {"b0"} and "1/2 tasks" in title for ids, title in scopes)
     persisted = json.loads((tmp_path / "analysis" / "coverage.json").read_text())
-    assert persisted["record_sha256"] == report["record_sha256"]
+    assert persisted["record_sha256"] == report.record_sha256
 
 
 def test_late_opinion_heatmap_keeps_replicates_and_three_modes_separate(tmp_path, monkeypatch):
     captured = []
     monkeypatch.setattr(plot, "plt_save_and_close", lambda fig, path: captured.append(fig))
-    tasks = [{"id": "second", "replicate": 2}, {"id": "first", "replicate": 1}]
+    template = generate_tasks("staged")[0]
+    tasks = [replace(template, id="second", replicate=2), replace(template, id="first", replicate=1)]
     records = {
-        task["id"]: {"stages": {"late": {"arms": {
-            "hold": {"final_opinions": [-0.8] * 6 + [0.8] * 6},
-            "bridge": {"final_opinions": [-0.8] * 4 + [0.0] * 4 + [0.8] * 4},
-        }}}}
+        task.id: staged({"late": stage(arms={
+            "hold": arm(opinions=[-.8]*6+[.8]*6),
+            "bridge": arm(opinions=[-.8]*4+[0.]*4+[.8]*4),
+        })})
         for task in tasks
     }
     plot.plot_late_opinions(tasks, records, tmp_path, title="fixture")

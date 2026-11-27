@@ -2,6 +2,8 @@
 
 import numpy as np
 import pytest
+from experiments.paper.analysis.models import AnalysisProtocol
+from ehk.metrics.protocol import METRIC_REVISION, metric_protocol
 
 from experiments.paper.analysis.records import ScenarioStatistics, StatisticsStore
 from experiments.paper.analysis.selection import is_high_iw, is_low_iw, read_statistics
@@ -21,6 +23,9 @@ def _record(name="s_grad_fixture", *, origin="raw-a", history=0, value=0.4):
         x_indices=np.array([0, 8]),
         p_index=np.array([0.0, 0.8]),
         h_index=np.array([0.0, 0.5]),
+        complete=True,
+        metric_revision=METRIC_REVISION,
+        endpoint_complement=True,
     )
 
 
@@ -30,8 +35,8 @@ def test_figure_selection_requires_revision_and_origin_when_ambiguous(tmp_path, 
     database = tmp_path / "stats.sqlite"
     with StatisticsStore(database) as store:
         for origin, revision in (("raw-a", "r1"), ("raw-a", "r2"), ("raw-b", "r2")):
-            store.put(_record(origin=origin), analysis_id=revision, mode="gradation")
-        store.put(_record("s_eps_fixture"), analysis_id="epsilon-r1", mode="epsilon")
+            store.put(_record(origin=origin), analysis_id=revision, mode="gradation", protocol=AnalysisProtocol(metrics=metric_protocol()))
+        store.put(_record("s_eps_fixture"), analysis_id="epsilon-r1", mode="epsilon", protocol=AnalysisProtocol(metrics=metric_protocol()))
     with pytest.raises(ValueError, match="multiple analysis revisions"):
         read_statistics(database, mode="gradation")
     with pytest.raises(ValueError, match="multiple source datasets"):
@@ -44,8 +49,8 @@ def test_figure_selection_requires_revision_and_origin_when_ambiguous(tmp_path, 
 def test_disjoint_partial_sources_are_not_silently_pooled(tmp_path):
     database = tmp_path / "partial.sqlite"
     with StatisticsStore(database) as store:
-        store.put(_record("s_grad_a", origin="raw-a"), analysis_id="r1", mode="gradation")
-        store.put(_record("s_grad_b", origin="raw-b"), analysis_id="r1", mode="gradation")
+        store.put(_record("s_grad_a", origin="raw-a"), analysis_id="r1", mode="gradation", protocol=AnalysisProtocol(metrics=metric_protocol()))
+        store.put(_record("s_grad_b", origin="raw-b"), analysis_id="r1", mode="gradation", protocol=AnalysisProtocol(metrics=metric_protocol()))
     with pytest.raises(ValueError, match="multiple source datasets"):
         read_statistics(database, mode="gradation", analysis_id="r1")
 
@@ -55,7 +60,7 @@ def test_invalidated_source_statistics_cannot_be_used_in_a_figure(tmp_path):
     row = _record()
     row.complete, row.stale = False, True
     with StatisticsStore(database) as store:
-        store.put(row, analysis_id="r1", mode="gradation")
+        store.put(row, analysis_id="r1", mode="gradation", protocol=AnalysisProtocol(metrics=metric_protocol()))
     with pytest.raises(ValueError, match="stale or incomplete"):
         read_statistics(database, mode="gradation")
 

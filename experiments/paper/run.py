@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from common.io.logging import init_logger
+from common.io.json import json_default
 from experiments.paths import SMP_BINARY
 from experiments.workspaces import workspace_dir
 
@@ -28,7 +29,6 @@ def main(argv=None):
         "--run-dir", type=Path, help="New original-paper output directory, without editing sim_ws.json."
     )
     parser.add_argument("--concurrency", type=int, default=4, help="Number of concurrent simulations to run.")
-    parser.add_argument("--binding-batch", action="store_true", help="let this task use the SMP binding batch runner")
     parser.add_argument("--smp-binary", type=Path, help="Persistent smp executable.")
     parser.add_argument("--stage-evidence", type=Path, help="Completed staged dataset for the timing follow-up.")
     parser.add_argument("--plan-only", action="store_true", help="Print the study design without running.")
@@ -48,14 +48,12 @@ def main(argv=None):
 
         if args.freeze_only:
             parser.error("--freeze-only is for original-paper scenarios")
-        if args.binding_batch:
-            parser.error("implementation comparisons use persistent smp jobs")
         if args.stage_evidence:
             parser.error("implementation comparisons do not use staged evidence")
         if not 1 <= args.concurrency <= 6:
             parser.error("recommendation concurrency must be between 1 and 6")
         if args.plan_only:
-            print(json.dumps(make_plan(), indent=2))
+            print(json.dumps(make_plan(), indent=2, default=json_default))
             return
         directory = workspace_dir(args.workspace, args.scenario) / args.scenario
         return run_study(directory, args.smp_binary or SMP_BINARY.resolve(), args.concurrency)
@@ -64,8 +62,6 @@ def main(argv=None):
 
         if args.freeze_only:
             parser.error("--freeze-only is for original-paper scenarios")
-        if args.binding_batch:
-            parser.error("the recommendation studies use persistent smp jobs")
         if not 1 <= args.concurrency <= 6:
             parser.error("recommendation concurrency must be between 1 and 6")
         if args.plan_only:
@@ -74,7 +70,7 @@ def main(argv=None):
                 if args.scenario == "recommendation"
                 else make_plan(args.scenario)
             )
-            print(json.dumps(plans, indent=2))
+            print(json.dumps(plans, indent=2, default=json_default))
             return
         if args.scenario == "recommendation":
             if args.stage_evidence:
@@ -93,7 +89,7 @@ def main(argv=None):
     if args.stage_evidence:
         parser.error("--stage-evidence requires a recommendation study")
     if args.plan_only:
-        print(json.dumps(original_plan(args.scenario, seed_namespace=args.seed_namespace), indent=2))
+        print(json.dumps(original_plan(args.scenario, seed_namespace=args.seed_namespace), indent=2, default=json_default))
         return
 
     directory = (
@@ -113,10 +109,11 @@ def main(argv=None):
         directory,
         args.smp_binary or SMP_BINARY.resolve(),
         args.concurrency,
-        binding_batch=args.binding_batch,
         seed_namespace=args.seed_namespace,
     )
 
 
 if __name__ == "__main__":
-    main()
+    result = main()
+    if result is not None and getattr(result, "state", None) in ("partial", "failed", "interrupted"):
+        raise SystemExit(1)

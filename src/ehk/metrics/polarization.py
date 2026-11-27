@@ -8,7 +8,7 @@ from scipy.signal import find_peaks
 from scipy.stats import norm
 
 from common.numerics.kde import LINSPACE_SMPL_COUNT, fast_trapz, get_kde_pdf, js_distance_continuous_fast
-from ehk.metrics.density import BINNED_POINTS, FittedDensity, evaluate_density
+from ehk.metrics.density import BINNED_POINTS, DensityDiagnostics, FittedDensity, evaluate_density
 from ehk.metrics.state import MeasurementState
 
 
@@ -149,7 +149,7 @@ class DistanceCalculator:
         return self._prepare_edge(state, rng)
 
     def opinion_index(
-        self, prepared: PreparedOpinion, *, method=None, bins=None, diagnostics=None,
+        self, prepared: PreparedOpinion, *, method=None, bins=None, diagnostics: DensityDiagnostics | None = None,
     ) -> float:
         if prepared.owner is not self:
             raise ValueError("prepared opinion belongs to a different calculator")
@@ -158,7 +158,7 @@ class DistanceCalculator:
         return self._relative_js(values, prepared.clustered_reference)
 
     def edge_index(
-        self, density: FittedDensity | None, *, method=None, bins=None, diagnostics=None,
+        self, density: FittedDensity | None, *, method=None, bins=None, diagnostics: DensityDiagnostics | None = None,
     ) -> float:
         method, bins = self._evaluation_parameters(method, bins)
         values = evaluate_density(density, self.axis, method=method, bins=bins, diagnostics=diagnostics)

@@ -12,8 +12,15 @@ from matplotlib.lines import Line2D
 
 from common.io.json import atomic_json, sha
 from common.plotting import setup_paper_params
+from ehk.domain import rows_frame, to_wire
+from .figure_models import (
+    BridgePanel, CaseCurve, CaseLineStyle, CasePanel, FigureLayout, IllustrativeCase,
+    PairedEffectRow, PanelSpecifications, PlotLayout, PlotStyle, PolicyPanel, RenderStyle,
+    Thresholds, parse_layout, parse_specifications,
+)
 from experiments.paper.recommendation_shared import analysis as shared_analysis
 from experiments.paper.recommendation_shared import bundle as shared_bundle
+from experiments.paper.recommendation_shared.storage import read_table
 from experiments.paper.recommendation_shared import plot as shared_plot
 
 from .analysis import coverage_by_setting, read_study
@@ -21,93 +28,95 @@ from .design import CROSS_SETTINGS
 
 SCHEMA = 1
 CASES = (
-    ("rescue_middle", "s_staged_al10_q01_e45_kh0_p10_sim01", "middle", "α=.10, q=.01, p=.10\nr=1; middle"),
-    ("rescue_late", "s_staged_al10_q01_e45_kh0_p10_sim01", "late", "Same task\nr=1; late"),
-    ("reversal_middle", "s_staged_al10_q03_e45_kh0_p10_sim02", "middle", "α=.10, q=.03, p=.10\nr=2; middle"),
+    IllustrativeCase("rescue_middle", "s_staged_al10_q01_e45_kh0_p10_sim01", "middle", "α=.10, q=.01, p=.10\nr=1; middle"),
+    IllustrativeCase("rescue_late", "s_staged_al10_q01_e45_kh0_p10_sim01", "late", "Same task\nr=1; late"),
+    IllustrativeCase("reversal_middle", "s_staged_al10_q03_e45_kh0_p10_sim02", "middle", "α=.10, q=.03, p=.10\nr=2; middle"),
 )
 COLORS = {"hold": "#666666", "switch": "#2171b5", "bridge": "#238b45", "hide_reposts": "#d95f0e"}
 CASE_ARMS = ("hold", "switch", "bridge")
 CASE_STYLES = {
-    "hold": {"ls": (0, (3, 3)), "marker": "s", "markevery": (0, 6), "lw": 1.2, "zorder": 5},
-    "switch": {"ls": "-", "marker": "o", "markevery": (2, 6), "lw": 1.6, "zorder": 3},
-    "bridge": {"ls": (0, (5, 2, 1, 2)), "marker": "^", "markevery": (4, 6), "lw": 1.3, "zorder": 4},
+    "hold": CaseLineStyle((0, (3, 3)), "s", (0, 6), 1.2, 5),
+    "switch": CaseLineStyle("-", "o", (2, 6), 1.6, 3),
+    "bridge": CaseLineStyle((0, (5, 2, 1, 2)), "^", (4, 6), 1.3, 4),
 }
 INSERTED_COLOR = "#2171b5"
 ZERO_INSERTION_COLOR = "#777777"
 
 
-def _rows(frame):
-    return frame.astype(object).where(pd.notna(frame), None).to_dict(orient="records")
+def _effect_rows(frame) -> tuple[PairedEffectRow, ...]:
+    return tuple(PairedEffectRow(
+        task_id=row.task_id, stage=row.stage, setting=row.setting, sensitivity=row.sensitivity,
+        influence=row.influence, rewiring=row.rewiring, repost=row.repost, replicate=row.replicate,
+        epsilon=row.epsilon, history=row.history, bridge_shown=row.bridge_shown,
+        cross_confident=row.cross_confident, updates=row.updates,
+        delta_separation=row.delta_separation, delta_excess=row.delta_excess,
+    ) for row in frame.itertuples(index=False))
 
 
-def panel_specifications(bundle):
-    manifest = shared_bundle._bundle_manifest(bundle)
+def panel_specifications(bundle) -> PanelSpecifications:
+    manifest = shared_bundle.read_bundle_manifest(bundle)
     plan, records = read_study(bundle / "data/study", "staged")
-    thresholds = {"separation": plan["protocol"]["separation_threshold"],
-                  "excess_concordance": plan["protocol"]["excess_threshold"]}
-    runs = pd.read_csv(bundle / "data/tables/runs.csv.gz", float_precision="round_trip")
+    thresholds = Thresholds(separation=plan.protocol.separation_threshold,
+                            excess_concordance=plan.protocol.excess_threshold)
+    runs = read_table(bundle / "data/tables", "runs.csv.gz")
     core = runs[runs["sensitivity"] == "core"]
-    native, bridge = shared_analysis.paired_effects(core, "switch", "hold"), shared_analysis.paired_effects(core, "bridge", "switch")
-    settings = sorted({
-        (task["metadata"]["HKParams"]["Influence"], task["metadata"]["HKParams"]["RewiringRate"])
-        for task in plan["tasks"] if task["sensitivity"] == "core"
-    })
+    native = shared_analysis.paired_effects(core, "switch", "hold")
+    bridge = shared_analysis.paired_effects(core, "bridge", "switch")
+    settings = tuple(sorted({
+        (task.metadata.HKParams.Influence, task.metadata.HKParams.RewiringRate)
+        for task in plan.tasks if task.sensitivity == "core"
+    }))
     panels = {}
     for repost in sorted(core["repost"].unique()):
-        panels[f"policy_p{round(100 * repost):02}"] = {
-            "kind": "policy", "title": f"p={repost:g}", "settings": settings,
-            "rows": _rows(native[native["repost"] == repost]),
-        }
+        panels[f"policy_p{round(100 * repost):02}"] = PolicyPanel(
+            title=f"p={repost:g}", settings=settings,
+            rows=_effect_rows(native[native["repost"] == repost]),
+        )
     for index, (influence, rewiring) in enumerate(CROSS_SETTINGS):
         selected = bridge[(bridge["influence"] == influence) & (bridge["rewiring"] == rewiring)]
         for metric in ("delta_separation", "delta_excess", "dose"):
-            panels[f"bridge_{index}_{metric}"] = {
-                "kind": "bridge", "title": f"α={influence:g}, q={rewiring:g}", "metric": metric,
-                "rows": _rows(selected),
-            }
-    for name, identifier, phase, title in CASES:
-        if identifier not in records or phase not in records[identifier]["stages"]:
-            raise ValueError(f"illustrative case unavailable: {identifier}/{phase}")
-        block = records[identifier]["stages"][phase]
+            panels[f"bridge_{index}_{metric}"] = BridgePanel(
+                title=f"α={influence:g}, q={rewiring:g}", metric=metric, rows=_effect_rows(selected),
+            )
+    for case in CASES:
+        if case.task_id not in records or case.stage not in records[case.task_id].stages:
+            raise ValueError(f"illustrative case unavailable: {case.task_id}/{case.stage}")
+        block = records[case.task_id].stages[case.stage]
         for metric in ("separation", "excess_concordance"):
-            panels[f"case_{name}_{metric}"] = {
-                "kind": "case", "title": title, "metric": metric, "task_id": identifier,
-                "threshold": thresholds[metric],
-                "checkpoint": block["checkpoint"]["step"],
-                "start_excess": block["checkpoint"]["pathway"]["excess_concordance"],
-                "arms": {arm: {"step": [point["step"] for point in data["endpoints"]],
-                               "value": [point["pathway"][metric] for point in data["endpoints"]]}
-                         for arm, data in block["arms"].items()},
-            }
-    coverage = coverage_by_setting(plan, records)
-    return {
-        "schema": SCHEMA, "data_manifest_sha256": sha(bundle / "data/manifest.json"),
-        "completed": manifest["completed"], "planned": manifest["planned"],
-        "core_completed": len(set(core["task_id"])), "core_planned": sum(t["sensitivity"] == "core" for t in plan["tasks"]),
-        "source_dataset": manifest["source_dataset"], "plan_fingerprint": plan["plan_fingerprint"],
-        "coverage": coverage, "panels": panels,
-        "thresholds": thresholds,
-        "comparison_unit": "paired arms within one task and checkpoint; parameter cells have independent initial states",
-    }
+            panels[f"case_{case.name}_{metric}"] = CasePanel(
+                title=case.title, metric=metric, task_id=case.task_id,
+                threshold=getattr(thresholds, metric), checkpoint=block.checkpoint.step,
+                start_excess=block.checkpoint.pathway.excess_concordance,
+                arms={arm: CaseCurve(step=tuple(point.step for point in data.endpoints),
+                                     value=tuple(getattr(point.pathway, metric) for point in data.endpoints))
+                      for arm, data in block.arms.items()},
+            )
+    return PanelSpecifications(
+        schema=SCHEMA, data_manifest_sha256=sha(bundle / "data/manifest.json"),
+        completed=manifest.completed, planned=manifest.planned,
+        core_completed=len(set(core["task_id"])), core_planned=sum(t.sensitivity == "core" for t in plan.tasks),
+        source_dataset=manifest.source_dataset, plan_fingerprint=plan.plan_fingerprint,
+        coverage=tuple(coverage_by_setting(plan, records)), panels=panels, thresholds=thresholds,
+        comparison_unit="paired arms within one task and checkpoint; parameter cells have independent initial states",
+    )
 
 
-def default_layout(specs):
-    return {
-        "schema": SCHEMA,
-        "style": {"font_size": 8, "marker_size": 3.3, "colors": COLORS, "heatmap_limit": 1.0,
-                  "bridge_detail_columns": [0, 1]},
-        "figures": {
-            "staged_policy_effects": {"width": 7.1, "height": 4.4, "rows": 1, "columns": 3,
-                "left": 0.14, "right": 0.87, "bottom": 0.08, "top": 0.87, "hspace": 0.3, "wspace": 0.08,
-                "panels": [name for name in specs["panels"] if name.startswith("policy_")]},
-            "staged_bridge_effects": {"width": 7.1, "height": 5.9, "rows": 3, "columns": 4,
-                "left": 0.085, "right": 0.985, "bottom": 0.16, "top": 0.87, "hspace": 0.6, "wspace": 0.35,
-                "panels": [f"bridge_{index}_{metric}" for metric in ("delta_separation", "delta_excess", "dose") for index in range(4)]},
-            "staged_intervention_cases": {"width": 7.1, "height": 4.9, "rows": 2, "columns": 3,
-                "left": 0.085, "right": 0.985, "bottom": 0.18, "top": 0.82, "hspace": 0.43, "wspace": 0.22,
-                "panels": [f"case_{name}_{metric}" for metric in ("separation", "excess_concordance") for name, *_ in CASES]},
+def default_layout(specs: PanelSpecifications) -> PlotLayout:
+    return PlotLayout(
+        schema=SCHEMA, style=PlotStyle(colors=dict(COLORS)), figures={
+            "staged_policy_effects": FigureLayout(
+                width=7.1, height=4.4, rows=1, columns=3, left=.14, right=.87, bottom=.08, top=.87,
+                hspace=.3, wspace=.08, panels=tuple(name for name in specs.panels if name.startswith("policy_"))),
+            "staged_bridge_effects": FigureLayout(
+                width=7.1, height=5.9, rows=3, columns=4, left=.085, right=.985, bottom=.16, top=.87,
+                hspace=.6, wspace=.35, panels=tuple(f"bridge_{index}_{metric}" for metric in
+                                                 ("delta_separation", "delta_excess", "dose") for index in range(4))),
+            "staged_intervention_cases": FigureLayout(
+                width=7.1, height=4.9, rows=2, columns=3, left=.085, right=.985, bottom=.18, top=.82,
+                hspace=.43, wspace=.22, panels=tuple(f"case_{case.name}_{metric}" for metric in
+                                                   ("separation", "excess_concordance") for case in CASES)),
         },
-    }
+    )
 
 
 def _decorate(ax):
@@ -119,42 +128,45 @@ def _decorate(ax):
 def _bridge_limits(specs):
     limits = {}
     for metric in ("delta_separation", "delta_excess"):
-        values = [row[metric] for panel in specs["panels"].values()
-                  if panel["kind"] == "bridge" and panel["metric"] == metric for row in panel["rows"]]
+        values = [getattr(row, metric) for panel in specs.panels.values()
+                  if panel.kind == "bridge" and panel.metric == metric for row in panel.rows]
         low, high = min([0, *values]), max([0, *values])
         padding = max(0.02, (high - low) * 0.15)
         limits[metric] = low - padding, high + padding
-    rates = [1000 * row["bridge_shown"] / row["updates"]
-             for panel in specs["panels"].values() if panel["kind"] == "bridge" and panel["metric"] == "dose"
-             for row in panel["rows"]]
+    rates = [1000 * row.bridge_shown / row.updates
+             for panel in specs.panels.values() if panel.kind == "bridge" and panel.metric == "dose"
+             for row in panel.rows]
     largest = max([0, *rates])
     limits["dose"] = -max(1, largest * 0.035), max(5, largest * 1.2)
     return limits
 
 
 def _case_limits(specs):
-    values = [value for panel in specs["panels"].values()
-              if panel["kind"] == "case" and panel["metric"] == "excess_concordance"
-              for data in panel["arms"].values() for value in data["value"]]
-    thresholds = [panel["threshold"] for panel in specs["panels"].values()
-                  if panel["kind"] == "case" and panel["metric"] == "excess_concordance"]
+    values = [value for panel in specs.panels.values()
+              if panel.kind == "case" and panel.metric == "excess_concordance"
+              for data in panel.arms.values() for value in data.value]
+    thresholds = [panel.threshold for panel in specs.panels.values()
+                  if panel.kind == "case" and panel.metric == "excess_concordance"]
     low, high = min([0, *values, *thresholds]), max([0, *values, *thresholds])
     padding = max(0.01, (high - low) * 0.08)
     return {"separation": (-0.025, 1.025), "excess_concordance": (low - padding, high + padding)}
 
 
-def _figure_style(specs, layout):
+def _figure_style(specs: PanelSpecifications, layout: PlotLayout) -> RenderStyle:
     panel_limits = {}
-    detail_columns = layout["style"].get("bridge_detail_columns", [0, 1])
-    for name, panel in specs["panels"].items():
-        if (panel["kind"] == "bridge" and panel["metric"] != "dose"
-                and any(name.startswith(f"bridge_{column}_") for column in detail_columns)):
-            values = [row[panel["metric"]] for row in panel["rows"]]
+    for name, panel in specs.panels.items():
+        if (isinstance(panel, BridgePanel) and panel.metric != "dose"
+                and any(name.startswith(f"bridge_{column}_") for column in layout.style.bridge_detail_columns)):
+            values = [getattr(row, panel.metric) for row in panel.rows]
             low, high = min([0, *values]), max([0, *values])
-            padding = max(0.005, (high - low) * 0.15)
-            panel_limits[(panel["title"], panel["metric"])] = low - padding, high + padding
-    return {**layout["style"], "bridge_limits": _bridge_limits(specs), "case_limits": _case_limits(specs),
-            "bridge_panel_limits": panel_limits}
+            padding = max(.005, (high - low) * .15)
+            panel_limits[panel.title, panel.metric] = low - padding, high + padding
+    base = layout.style
+    return RenderStyle(
+        font_size=base.font_size, marker_size=base.marker_size, colors=base.colors,
+        heatmap_limit=base.heatmap_limit, bridge_detail_columns=base.bridge_detail_columns,
+        bridge_limits=_bridge_limits(specs), case_limits=_case_limits(specs), bridge_panel_limits=panel_limits,
+    )
 
 
 def _swarm_positions(ax, center, values, marker_size, halfwidth=0.33):
@@ -195,35 +207,35 @@ def _swarm_positions(ax, center, values, marker_size, halfwidth=0.33):
 
 def _case_overlap_note(spec):
     """Describe equality at recorded observations, without estimating a split time."""
-    arms = spec["arms"]
+    arms = spec.arms
     if not all(arm in arms for arm in CASE_ARMS):
         return None
     hold, switch, bridge = (arms[arm] for arm in CASE_ARMS)
-    if hold != switch or bridge["step"] != hold["step"]:
+    if hold != switch or bridge.step != hold.step:
         return None
-    equal = np.asarray(bridge["value"]) == np.asarray(hold["value"])
+    equal = np.asarray(bridge.value) == np.asarray(hold.value)
     first_different = np.flatnonzero(~equal)
     if not len(first_different):
         return "Hold = switch = bridge\nat all recorded steps"
     if first_different[0] == 0:
         return "Hold = switch\nat all recorded steps"
-    last_shared = hold["step"][first_different[0] - 1]
+    last_shared = hold.step[first_different[0] - 1]
     return f"Hold = switch throughout\nAll coincide through recorded\nstep t = {last_shared}"
 
 
 def _draw_panel(fig, ax, spec, style, *, compact=False):
-    kind = spec["kind"]
+    kind = spec.kind
     if kind == "policy":
-        matrix = np.full((len(spec["settings"]), 3), np.nan)
+        matrix = np.full((len(spec.settings), 3), np.nan)
         counts = np.zeros_like(matrix, dtype=int)
-        rows = pd.DataFrame(spec["rows"])
-        for i, (influence, rewiring) in enumerate(spec["settings"]):
+        rows = rows_frame(spec.rows, PairedEffectRow)
+        for i, (influence, rewiring) in enumerate(spec.settings):
             cell = rows[(rows["influence"] == influence) & (rows["rewiring"] == rewiring)]
             for j, phase in enumerate(("early", "middle", "late")):
                 values = cell.loc[cell["stage"] == phase, "delta_separation"].dropna()
                 if not values.empty:
                     matrix[i, j], counts[i, j] = values.mean(), len(values)
-        limit = style["heatmap_limit"]
+        limit = style.heatmap_limit
         image = ax.imshow(np.ma.masked_invalid(matrix), cmap="RdBu_r", norm=TwoSlopeNorm(0, -limit, limit), aspect="auto")
         for i, j in np.ndindex(matrix.shape):
             value = matrix[i, j]
@@ -231,16 +243,16 @@ def _draw_panel(fig, ax, spec, style, *, compact=False):
             ax.text(j, i, text, ha="center", va="center", fontsize=7,
                     color="white" if abs(value) > 0.55 * limit else "black")
         ax.set(xticks=range(3), xticklabels=("Early", "Middle", "Late"), yticks=range(len(matrix)),
-               yticklabels=[f"({a:g}, {q:g})" for a, q in spec["settings"]], ylabel="(α, q)")
+               yticklabels=[f"({a:g}, {q:g})" for a, q in spec.settings], ylabel="(α, q)")
         if not compact:
             fig.colorbar(image, ax=ax, fraction=0.045, pad=0.025, label="ΔP: switch − hold")
     elif kind == "bridge":
-        rows = pd.DataFrame(spec["rows"])
-        metric = spec["metric"]
+        rows = rows_frame(spec.rows, PairedEffectRow)
+        metric = spec.metric
         ax.set(xlim=(-0.45, 2.48), xticks=range(3), xticklabels=("0", ".10", ".25"), xlabel="Repost probability p",
                ylabel={"delta_separation": "ΔP: bridge − switch", "delta_excess": "ΔE: bridge − switch",
                        "dose": "Bridge slots\n/ 1,000 updates"}[metric])
-        ax.set_ylim(style.get("bridge_panel_limits", {}).get((spec["title"], metric), style["bridge_limits"][metric]))
+        ax.set_ylim(style.bridge_panel_limits.get((spec.title, metric), style.bridge_limits[metric]))
         for j, repost in enumerate((0.0, 0.1, 0.25)):
             cell = rows[rows["repost"] == repost].sort_values("replicate") if not rows.empty else rows
             if cell.empty:
@@ -252,7 +264,7 @@ def _draw_panel(fig, ax, spec, style, *, compact=False):
             points = [(value, True, 1) for value in values[active]]
             for value, count in values[~active].value_counts(sort=False).items():
                 points.append((value, False, count))
-            positions, size = _swarm_positions(ax, j - 0.08, [p[0] for p in points], style["marker_size"])
+            positions, size = _swarm_positions(ax, j - 0.08, [p[0] for p in points], style.marker_size)
             for present, color in ((True, INSERTED_COLOR), (False, ZERO_INSERTION_COLOR)):
                 selected = np.array([point[1] == present for point in points])
                 if selected.any():
@@ -273,17 +285,18 @@ def _draw_panel(fig, ax, spec, style, *, compact=False):
         ax.axhline(0, color="0.6", lw=0.7)
         _decorate(ax)
     else:
-        metric = spec["metric"]
+        metric = spec.metric
         for arm in CASE_ARMS:
-            if arm not in spec["arms"]:
+            if arm not in spec.arms:
                 continue
-            data = spec["arms"][arm]
-            ax.plot(data["step"], data["value"], label=shared_plot.label(arm), color=style["colors"][arm],
-                    **CASE_STYLES[arm], markersize=2.8, markeredgewidth=0.65,
-                    markerfacecolor="white" if arm == "hold" else style["colors"][arm])
-        ax.axhline(spec["threshold"], color="0.6", ls=":", lw=0.8)
+            data = spec.arms[arm]
+            ax.plot(data.step, data.value, label=shared_plot.label(arm), color=style.colors[arm],
+                    ls=CASE_STYLES[arm].ls, marker=CASE_STYLES[arm].marker, markevery=CASE_STYLES[arm].markevery,
+                    lw=CASE_STYLES[arm].lw, zorder=CASE_STYLES[arm].zorder, markersize=2.8, markeredgewidth=0.65,
+                    markerfacecolor="white" if arm == "hold" else style.colors[arm])
+        ax.axhline(spec.threshold, color="0.6", ls=":", lw=0.8)
         ax.set(xlabel="Simulation step", ylabel="Opinion separation P" if metric == "separation" else "Excess concordance E")
-        ax.set_ylim(style["case_limits"][metric])
+        ax.set_ylim(style.case_limits[metric])
         note = _case_overlap_note(spec)
         if note:
             ax.text(0.035, 0.06 if metric == "separation" else 0.94, note, transform=ax.transAxes,
@@ -292,7 +305,7 @@ def _draw_panel(fig, ax, spec, style, *, compact=False):
         if not compact:
             ax.legend(fontsize=7)
         _decorate(ax)
-    ax.set_title(spec["title"], fontsize=8)
+    ax.set_title(spec.title, fontsize=8)
 
 
 def prepare(bundle, output):
@@ -300,10 +313,10 @@ def prepare(bundle, output):
     bundle, output = Path(bundle), Path(output)
     specs = panel_specifications(bundle)
     output.mkdir(parents=True, exist_ok=True)
-    atomic_json(output / "plot_data.json", specs)
+    atomic_json(output / "plot_data.json", to_wire(specs))
     layout_path = output / "layout.json"
     if not layout_path.exists():
-        atomic_json(layout_path, default_layout(specs))
+        atomic_json(layout_path, to_wire(default_layout(specs)))
     return specs
 
 
@@ -311,18 +324,17 @@ def render_panels(bundle, output):
     """Optionally export independent SVG/PDF/PNG alongside the compact plot data."""
     bundle, output = Path(bundle), Path(output)
     specs = prepare(bundle, output)
-    atomic_json(output / "panels/specs.json", specs)
     layout_path = output / "layout.json"
-    style = _figure_style(specs, json.loads(layout_path.read_text()))
+    style = _figure_style(specs, parse_layout(json.loads(layout_path.read_text(encoding="utf-8"))))
     setup_paper_params()
-    plt.rcParams.update({"font.size": style["font_size"], "svg.fonttype": "none"})
-    for name, spec in specs["panels"].items():
-        fig, ax = plt.subplots(figsize=(4.0, 4.8 if spec["kind"] == "policy" else 2.8), layout="constrained")
+    plt.rcParams.update({"font.size": style.font_size, "svg.fonttype": "none"})
+    for name, spec in specs.panels.items():
+        fig, ax = plt.subplots(figsize=(4.0, 4.8 if spec.kind == "policy" else 2.8), layout="constrained")
         _draw_panel(fig, ax, spec, style)
         shared_plot._save_panel(fig, output / "panels" / name)
     atomic_json(output / "panels/manifest.json", {
-        "schema": SCHEMA, "data_manifest_sha256": specs["data_manifest_sha256"],
-        "specifications_sha256": sha(output / "panels/specs.json"), "renderer_sha256": sha(__file__),
+        "schema": SCHEMA, "data_manifest_sha256": specs.data_manifest_sha256,
+        "plot_data": "../plot_data.json", "specifications_sha256": sha(output / "plot_data.json"), "renderer_sha256": sha(__file__),
         "portable_bundle": str(bundle.resolve()),
         "files": {p.name: sha(p) for p in sorted((output / "panels").iterdir()) if p.suffix in (".svg", ".pdf", ".png")},
     })
@@ -333,41 +345,40 @@ def compose(directory):
     """Compose vector figures from saved panel data; no dataset or bundle access."""
     directory = Path(directory)
     data_path = directory / "plot_data.json"
-    if not data_path.exists():
-        data_path = directory / "panels/specs.json"  # Older exported directories.
-    specs = json.loads(data_path.read_text())
-    layout = json.loads((directory / "layout.json").read_text())
-    if specs["schema"] != SCHEMA or layout["schema"] != SCHEMA:
+    specs = parse_specifications(json.loads(data_path.read_text(encoding="utf-8")))
+    layout = parse_layout(json.loads((directory / "layout.json").read_text(encoding="utf-8")))
+    if specs.schema != SCHEMA or layout.schema != SCHEMA:
         raise ValueError("unsupported panel or layout schema")
     style = _figure_style(specs, layout)
     setup_paper_params()
-    plt.rcParams.update({"font.size": style["font_size"], "axes.labelsize": style["font_size"],
+    plt.rcParams.update({"font.size": style.font_size, "axes.labelsize": style.font_size,
                          "xtick.labelsize": 7, "ytick.labelsize": 7, "svg.fonttype": "none"})
-    prefix = "Preliminary: " if specs["completed"] < specs["planned"] else ""
+    prefix = "Preliminary: " if specs.completed < specs.planned else ""
     titles = {
         "staged_policy_effects": "Mean paired switching effects",
         "staged_bridge_effects": "Bridge effects and actual insertion",
         "staged_intervention_cases": "Paired intervention responses",
     }
-    for name, config in layout["figures"].items():
-        fig, axes = plt.subplots(config["rows"], config["columns"], figsize=(config["width"], config["height"]), squeeze=False)
-        fig.subplots_adjust(**{key: config[key] for key in ("left", "right", "bottom", "top", "hspace", "wspace")})
+    for name, config in layout.figures.items():
+        fig, axes = plt.subplots(config.rows, config.columns, figsize=(config.width, config.height), squeeze=False)
+        fig.subplots_adjust(left=config.left, right=config.right, bottom=config.bottom, top=config.top,
+                            hspace=config.hspace, wspace=config.wspace)
         for index, ax in enumerate(axes.flat):
-            if index >= len(config["panels"]):
+            if index >= len(config.panels):
                 ax.set_visible(False)
                 continue
-            panel_name = config["panels"][index]
-            _draw_panel(fig, ax, specs["panels"][panel_name], style, compact=True)
-            title = specs["panels"][panel_name]["title"]
+            panel_name = config.panels[index]
+            _draw_panel(fig, ax, specs.panels[panel_name], style, compact=True)
+            title = specs.panels[panel_name].title
             ax.set_title("")
             if name == "staged_intervention_cases":
-                title = f"{title}; t={specs['panels'][panel_name]['checkpoint']}" if index < 3 else ""
+                title = f"{title}; t={specs.panels[panel_name].checkpoint}" if index < 3 else ""
             ax.set_title(f"({chr(97 + index)}) {title}", loc="left", fontsize=8)
-            if index % config["columns"]:
+            if index % config.columns:
                 ax.set_ylabel("")
                 if name != "staged_bridge_effects":
                     ax.tick_params(axis="y", labelleft=False)
-            if name != "staged_policy_effects" and index < (config["rows"] - 1) * config["columns"]:
+            if name != "staged_policy_effects" and index < (config.rows - 1) * config.columns:
                 ax.set_xlabel("")
         fig.suptitle(prefix + titles[name], fontsize=10, y=0.98)
         if name == "staged_policy_effects":
@@ -381,19 +392,19 @@ def compose(directory):
             ]
             fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.01), ncol=3, fontsize=7)
         else:
-            handles = [Line2D([], [], color=style["colors"][arm],
-                              **{key: value for key, value in CASE_STYLES[arm].items() if key != "markevery"},
-                              markersize=3, markerfacecolor="white" if arm == "hold" else style["colors"][arm],
+            handles = [Line2D([], [], color=style.colors[arm],
+                              ls=CASE_STYLES[arm].ls, marker=CASE_STYLES[arm].marker, lw=CASE_STYLES[arm].lw, zorder=CASE_STYLES[arm].zorder,
+                              markersize=3, markerfacecolor="white" if arm == "hold" else style.colors[arm],
                               label=shared_plot.label(arm)) for arm in CASE_ARMS]
             fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.01), ncol=3, fontsize=7)
         shared_plot._save_panel(fig, directory / "figures" / name)
     atomic_json(directory / "figure_manifest.json", {
-        "schema": SCHEMA, "completed": specs["completed"], "planned": specs["planned"],
-        "data_manifest_sha256": specs["data_manifest_sha256"],
-        "plot_data": str(data_path.relative_to(directory)), "plot_data_sha256": sha(data_path),
+        "schema": SCHEMA, "completed": specs.completed, "planned": specs.planned,
+        "data_manifest_sha256": specs.data_manifest_sha256,
+        "plot_data": data_path.relative_to(directory).as_posix(), "plot_data_sha256": sha(data_path),
         "panel_specifications_sha256": sha(data_path), "layout_sha256": sha(directory / "layout.json"),
-        "renderer_sha256": sha(__file__), "source_dataset": specs["source_dataset"],
-        "plan_fingerprint": specs["plan_fingerprint"],
+        "renderer_sha256": sha(__file__), "source_dataset": specs.source_dataset,
+        "plan_fingerprint": specs.plan_fingerprint,
         "files": {p.name: sha(p) for p in sorted((directory / "figures").iterdir()) if p.suffix in (".svg", ".pdf", ".png")},
     })
 

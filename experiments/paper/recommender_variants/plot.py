@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from common.io.json import atomic_json
+from ehk.domain import ArmTotals, parse_binding, rows_frame, to_wire
 from common.plotting import setup_paper_params
 from experiments.paper.recommendation_shared import plot as shared_plot
 
@@ -48,16 +49,19 @@ def _plot_scope(
                      stem="opinion_random_factorial", setting=setting, repost=repost, title=title)
 
 
+from experiments.paper.recommendation_shared.storage import write_table
+
+
 def analyze(directory: Path, output: Path, *, make_figures=True):
     created_at = datetime.now(timezone.utc).isoformat()
     plan, records = read_study(directory)
     if not records:
         raise ValueError(f"no completed recommendation records at {directory}")
-    study = plan["profile"]
+    study = plan.profile
     if study != cfg.STUDY:
         raise ValueError("recommender-variant analysis requires its own study profile")
     binding_path = directory / "runtime" / "binding.json"
-    binding = json.loads(binding_path.read_text()) if binding_path.is_file() else None
+    binding = parse_binding(json.loads(binding_path.read_text(encoding="utf-8"))) if binding_path.is_file() else None
     runs, trajectories = study_tables(plan, records, binding=binding)
     if runs.empty:
         raise ValueError("completed records contain no recommendation-policy arms")
@@ -65,7 +69,7 @@ def analyze(directory: Path, output: Path, *, make_figures=True):
     factorial = opinion_random_factorial(plan, runs)
     arm_coverage = variant_arm_coverage(plan, records, binding=binding)
     coverage_rows = coverage_by_setting(plan, records)
-    coverage = pd.DataFrame(coverage_rows)
+    coverage = rows_frame(coverage_rows).drop(columns="stages")
     complete_ids = completed_cell_task_ids(plan, records)
     completed = completed_task_ids(plan, records)
     complete_runs = runs[runs["task_id"].isin(complete_ids)]
@@ -76,16 +80,19 @@ def analyze(directory: Path, output: Path, *, make_figures=True):
         ("runs", runs), ("trajectories", trajectories), ("contrasts", contrasts),
         ("coverage", coverage), ("complete_cell_contrasts", complete_contrasts),
     ):
+        write_table(output, f"{name}.csv.gz", table)
         table.to_csv(output / f"{name}.csv", index=False)
     for name, table in (
         ("arm_coverage", arm_coverage), ("opinion_random_factorial", factorial),
         ("complete_cell_opinion_random_factorial", complete_factorial),
     ):
+        write_table(output, f"{name}.csv.gz", table)
         table.to_csv(output / f"{name}.csv", index=False)
     report = shared_plot.analysis_report(
         directory, plan, records, binding, coverage_rows, coverage, complete_ids, completed, created_at,
     )
-    report["arms"] = arm_coverage.groupby("arm")[["planned", "completed"]].sum().reset_index().to_dict("records")
+    report.arms = tuple(ArmTotals(arm=row.arm, planned=int(row.planned), completed=int(row.completed))
+                        for row in arm_coverage.groupby("arm")[["planned", "completed"]].sum().reset_index().itertuples(index=False))
     if make_figures:
         setup_paper_params()
         shared_plot.plot_coverage(coverage, output)
@@ -129,13 +136,13 @@ def analyze(directory: Path, output: Path, *, make_figures=True):
                 & (complete_factorial["history"] == history)
             ] if not complete_factorial.empty else complete_factorial,
         )
-    atomic_json(output / "coverage.json", report)
+    atomic_json(output / "coverage.json", to_wire(report))
     return report
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("dataset", type=Path, help="Directory containing plan.json and records/")
+    parser.add_argument("dataset", type=Path, help="Directory containing plan.json and analysis.sqlite")
     parser.add_argument(
         "--output", type=Path, help="Analysis destination, defaulting to the dataset's analysis directory"
     )

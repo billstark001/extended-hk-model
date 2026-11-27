@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from scipy.stats import norm
 
-from ehk.metrics.density import linear_binned_gaussian
+from ehk.metrics.density import DensityDiagnostics, linear_binned_gaussian
 from ehk.metrics.state import MeasurementState
 
 
@@ -68,13 +68,12 @@ def test_opt_in_fft_diagnostics_leave_the_array_api_and_values_unchanged():
     axis = np.linspace(-.04, 2.04, 256)
     samples = np.array([.013, .279, .703, 1.117, 1.483, 1.987])
     expected = linear_binned_gaussian(samples, axis, .01)
-    diagnostics = {}
+    diagnostics = DensityDiagnostics()
     actual = linear_binned_gaussian(samples, axis, .01, diagnostics=diagnostics)
     np.testing.assert_array_equal(actual, expected)
-    assert set(diagnostics) == {"negative_count", "minimum_before_clip", "fft_length"}
-    assert isinstance(diagnostics["negative_count"], int)
-    assert isinstance(diagnostics["minimum_before_clip"], float)
-    assert diagnostics["fft_length"] >= 3 * 4081 - 2
+    assert isinstance(diagnostics.negative_count, int)
+    assert isinstance(diagnostics.minimum_before_clip, float)
+    assert diagnostics.fft_length >= 3 * 4081 - 2
 
 
 @pytest.mark.parametrize("bins", [0, True, 1024])

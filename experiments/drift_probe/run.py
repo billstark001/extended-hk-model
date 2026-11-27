@@ -236,7 +236,7 @@ def run(args) -> None:
             state = "interrupted" if isinstance(error, KeyboardInterrupt) else "failed"
             raise
         finally:
-            report = journal.finish(tasks, state)
+            report = journal.finish((task["id"] for task in tasks), state)
         return report
 
     workflow = Workflow(

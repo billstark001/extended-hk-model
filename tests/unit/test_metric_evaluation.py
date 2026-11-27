@@ -10,16 +10,16 @@ import pytest
 from ehk.metrics.evaluation import MeasurementEvaluator
 from ehk.metrics.homophily import mean_followee_edge_concordance, normalize_homophily
 from ehk.metrics.polarization import DistanceCalculator
-from ehk.metrics.state import MeasurementState
+from ehk.metrics.state import MeasurementRecord, MeasurementState
 
 
-class Record:
+class Record(MeasurementRecord):
     def __init__(self, graph=None, opinions=None, *, epsilon=.45, horizon=4):
         self.graph = graph if graph is not None else nx.DiGraph([(0, 1), (0, 2), (1, 2), (2, 3), (3, 0)])
         values = np.array([-.75, -.25, .25, .75]) if opinions is None else np.asarray(opinions)
-        self.opinions = np.tile(values, (horizon + 1, 1))
-        self.metadata = {"HKParams": {"Tolerance": epsilon}}
-        self.max_step, self.graph_calls = horizon, 0
+        super().__init__(opinions=np.tile(values, (horizon + 1, 1)), max_step=horizon,
+                         epsilon=epsilon, graph_at=self.get_graph)
+        self.graph_calls = 0
 
     def get_graph(self, step):
         self.graph_calls += 1
@@ -61,8 +61,8 @@ def test_point_extracts_graph_once_and_reuses_opinion_cache_across_graphs():
     assert calculator.opinion_calls == 1 and calculator.edge_calls == 2
     assert h0 == normalize_homophily(mean_followee_edge_concordance(first.graph, first.opinions[1], .45), .45)
     assert h1 == normalize_homophily(mean_followee_edge_concordance(second.graph, second.opinions[1], .45), .45)
-    assert evaluator.cache_info()["opinion"]["hits"] == 1
-    assert evaluator.cache_info()["homophily"]["misses"] == 2
+    assert evaluator.cache_info().opinion.hits == 1
+    assert evaluator.cache_info().homophily.misses == 2
 
 
 def test_homophily_only_does_not_prepare_any_density_and_can_reuse_static_steps():
@@ -72,7 +72,7 @@ def test_homophily_only_does_not_prepare_any_density_and_can_reuse_static_steps(
     first = evaluator.homophily(record, 0)
     assert evaluator.homophily(record, 4) == first
     assert calculator.opinion_calls == calculator.edge_calls == 0
-    assert evaluator.cache_info()["homophily"]["hits"] == 1
+    assert evaluator.cache_info().homophily.hits == 1
     evaluator.distance(record, 0)
     assert calculator.opinion_calls == calculator.edge_calls == 1
 
@@ -124,8 +124,8 @@ def test_confidence_change_invalidates_opinion_and_homophily_but_reuses_edge_ind
     p1, s1, h1 = evaluator.point(second, 1)
     assert p0 != p1 and h0 != h1 and s0 == s1
     info = evaluator.cache_info()
-    assert info["opinion"]["misses"] == info["homophily"]["misses"] == 2
-    assert info["edge"]["misses"] == info["edge"]["hits"] == 1
+    assert info.opinion.misses == info.homophily.misses == 2
+    assert info.edge.misses == info.edge.hits == 1
     assert calculator.opinion_calls == 2 and calculator.edge_calls == 1
 
 
@@ -175,10 +175,12 @@ def test_reference_density_mutation_is_part_of_the_distance_cache_identity():
     evaluator = MeasurementEvaluator(method="exact", calculator=calculator)
     evaluator.distance(record, 1)
     calculator.random_reference[0] *= 1.001
-    expected = calculator.calculate_indices(MeasurementState.from_graph(record.graph, record.opinions[1]), .45, random_state=1, method="exact")
+    expected = calculator.calculate_indices(
+        MeasurementState.from_graph(record.graph, record.opinions[1]), .45, random_state=1, method="exact",
+    )
     actual = evaluator.distance(record, 1)
     np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-14)
-    assert evaluator.cache_info()["opinion"]["misses"] == evaluator.cache_info()["edge"]["misses"] == 2
+    assert evaluator.cache_info().opinion.misses == evaluator.cache_info().edge.misses == 2
 
 
 def test_each_lru_is_bounded_and_graph_changes_do_not_evict_opinion_entries():
@@ -190,12 +192,12 @@ def test_each_lru_is_bounded_and_graph_changes_do_not_evict_opinion_entries():
     for record in records:
         evaluator.point(record, 0)
     info = evaluator.cache_info()
-    assert info["opinion"]["size"] == 1
-    assert info["edge"]["size"] == info["homophily"]["size"] == 2
+    assert info.opinion.size == 1
+    assert info.edge.size == info.homophily.size == 2
     evaluator.point(records[0], 0)
     assert calculator.opinion_calls == 1 and calculator.edge_calls == 4
     evaluator.clear()
-    assert all(row["size"] == row["hits"] == row["misses"] == 0 for row in evaluator.cache_info().values())
+    assert all(row.size == row.hits == row.misses == 0 for row in evaluator.cache_info().components())
 
 
 def test_caches_do_not_keep_records_or_graphs_alive():
@@ -216,11 +218,13 @@ def test_explicit_exact_mode_preserves_old_sampling_with_an_opinion_cache_hit(dt
     calculator = DistanceCalculator(min_bandwidth=.01, sample_count=12, max_kde_samples=37)
     evaluator = MeasurementEvaluator(method="exact", calculator=calculator)
     evaluator.point(first, 3)
-    expected = calculator.calculate_indices(MeasurementState.from_graph(second.graph, second.opinions[3]), .45, random_state=3, method="exact")
+    expected = calculator.calculate_indices(
+        MeasurementState.from_graph(second.graph, second.opinions[3]), .45, random_state=3, method="exact",
+    )
     actual = evaluator.point(second, 3)
     np.testing.assert_allclose(actual[:2], expected, rtol=1e-13, atol=1e-14)
     assert actual[2] == normalize_homophily(mean_followee_edge_concordance(second.graph, second.opinions[3], .45), .45)
-    assert evaluator.cache_info()["opinion"]["hits"] == 1
+    assert evaluator.cache_info().opinion.hits == 1
 
 
 @pytest.mark.parametrize("dtype", [np.float64, np.float32])

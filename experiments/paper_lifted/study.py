@@ -51,6 +51,7 @@ class LiftedStudy:
                 selected[start : start + self.workers],
                 TaskAdapter(lambda t: t["id"], self.adapter.cached, self.compute, self.save),
                 workers=self.workers,
+                result_state=lambda result: "partial" if result["missing"] else "complete",
                 store=self.adapter.store,
                 journal=journal,
                 progress=self.progress or True,
@@ -76,6 +77,7 @@ class LiftedStudy:
             self.root / "status.json",
             profile=self.plan["profile"],
             workers=self.workers,
+            result_state=lambda result: "partial" if result["missing"] else "complete",
         )
         for stage in self.plan["stages"]:
             result = workflow.dispatch(stage["name"])

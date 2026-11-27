@@ -7,21 +7,26 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from common.experiments.lifecycle import RunStatus
 from smp_bindings.model_state import load_snapshot
 from smp_bindings.trajectory import TrajectoryReader
 
-from common.experiments.plans import freeze_plan
-from common.io.json import fingerprint, read_result, save_result, sha
+from ehk.domain import (freeze_plan,read_plan,Task,FullResult,StagedResult,Plan,Rng,StageGate,to_wire)
+from dataclasses import replace
+from tests.experiments import recommendation_fixtures as fixtures
+from common.io.json import sha
 from ehk.micro.scenarios import create_scenario_metadata
 from experiments.paper.recommendation import analysis, design, study
 from experiments.paper.recommendation_shared import runtime
+from experiments.paper.recommendation_shared.storage import StudyStore, TASKS
+from common.storage.documents import DocumentStore
 from experiments.paper.recommender_variants import design as variants_design
 from experiments.paper.recommender_variants import study as variants_study
 
 
 @pytest.fixture(scope="module")
 def smp_binary(tmp_path_factory):
-    binary = tmp_path_factory.mktemp("persistent-recommendation") / "smp"
+    binary = tmp_path_factory.mktemp("persistent-recommendation") / "smp.exe"
     source = Path(__file__).resolve().parents[3] / "social-media-models"
     subprocess.run(["go", "build", "-o", str(binary), "./cmd/smp"], cwd=source, check=True)
     return binary
@@ -42,15 +47,13 @@ def small_design(monkeypatch):
         "small-paired", influence=0.1, rewiring=0.1, repost_rate=0.1,
         recsys_type=design.REFERENCE, recsys_count=3, post_retain_count=2, max_sim_step=48,
     )
-    metadata.update(
-        NodeCount=10, NodeFollowCount=2, RecSysParams=dict(design.RECOMMENDER_PARAMS),
-        RNG={"Algorithm": "pcg64-dxsm-v1", "Seed1": "0x0012", "Seed2": "0x0034"},
-    )
-    return {"id": "small-paired", "setting": "fixture", "sensitivity": "core", "replicate": 0, "metadata": metadata}
+    metadata=replace(metadata,NodeCount=10,NodeFollowCount=2,RecSysParams=replace(design.RECOMMENDER_PARAMS),
+        RNG=Rng(Algorithm="pcg64-dxsm-v1",Seed1="0x0012",Seed2="0x0034"))
+    return Task(id="small-paired",setting="fixture",sensitivity="core",replicate=0,metadata=metadata)
 
 
 def _opinion_history(directory, arm):
-    return np.asarray(TrajectoryReader(str(directory / arm["raw_record"])).channel("opinions")[:])
+    return np.asarray(TrajectoryReader(str(directory / arm.raw_record)).channel("opinions")[:])
 
 
 def _render_study(directory, profile, task, result):
@@ -61,13 +64,10 @@ def _render_study(directory, profile, task, result):
         from experiments.paper.recommendation.plot import analyze
         protocol = design.design_protocol(profile)
 
-    freeze_plan(directory / "plan.json", {
-        "schema": design.DESIGN_VERSION, "study": "paper_recommendation", "profile": profile,
-        "protocol": protocol, "tasks": [task],
-    })
-    save_result(directory / "records" / (task["id"] + ".json.gz"), {
-        "task_fingerprint": fingerprint(task), "result": result,
-    })
+    plan=freeze_plan(directory/"plan.json",Plan(schema=design.DESIGN_VERSION,study="paper_recommendation",
+        profile=profile,protocol=protocol,tasks=(task,)))
+    with StudyStore(directory) as store:
+        store.put_task(task, result, plan=plan)
     output = directory / "analysis"
     analyze(directory, output)
     assert (output / "coverage.json").is_file()
@@ -81,32 +81,32 @@ def test_staged_arms_replay_identical_prefix_and_keep_complete_records(
         design, "select_stages", lambda points: dict(zip(("early", "middle", "late"), points))
     )
     result = study.run_task("staged", smp_binary, tmp_path, small_design)
-    reference = _opinion_history(tmp_path, result["reference"])
+    reference = _opinion_history(tmp_path, result.reference)
     assert reference.shape == (33, 10)
-    assert set(result["stages"]) == {"early", "middle", "late"}
-    for phase, stage in result["stages"].items():
-        start = stage["checkpoint"]["step"]
+    assert set(result.stages) == {"early", "middle", "late"}
+    for phase, stage in result.stages.items():
+        start = stage.checkpoint.step
         expected = {"hold", "switch", "bridge", "hide_reposts"} if phase == "late" else {"hold", "switch"}
-        assert set(stage["arms"]) == expected
+        assert set(stage.arms) == expected
         source = runtime.checkpoint_path(tmp_path, small_design, "reference", "reference", start)
         source_state = load_snapshot(str(source))
-        for name, arm in stage["arms"].items():
-            raw = tmp_path / arm["raw_record"]
+        for name, arm in stage.arms.items():
+            raw = tmp_path / arm.raw_record
             assert runtime.complete_raw(tmp_path, arm)
             history = _opinion_history(tmp_path, arm)
             assert history.shape == (start + design.FOLLOWUP + 1, 10)
             np.testing.assert_array_equal(history[: start + 1], reference[: start + 1])
             branch = runtime.checkpoint_path(tmp_path, small_design, phase, name, start)
             assert load_snapshot(str(branch)) == source_state
-            assert arm["endpoints"][0]["step"] == start
-            assert arm["endpoints"][0]["relative_step"] == 0
-            assert arm["endpoints"][0]["exposure"]["updates"] == 0
-            assert sum(point["exposure"]["updates"] for point in arm["endpoints"]) == 160
+            assert arm.endpoints[0].step == start
+            assert arm.endpoints[0].relative_step == 0
+            assert arm.endpoints[0].exposure.updates == 0
+            assert sum(point.exposure.updates for point in arm.endpoints) == 160
             metadata = json.loads((raw / "metadata.json").read_text())
             assert all(metadata[key] is True for key in ("AgentNumber", "OpinionSum", "RewiringEvent", "PostEvent"))
             assert metadata["TrajectoryPrecision"] == {"opinions": "float64", "opinion_sums": "float64"}
             if phase == "late":
-                with gzip.open(tmp_path / arm["exposure_trace"]["path"], "rt") as stream:
+                with gzip.open(tmp_path / arm.exposure_trace.path, "rt") as stream:
                     rows = [json.loads(line) for line in stream]
                 assert len(rows) == 160 and all(start < row["step"] <= start + 16 for row in rows)
     _render_study(tmp_path, "staged", small_design, result)
@@ -114,7 +114,7 @@ def test_staged_arms_replay_identical_prefix_and_keep_complete_records(
 
 def test_variants_and_factorial_arms_share_initial_state_and_rng(smp_binary, tmp_path, small_design):
     result = variants_study.run_task(smp_binary, tmp_path, small_design)
-    arms = result["arms"]
+    arms = result.arms
     assert set(arms) == set(variants_design.variant_arms()) and len(arms) == 9
     initial = []
     for policy, arm in arms.items():
@@ -122,71 +122,17 @@ def test_variants_and_factorial_arms_share_initial_state_and_rng(smp_binary, tmp
         history = _opinion_history(tmp_path, arm)
         assert history.shape == (33, 10)
         initial.append(history[0])
-        assert arm["endpoints"][0]["exposure"]["updates"] == 0
-        assert sum(point["exposure"]["updates"] for point in arm["endpoints"]) == 320
+        assert arm.endpoints[0].exposure.updates == 0
+        assert sum(point.exposure.updates for point in arm.endpoints) == 320
         if policy != design.REFERENCE:
-            assert arm["switch_step"] == 0
-        parameters = json.loads((tmp_path / arm["raw_record"] / "metadata.json").read_text())["RecSysParams"]
-        assert parameters == {**small_design["metadata"]["RecSysParams"], **variants_design.variant_arms()[policy]["parameters"]}
+            assert arm.switch_step == 0
+        parameters = json.loads((tmp_path / arm.raw_record / "metadata.json").read_text())["RecSysParams"]
+        assert parameters == to_wire(small_design.metadata.RecSysParams.with_overrides(variants_design.variant_arms()[policy].parameters))
         checkpoint = runtime.checkpoint_path(tmp_path, small_design, "full", policy, 0)
         baseline = runtime.checkpoint_path(tmp_path, small_design, "full", "OpinionRandom", 0)
         assert load_snapshot(str(checkpoint)) == load_snapshot(str(baseline))
     assert all(np.array_equal(row, initial[0]) for row in initial)
     _render_study(tmp_path, "recommender_variants", small_design, result)
-
-
-def test_factorial_extension_reuses_six_arms_and_saves_partial_progress(
-    smp_binary, tmp_path, small_design, monkeypatch,
-):
-    from experiments.paper.recommendation_shared.migration import migrate_plans
-
-    monkeypatch.setattr(variants_design, "generate_tasks", lambda profile=None: [small_design])
-    original_plan = variants_study.make_plan()
-    original_plan["protocol"].pop("variant_arms")
-    freeze_plan(tmp_path / "plan.json", original_plan)
-    previous = variants_study.run_task(
-        smp_binary, tmp_path, small_design, protocol=original_plan["protocol"],
-    )
-    record_path = tmp_path / "records" / (small_design["id"] + ".json.gz")
-    save_result(record_path, {"task_fingerprint": fingerprint(small_design), "result": previous})
-    original_files = {
-        path: sha(path)
-        for arm in previous["arms"].values()
-        for path in (tmp_path / arm["raw_record"]).iterdir() if path.is_file()
-    }
-    migrate_plans(tmp_path)
-    observe = runtime.observe
-    executed = []
-
-    def interrupted(binary, directory, task, phase, arm, *args, **kwargs):
-        executed.append(arm)
-        if len(executed) == 2:
-            raise KeyboardInterrupt("factorial interruption fixture")
-        return observe(binary, directory, task, phase, arm, *args, **kwargs)
-
-    monkeypatch.setattr(runtime, "observe", interrupted)
-    with pytest.raises(KeyboardInterrupt, match="factorial interruption fixture"):
-        variants_study.run_study(tmp_path, smp_binary, 1)
-    partial = read_result(record_path)["result"]
-    assert len(partial["arms"]) == 7
-    assert all(partial["arms"][arm] == value for arm, value in previous["arms"].items())
-    status = json.loads((tmp_path / "runtime" / "status.json").read_text())
-    assert status["completed"] == 0 and status["missing"] == [small_design["id"]]
-    executed.clear()
-
-    def resumed(binary, directory, task, phase, arm, *args, **kwargs):
-        executed.append(arm)
-        return observe(binary, directory, task, phase, arm, *args, **kwargs)
-
-    monkeypatch.setattr(runtime, "observe", resumed)
-    complete = variants_study.run_study(tmp_path, smp_binary, 1)
-    assert complete["completed"] == 1 and complete["missing"] == []
-    assert executed == ["OpinionRandomZeta4Noise0", "OpinionRandomZeta4Noise2"]
-    assert all(sha(path) == digest for path, digest in original_files.items())
-    assert len(read_result(record_path)["result"]["arms"]) == 9
-    executed.clear()
-    variants_study.run_study(tmp_path, smp_binary, 1)
-    assert executed == []
 
 
 def test_retained_arm_cannot_be_recomputed_with_a_replacement_binary(tmp_path, small_design, monkeypatch):
@@ -201,7 +147,7 @@ def test_retained_arm_cannot_be_recomputed_with_a_replacement_binary(tmp_path, s
     with pytest.raises(ValueError, match="original binary"):
         variants_study.run_task(
             binary, tmp_path, small_design,
-            existing={"arms": {"Opinion": {"raw_record": "raw/missing"}}},
+            existing=FullResult(arms={"Opinion":fixtures.arm(raw_record="raw/missing")}),
             arm_binary_sha256=dict.fromkeys(variants_design.variant_arms(), "original-binary"),
         )
 
@@ -215,15 +161,15 @@ def test_campaign_releases_timing_only_after_stage_gate(tmp_path, monkeypatch, p
 
     def run_one(profile, directory, selected_binary, workers, **kwargs):
         calls.append((profile, directory.name, workers))
-        return {"missing": [], "state": "complete"}
+        return RunStatus(planned=0,completed=0,missing=(),state="complete",records=())
 
     monkeypatch.setattr(study, "run_study", run_one)
-    monkeypatch.setattr(analysis, "read_study", lambda directory, profile: ({"tasks": []}, {}))
-    monkeypatch.setattr(analysis, "stage_gate", lambda tasks, records: {"passed": passed})
+    monkeypatch.setattr(analysis, "read_study", lambda directory,profile:(replace(study.make_plan("staged"),tasks=()),{}))
+    monkeypatch.setattr(analysis, "stage_gate", lambda tasks,records:StageGate(n=2,mean=.1,lo=.05,hi=.15,planned_core=2,completed_core=2,complete=True,passed=passed,minimum_effect=.05))
     result = study.run_campaign(tmp_path / "campaign", binary, 6)
     assert [row[0] for row in calls] == ["staged", *(["staged_timing"] if passed else [])]
     assert all(workers == 6 for _, _, workers in calls)
-    assert result["staged_timing"]["state"] == ("complete" if passed else "deferred")
+    assert result["staged_timing"].state == ("complete" if passed else "deferred")
     gate = json.loads((tmp_path / "campaign" / "recommendation_runtime" / "timing_gate.json").read_text())
     assert gate["passed"] is passed
 
@@ -231,21 +177,26 @@ def test_campaign_releases_timing_only_after_stage_gate(tmp_path, monkeypatch, p
 def test_study_validates_raw_cache_and_recovers_missing_summary(smp_binary, tmp_path, small_design, monkeypatch):
     monkeypatch.setattr(variants_design, "generate_tasks", lambda profile=None: [small_design])
     first = variants_study.run_study(tmp_path, smp_binary, 1)
-    assert first["completed"] == 1 and first["missing"] == []
-    entry = read_result(tmp_path / "records" / (small_design["id"] + ".json.gz"))
-    raw = tmp_path / entry["result"]["arms"]["Opinion"]["raw_record"]
-    complete = raw / "observations.json"
-    original = complete.read_bytes()
-    complete.unlink()
+    assert first.completed == 1 and first.missing == ()
+    plan = read_plan(tmp_path / "plan.json")
+    with StudyStore(tmp_path, readonly=True) as store:
+        entry = store.get_task(small_design, plan)
+    raw = tmp_path / entry.result.arms["Opinion"].raw_record
+    original = {path: sha(path) for path in raw.iterdir() if path.is_file() and path.name not in ("smp.log", "job.lock") and not path.name.endswith(("-shm", "-wal"))}
+    with DocumentStore(tmp_path / "analysis.sqlite") as store:
+        with store.connection:
+            store.connection.execute("DELETE FROM documents WHERE namespace=?", (TASKS,))
     second = variants_study.run_study(tmp_path, smp_binary, 1)
-    assert second["completed"] == 1 and complete.read_bytes() == original
-    assert second["records"][0]["state"] == "complete"
-    entry["result"]["arms"]["Opinion"]["binary_sha256"] = "conflicting-binary-fixture"
-    save_result(tmp_path / "records" / (small_design["id"] + ".json.gz"), entry)
+    assert second.completed == 1 and all(sha(path) == digest for path, digest in original.items())
+    assert not (raw / "observations.json").exists()
+    assert second.records[0].state == "complete"
+    entry.result.arms["Opinion"].binary_sha256 = "conflicting-binary-fixture"
+    with StudyStore(tmp_path) as store:
+        store.put_task(small_design, entry.result, plan=plan)
     rejected = variants_study.run_study(tmp_path, smp_binary, 1)
-    assert rejected["completed"] == 0 and rejected["missing"] == [small_design["id"]]
-    assert rejected["records"][0]["state"] == "failed"
-    assert "binary provenance" in rejected["records"][0]["error"]
+    assert rejected.completed == 0 and rejected.missing == (small_design.id,)
+    assert rejected.records[0].state == "failed"
+    assert "binary provenance" in rejected.records[0].error
 
 
 def test_campaign_writes_interrupted_status_before_returning_control(tmp_path, monkeypatch):
@@ -288,8 +239,7 @@ def test_campaign_preflight_writes_and_reopens_a_small_persistent_run(smp_binary
     raw = tmp_path / "preflight" / "storage-check"
     metadata = json.loads((raw / "metadata.json").read_text())
     assert metadata["NodeCount"] == 8 and metadata["MaxSimulationStep"] == 2
-    result = json.loads((raw / "observations.json").read_text())
-    assert result["stopped_at"] == 2 and len(result["final_opinions"]) == 8
+    assert not (raw / "observations.json").exists()
     assert np.asarray(TrajectoryReader(str(raw)).channel("opinions")[:]).shape == (3, 8)
 
 
@@ -307,3 +257,101 @@ def test_plan_only_lists_all_designs_without_starting_processes(small_design, mo
     plans = json.loads(capsys.readouterr().out)
     assert [plan["profile"] for plan in plans] == list(design.STUDIES)
     assert all(plan["protocol"]["recording"]["backend"] == "persistent_smp" for plan in plans)
+
+
+def test_explicit_job_migration_preserves_full_checkpoint(smp_binary, tmp_path, small_design):
+    from experiments.paper.recommendation_shared.migrate_jobs import migrate_jobs
+    from common.io.json import atomic_json
+    from common.runtime.failures import ProtocolError
+
+    first = runtime.observe(smp_binary, tmp_path, small_design, "full", "hold", [0, 16], checkpoints=[0, 16])
+    raw = tmp_path / first.raw_record
+    jobs = [raw / "job.json", raw.parent / ".jobs/hold.json"]
+    checkpoints = {path: sha(path) for path in raw.glob("checkpoint-*.msgpack.lz4")}
+    for path in jobs:
+        old = json.loads(path.read_text())
+        old.pop("result_protocol")
+        old["summary_path"] = str(raw / "observations.json")
+        atomic_json(path, old)
+    with pytest.raises(ProtocolError):
+        runtime.observe(smp_binary, tmp_path, small_design, "full", "hold", [0, 16], checkpoints=[0, 16])
+    receipt = migrate_jobs(tmp_path)
+    assert len(receipt.jobs) == 2 and not receipt.scientific_state_changed
+    assert runtime.observe(smp_binary, tmp_path, small_design, "full", "hold", [0, 16], checkpoints=[0, 16]) == first
+    assert all(sha(path) == digest for path, digest in checkpoints.items())
+    assert not (raw / "observations.json").exists()
+
+
+def test_staged_partial_arms_commit_for_resume_without_entering_analysis(
+    smp_binary, tmp_path, small_design, monkeypatch,
+):
+    monkeypatch.setattr(design, "generate_tasks", lambda profile: [small_design])
+    monkeypatch.setattr(design, "select_stages", lambda points: dict(zip(design.STAGES, points)))
+    original = runtime.observe
+    calls = []
+
+    def interrupted(binary, directory, task, phase, arm, *args, **kwargs):
+        calls.append((phase, arm))
+        if (phase, arm) == ("early", "switch"):
+            raise KeyboardInterrupt("staged partial fixture")
+        return original(binary, directory, task, phase, arm, *args, **kwargs)
+
+    monkeypatch.setattr(runtime, "observe", interrupted)
+    with pytest.raises(KeyboardInterrupt, match="staged partial fixture"):
+        study.run_study("staged", tmp_path, smp_binary, 1)
+    plan, complete = analysis.read_study(tmp_path, "staged")
+    assert complete == {}
+    with StudyStore(tmp_path, readonly=True) as store:
+        assert store.get_task(small_design, plan) is None
+        partial = store.get_task(small_design,plan,pending=True).result
+    assert set(partial.stages["early"].arms) == {"hold"}
+    assert partial.reference.stopped_at == 32
+    old_files = {path: sha(path) for path in (tmp_path / "raw").rglob("*")
+                 if path.is_file() and path.name not in ("smp.log", "job.lock") and not path.name.endswith(("-wal", "-shm"))}
+    calls.clear()
+
+    def resumed(binary, directory, task, phase, arm, *args, **kwargs):
+        calls.append((phase, arm))
+        return original(binary, directory, task, phase, arm, *args, **kwargs)
+
+    monkeypatch.setattr(runtime, "observe", resumed)
+    assert study.run_study("staged",tmp_path,smp_binary,1).completed == 1
+    assert ("reference", "reference") not in calls and ("early", "hold") not in calls
+    assert calls[0] == ("early", "switch")
+    assert all(sha(path) == digest for path, digest in old_files.items())
+    with StudyStore(tmp_path, readonly=True) as store:
+        assert store.get_task(small_design, plan, pending=True) is None
+        assert store.get_task(small_design, plan) is not None
+    assert len(analysis.read_study(tmp_path, "staged")[1]) == 1
+
+
+def test_timing_pending_arms_resume_without_false_completion(smp_binary, tmp_path, small_design, monkeypatch):
+    from experiments.paper.recommendation_shared.analysis import read_study as read_observations
+
+    monkeypatch.setattr(design, "generate_tasks", lambda profile: [small_design])
+    monkeypatch.setattr(analysis, "read_study", lambda *args:(replace(study.make_plan("staged"),tasks=(),plan_fingerprint="gate-fixture"),{}))
+    monkeypatch.setattr(analysis, "stage_gate", lambda *args:StageGate(n=2,mean=.1,lo=.05,hi=.15,planned_core=2,completed_core=2,complete=True,passed=True,minimum_effect=.05))
+    original = runtime.observe
+
+    def interrupted(binary, directory, task, phase, arm, *args, **kwargs):
+        if arm == "always_structure":
+            raise KeyboardInterrupt("timing partial fixture")
+        return original(binary, directory, task, phase, arm, *args, **kwargs)
+
+    monkeypatch.setattr(runtime, "observe", interrupted)
+    with pytest.raises(KeyboardInterrupt, match="timing partial fixture"):
+        study.run_study("staged_timing", tmp_path, smp_binary, 1)
+    plan, records = read_observations(tmp_path, "staged_timing")
+    assert records == {}
+    with StudyStore(tmp_path, readonly=True) as store:
+        assert set(store.get_task(small_design,plan,pending=True).result.arms) == {"hold"}
+    calls = []
+
+    def resumed(binary, directory, task, phase, arm, *args, **kwargs):
+        calls.append(arm)
+        return original(binary, directory, task, phase, arm, *args, **kwargs)
+
+    monkeypatch.setattr(runtime, "observe", resumed)
+    assert study.run_study("staged_timing",tmp_path,smp_binary,1).completed == 1
+    assert calls == ["always_structure", "fixed", "state"]
+    assert set(read_observations(tmp_path, "staged_timing")[1][small_design.id].arms) == {"hold", "always_structure", "fixed", "state"}

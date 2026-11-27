@@ -1,14 +1,17 @@
 """Numerical reporting preserves exact cohorts, full prefixes and paired effects."""
 
+from dataclasses import replace
 import inspect
 import json
 import subprocess
 
 import numpy as np
+import numpy.testing
 import pandas as pd
 import pytest
 
 from common.io.json import atomic_json, sha
+from experiments.paper.recommendation_shared.storage import write_table
 from experiments.paper.kde_approximation.report import (
     benchmark_summary,
     load_inputs,
@@ -18,6 +21,11 @@ from experiments.paper.kde_approximation.report import (
     trajectory_errors,
 )
 from experiments.paper.metric_comparison.core import PATH_KEYS
+from tests.experiments import numerical_fixtures as fixtures
+from experiments.paper.kde_approximation.collector import _source_configuration
+from experiments.paper.kde_approximation.contracts import Configuration, Selection, ReportIdentity, CollectionManifest
+from experiments.paper.metric_comparison.contracts import PathKey
+from ehk.metrics.protocol import metric_protocol
 from experiments.paper.metric_comparison.report import paired_table
 
 
@@ -28,9 +36,10 @@ def forbid_process(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", forbidden)
 
 
-def _manifest(directory, name, **details):
-    atomic_json(directory / name, {"schema": 1, **details,
-                                  "files": {p.name: sha(p) for p in directory.iterdir() if p.is_file() and p.name != name}})
+def _manifest(directory, name, value):
+    for path in directory.glob("*.csv*"):
+        write_table(directory, path.name, pd.read_csv(path, float_precision="round_trip"))
+    atomic_json(directory / name, replace(value,files={p.name:sha(p) for p in directory.iterdir() if p.is_file() and p.name != name}))
 
 
 def _fixture(tmp_path):
@@ -44,12 +53,12 @@ def _fixture(tmp_path):
             changed = arm == "switch"
             consensus = changed and task == "a"
             final_p = 0 if consensus else .81 if changed else .8
-            final_ip = 1.2 if consensus else .79 if changed else .8
+            final_ip = .95 if consensus else .79 if changed else .8
             state = {16: (.2, .6, .5), 32: (final_ip, 1.0 if consensus else .98, 1.0 if consensus else .9)}
             endpoint = {**key, "start_step": 16, "end_step": 32, "followup_steps": 16,
                         "sensitivity": "core", "epsilon": .45, "history": 0,
                         "influence": .01, "rewiring": .1, "repost": .1,
-                        "I_w": .2 if changed else .1, "terminal_outcome": "consensus" if consensus else "two_groups"}
+                        "I_w": .2 if changed else .1, "endpoint_complement": False, "terminal_outcome": "consensus" if consensus else "two_groups"}
             for position, step in (("start", 16), ("end", 32)):
                 ip, is_, ih = state[step]
                 for metric, value in {"I_p": ip, "I_s": is_, "I_h": ih,
@@ -62,7 +71,7 @@ def _fixture(tmp_path):
             endpoints.append(endpoint)
             for size in (1021, 2041):
                 factor = 1021 / size
-                paths.append({**key, "bins": size, "end_step": 32,
+                paths.append({**key, "bins": size, "end_step": 32, "endpoint_complement": False,
                               "baseline_steps_json": "[0,16,32]", "candidate_steps_json": "[0,8,16,32]",
                               "baseline_Iw": endpoint["I_w"], "source_Iw": endpoint["I_w"], "fixed_Iw": endpoint["I_w"] + .001 * factor * (2 if changed else 1),
                               "adaptive_Iw": endpoint["I_w"] + .003 * factor * (2 if changed else 1),
@@ -79,10 +88,10 @@ def _fixture(tmp_path):
                                        "approx_Ip": current[0] + error, "approx_Is": current[1] + error / 10,
                                        "approx_Ih": current[2]})
     pd.DataFrame(prepared).to_csv(prep / "points.csv.gz", index=False)
-    _manifest(prep, "preparation.json", paths=4, points=8)
+    _manifest(prep,"preparation.json",fixtures.prepared(points=8,paths=4))
     pd.DataFrame(endpoints).to_csv(baseline / "endpoint_states.csv.gz", index=False)
-    _manifest(baseline, "report.json", status="complete", paths=4, points=8,
-              preparation_sha256=sha(prep / "preparation.json"), report_source_sha256=sha(inspect.getfile(paired_table)))
+    _manifest(baseline,"report.json",fixtures.report(status="complete",paths=4,points=8,endpoint_complement=False,
+        preparation_sha256=sha(prep / "preparation.json"),report_source_sha256=sha(inspect.getfile(paired_table))))
     benchmarks = pd.DataFrame([{"bins": size, "repeat": repeat, "same_input_sha": "same-state",
                                 "exact_total_seconds": 2., "exact_evaluate_seconds": 1.,
                                 "prepare_seconds": .1, "evaluate_seconds": .1 * size / 1021,
@@ -91,31 +100,42 @@ def _fixture(tmp_path):
     pd.DataFrame(points).to_csv(collection / "points.csv.gz", index=False)
     pd.DataFrame(paths).to_csv(collection / "paths.csv.gz", index=False)
     benchmarks.to_csv(collection / "benchmarks.csv", index=False)
-    atomic_json(collection / "configuration.json", {"bins": [1021, 2041],
-                                                   "baseline_report": {"directory": str(baseline), "sha256": sha(baseline / "report.json")},
-                                                   "selection": {"mode": "representative", "selected_tasks": 2, "selected_paths": 4}})
-    _manifest(collection, "collection.json", status="complete", configuration_sha256=sha(collection / "configuration.json"))
+    keys=tuple(PathKey("staged",task,"middle",arm) for task in ("a","b") for arm in ("hold","switch"))
+    selection=Selection("representative",2,2,2,4,4,(("staged","a"),("staged","b")),
+        {"staged":2},keys,(),(),"declared fixture tasks","declared adaptive stress states")
+    config=Configuration(schema=1,preparation=str(prep),baseline=str(baseline),endpoint_complement=False,
+        preparation_sha256=sha(prep / "preparation.json"),run_status_sha256="fixture-run",
+        collection_sha256="fixture-collection",collection_configuration_fingerprint="fixture-configuration",
+        comparison_sha256="fixture-comparison",baseline_report=ReportIdentity(str(baseline),sha(baseline / "report.json")),
+        selection=selection,selected_paths=keys,bins=(1021,2041),benchmark_states=(),repeats=2,
+        metrics=_source_configuration(),metric_protocol=metric_protocol(endpoint_complement=False),exact_reference="exact")
+    atomic_json(collection / "configuration.json",config)
+    _manifest(collection,"collection.json",CollectionManifest(schema=1,status="complete",planned_paths=4,
+        completed_paths=4,endpoint_complement=False,pending_paths=0,failed_paths=0,selection=selection,
+        paths=(),configuration_sha256=sha(collection / "configuration.json"),files={}))
     return prep, baseline, collection
 
 
 def _rewrite_collection(collection, name, frame):
+    write_table(collection, name, frame)
     frame.to_csv(collection / name, index=False)
-    manifest = json.loads((collection / "collection.json").read_text(encoding="utf-8"))
+    manifest = json.loads((collection / "collection.json").read_text())
     manifest["files"][name] = sha(collection / name)
+    manifest["files"]["analysis.sqlite"] = sha(collection / "analysis.sqlite")
     atomic_json(collection / "collection.json", manifest)
 
 
-def test_report_authenticates_counts_and_never_fills_unmeasured_candidate_states(tmp_path):
+def test_report_authenticates_counts_and_never_fills_unmeasured_candidate_states(tmp_path,monkeypatch):
     prep, baseline, collection = _fixture(tmp_path)
     destination = tmp_path / "report"
     result = report(prep, baseline, collection, destination, make_figures=False)
-    assert result["selected_tasks"] == 2 and result["selected_paths"] == 4
-    assert result["scope"]["mode"] == "representative"
+    assert result.selected_tasks == 2 and result.selected_paths == 4
+    assert result.scope.mode == "representative"
     summary = pd.read_csv(destination / "state_errors.csv")
     candidate = summary[(summary["grid"] == "candidate_adaptive") & (summary.metric == "I_p")]
     assert candidate["unavailable_exact_states"].tolist() == [4, 4]
     assert candidate["n"].tolist() == [12, 12]
-    assert all(sha(destination / name) == expected for name, expected in result["files"].items())
+    assert all(sha(destination / name) == expected for name, expected in result.files.items())
     assert "没有据此宣布科学结论等价" in (destination / "report.md").read_text(encoding="utf-8")
     assert "不能外推整轮加速" in (destination / "report.md").read_text(encoding="utf-8")
     with pytest.raises(ValueError, match="already exists"):
@@ -142,7 +162,7 @@ def test_paired_effects_reuse_same_cohort_and_consensus_subsets(tmp_path):
     assert len(baseline_pairs) == 2
     assert (pairs[pairs.metric.isin(("I_h", "separation", "excess_concordance"))].delta_error == 0).all()
     selected = effects[(effects.bins == 1021) & (effects.metric == "I_p")].set_index("scope")
-    assert selected.loc["middle_P_ge_0.4_E_lt_0.1", "mean_exact"] == pytest.approx(.195)
+    assert selected.loc["middle_P_ge_0.4_E_lt_0.1", "mean_exact"] == pytest.approx(.07)
     assert selected.loc["middle_P_ge_0.4_E_lt_0.1", "mean_error"] == pytest.approx(.001)
     assert selected.loc["middle_consensus_gains", "n_exact"] == 1
     assert selected.loc["middle_remaining", "n_exact"] == 1
@@ -192,7 +212,7 @@ def test_hash_and_baseline_generation_mismatches_are_rejected(tmp_path):
 
 def test_frozen_baseline_cannot_be_relabelled_with_a_different_endpoint_policy(tmp_path):
     prep, baseline, collection = _fixture(tmp_path)
-    manifest = json.loads((collection / "collection.json").read_text(encoding="utf-8"))
+    manifest = json.loads((collection / "collection.json").read_text())
     manifest["endpoint_complement"] = True
     atomic_json(collection / "collection.json", manifest)
     with pytest.raises(ValueError, match="endpoint_complement policies disagree"):
@@ -210,7 +230,7 @@ def test_whole_missing_kde_grid_cannot_be_reported_as_complete(tmp_path):
 
 def test_complete_manifest_requires_complete_path_counts(tmp_path):
     prep, baseline, collection = _fixture(tmp_path)
-    manifest = json.loads((collection / "collection.json").read_text(encoding="utf-8"))
+    manifest = json.loads((collection / "collection.json").read_text())
     manifest["planned_paths"] = 5
     atomic_json(collection / "collection.json", manifest)
     with pytest.raises(ValueError, match="path coverage"):

@@ -1,32 +1,27 @@
 """Original-paper designs using the shared experiment lifecycle."""
 
+import json
 import platform
 import subprocess
 from pathlib import Path
+from ehk.domain import Plan, OriginalProtocol, Binding, GitProvenance, freeze_plan
 
 from common.experiments.execution import execute_tasks
 from common.experiments.lifecycle import TaskJournal, Workflow, interruptible, session_lock
-from common.experiments.plans import freeze_manifest, freeze_plan
-from common.io.json import sha
+from common.experiments.plans import freeze_manifest
+from common.io.json import sha, canonical, fingerprint
 from common.runtime.git import git_fingerprint
 from ehk.micro.simulation import SimulationAdapter
 
 from . import scenarios as cfg
+from .analysis.models import AnalysisOutcome
 
 
-def make_plan(name, *, seed_namespace=cfg.SEED_NAMESPACE):
-    return {
-        "schema": 2,
-        "study": "paper",
-        "profile": name,
-        "protocol": {
-            "seed_namespace": seed_namespace,
-            "rng": "ehk-independent-pcg-v1",
-            "axes": {key: list(values) for key, values in cfg.SCENARIO_AXES[name].items()},
-            "legacy_unique_names": True,
-        },
-        "tasks": cfg.execution_tasks(name, seed_namespace=seed_namespace),
-    }
+def make_plan(name, *, seed_namespace=cfg.SEED_NAMESPACE) -> Plan[OriginalProtocol]:
+    return Plan(schema=2, study="paper", profile=name,
+                protocol=OriginalProtocol(seed_namespace=seed_namespace, rng="ehk-independent-pcg-v1",
+                                          axes=cfg.SCENARIO_AXES[name], legacy_unique_names=True),
+                tasks=tuple(cfg.execution_tasks(name, seed_namespace=seed_namespace)))
 
 
 def execution_provenance(binary):
@@ -40,27 +35,26 @@ def execution_provenance(binary):
         if "__pycache__" not in path.parts
     }
     build = subprocess.run(["go", "version", "-m", str(binary)], text=True, capture_output=True, check=False)
-    return {
-        "binary_sha256": sha(binary),
-        "binary_build_info": build.stdout.strip(),
-        "python_version": platform.python_version(),
-        "python_source_sha256": sources,
-        "python_git": git_fingerprint(root),
-    }
+    return Binding(binary_sha256=sha(binary), binary_build_info=build.stdout.strip(),
+                   python_version=platform.python_version(), python_source_sha256=sources,
+                   python_git=GitProvenance(**git_fingerprint(root)))
 
 
 def freeze_study(name, workspace, binary, *, seed_namespace=cfg.SEED_NAMESPACE):
     workspace = Path(workspace).resolve()
     control = workspace / ".paper-runtime" / name
-    plan = freeze_plan(control / "plan.json", make_plan(name, seed_namespace=seed_namespace))
+    plan = make_plan(name, seed_namespace=seed_namespace)
+    plan = freeze_plan(control / "plan.json", plan)
     freeze_manifest(control / "binding.json", execution_provenance(binary))
     return plan
 
 
-def run_simulations(name, workspace, binary, concurrency=4, *, binding_batch=False, seed_namespace=cfg.SEED_NAMESPACE):
+def run_simulations(name, workspace, binary, concurrency=4, *, seed_namespace=cfg.SEED_NAMESPACE):
+    if type(concurrency) is not int or concurrency < 1:
+        raise ValueError("positive simulation concurrency required")
     workspace, binary = Path(workspace).resolve(), Path(binary).resolve()
     tasks = cfg.execution_tasks(name, seed_namespace=seed_namespace)
-    adapter = SimulationAdapter(binary, workspace, binding_batch=binding_batch, strict_metadata=True)
+    adapter = SimulationAdapter(binary, workspace)
     for task in tasks:
         adapter.validate_existing(task)
     control = workspace / ".paper-runtime" / name
@@ -76,12 +70,14 @@ def run_simulations(name, workspace, binary, concurrency=4, *, binding_batch=Fal
         def execute():
             state = "complete"
             try:
-                execute_tasks(tasks, adapter, workers=max(1, concurrency), journal=journal, raise_failures=False)
+                execute_tasks(tasks, adapter, workers=concurrency, journal=journal, raise_failures=False)
             except BaseException as error:
                 state = "interrupted" if isinstance(error, KeyboardInterrupt) else "failed"
                 raise
             finally:
-                result = journal.finish(tasks, state)
+                result = AnalysisOutcome.from_journal(journal.finish((task.id for task in tasks), state),
+                                                     fingerprint(make_plan(name, seed_namespace=seed_namespace)),
+                                                     str(workspace))
             return result
 
         workflow.stages["run"] = execute

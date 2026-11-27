@@ -11,7 +11,8 @@ from scipy.stats import norm
 
 from ehk.metrics import polarization
 from ehk.metrics.state import MeasurementState
-from ehk.metrics.density import linear_binned_gaussian
+from ehk.metrics.density import DensityDiagnostics, linear_binned_gaussian
+from ehk.domain import to_wire
 from ehk.metrics.polarization import DistanceCalculator, clustered_objective_density
 from experiments.paper.kde_approximation import kernel
 
@@ -26,7 +27,7 @@ def no_native_processes(monkeypatch):
 
 @pytest.fixture
 def reference():
-    return DistanceCalculator(min_bandwidth=.01, sample_count=12, max_kde_samples=37)
+    return DistanceCalculator( min_bandwidth=.01, sample_count=12, max_kde_samples=37)
 
 
 def _graph(n=12):
@@ -68,7 +69,7 @@ def test_prepare_matches_original_sampling_rng_order_bandwidth_and_exact_values(
     assert prepared.edge.bandwidth == fitted[1].cho_cov[0, 0]
     ip, isub, diagnostics = calculator.exact(prepared)
     assert (ip, isub) == expected
-    assert diagnostics["method"] == "exact"
+    assert diagnostics.method == "exact"
 
 
 def test_objective_reference_uses_complete_pairs_not_the_kde_subsample(reference):
@@ -106,8 +107,8 @@ def test_experiment_selects_resolutions_and_records_canonical_component_diagnost
     calculator.exact(prepared)
     for bins in kernel.SUPPORTED_BINS:
         _, _, diagnostics = calculator.evaluate(prepared, bins)
-        assert diagnostics["opinion_fft_length"] >= 3 * bins - 2
-        assert diagnostics["edge_fft_length"] >= 3 * bins - 2
+        assert diagnostics.opinion_fft_length >= 3 * bins - 2
+        assert diagnostics.edge_fft_length >= 3 * bins - 2
     assert calls[:2] == [("prepare_opinion", None, None), ("prepare_edge", None, None)]
     assert calls[2:4] == [("opinion_index", "exact", None), ("edge_index", "exact", None)]
     assert calls[4:] == [(name, "binned", bins) for bins in kernel.SUPPORTED_BINS for name in ("opinion_index", "edge_index")]
@@ -120,12 +121,12 @@ def test_aligned_mass_matches_direct_gaussians_without_boundary_wrap(bins):
     samples = fine[[0, 17, bins // 3, bins - 1]]
     bandwidth = .075
     expected = norm.pdf((axis[:, None] - samples) / bandwidth).mean(axis=1) / bandwidth
-    diagnostics = {}
+    diagnostics = DensityDiagnostics()
     actual = linear_binned_gaussian(samples, axis, bandwidth, bins, diagnostics=diagnostics)
     np.testing.assert_allclose(actual, expected, atol=2e-12, rtol=2e-12)
     assert actual.shape == axis.shape
-    assert diagnostics["fft_length"] >= 3 * bins - 2
-    assert diagnostics["minimum_before_clip"] >= -2e-12
+    assert diagnostics.fft_length >= 3 * bins - 2
+    assert diagnostics.minimum_before_clip >= -2e-12
     assert np.all(actual >= 0)
 
 
@@ -153,10 +154,10 @@ def test_constant_samples_keep_original_fallback_for_every_resolution(reference)
     for bins in kernel.SUPPORTED_BINS:
         ip, isub, diagnostics = calculator.evaluate(prepared, bins)
         assert (ip, isub) == expected
-        assert diagnostics["opinion_constant"] and diagnostics["edge_constant"]
-        assert diagnostics["opinion_fft_length"] == diagnostics["edge_fft_length"] == 0
-        assert diagnostics["stride"] == (bins - 1) // 255
-        json.dumps(diagnostics, allow_nan=False)
+        assert diagnostics.opinion_constant and diagnostics.edge_constant
+        assert diagnostics.opinion_fft_length == diagnostics.edge_fft_length == 0
+        assert diagnostics.stride == (bins - 1) // 255
+        json.dumps(to_wire(diagnostics), allow_nan=False)
 
 
 def test_nonconstant_evaluation_preserves_inputs_and_returns_small_json_diagnostics(reference):
@@ -170,7 +171,7 @@ def test_nonconstant_evaluation_preserves_inputs_and_returns_small_json_diagnost
     for bins in kernel.SUPPORTED_BINS:
         ip, isub, diagnostics = calculator.evaluate(prepared, bins)
         assert np.isfinite([ip, isub]).all()
-        assert len(json.dumps(diagnostics, allow_nan=False)) < 1500
+        assert len(json.dumps(to_wire(diagnostics), allow_nan=False)) < 1500
         errors.append(max(abs(ip - exact[0]), abs(isub - exact[1])))
     assert errors[-1] < errors[0]
     for values, before in zip((prepared.opinion.samples, prepared.edge.samples, prepared.objective_reference), snapshots):

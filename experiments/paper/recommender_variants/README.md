@@ -37,14 +37,7 @@ The workspace entry point uses `SMP_BINARY_PATH` or `--smp-binary`; the direct s
 
 Persistent raw records under `raw/<task>/full/<arm>` contain float64 opinion and opinion-sum histories, per-user counts, rewiring/repost events, snapshots, metadata and `smp.log`. `AgentNumber`, `OpinionSum`, `RewiringEvent` and `PostEvent` are enabled; `ViewPostsEvent` and `ViewPostsDetails` are disabled. Exposure counters are saved for each observation interval.
 
-Stop the scheduler before adding factorial arms or changing its bound executable. Explicit migration accepts a workspace root or one study directory; executable replacement requires the single study directory:
-
-```sh
-python -m experiments.paper.recommendation_shared.migration \
-  /path/to/recommender_variants --smp-binary /path/to/replacement-smp
-```
-
-Migration preserves the old plan, bindings and receipt. Original arms retain their provenance; added arms record the executable used for them. Task IDs, seeds, existing results and raw records remain unchanged. This supports datasets spanning the OpinionRandom zero-score-row correction, which clears stale recommendation weights when all current scores are zero. Migration and bundle export use the shared package's entry points.
+Frozen plans and executable bindings are immutable. Additional arms, changed parameters or a replacement executable require a new dataset directory. Existing six-arm datasets remain readable with their frozen six-arm protocol and original per-arm provenance.
 
 ## Analysis and figures
 
@@ -85,4 +78,4 @@ python -m experiments.paper.recommender_variants.plot \
   "$factorial_bundle/data/study" --output "$factorial_bundle/detail"
 ```
 
-This package owns design, execution, reading, analysis and factorial figures for implementation comparisons. The staged package rejects implementation-comparison data. [`recommendation_shared`](../recommendation_shared/README.md) owns bundle export and frozen-plan migration.
+This package owns design, execution, reading, analysis and factorial figures for implementation comparisons. The staged package rejects implementation-comparison data. [`recommendation_shared`](../recommendation_shared/README.md) owns bundle export and authenticated JSON import.

@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from common.settings import environment_value
+from ehk.metrics.protocol import METRIC_REVISION, metric_protocol
 from experiments.paper.analysis.records import ScenarioStatistics, StatisticsStore
 from experiments.paper.paths import statistics_database
 
@@ -15,12 +16,12 @@ StatisticFilter = Callable[[ScenarioStatistics], bool]
 
 def recorded_endpoint_complement(row: ScenarioStatistics) -> bool | None:
     """Read the stored convention without assigning a new default to old values."""
-    protocol = getattr(row, "protocol", {}) or {}
-    metric = protocol.get("metrics", {})
+    protocol = row.protocol
+    metric = protocol.metrics if protocol is not None else None
     values = [
-        getattr(row, "endpoint_complement", None),
-        protocol.get("endpoint_complement"),
-        metric.get("endpoint_complement") if isinstance(metric, dict) else None,
+        row.endpoint_complement,
+        protocol.endpoint_complement if protocol is not None else None,
+        metric.endpoint_complement if metric is not None else None,
     ]
     recorded = [value for value in values if value is not None]
     if any(type(value) is not bool for value in recorded):
@@ -53,9 +54,18 @@ def read_statistics(
         raise ValueError("mixed endpoint-complement conventions in the selected analysis revision")
     if len({row.origin for row in rows}) != 1:
         raise ValueError("multiple source datasets match; select EHK_STATS_ORIGIN before plotting")
-    stale = [row.name for row in rows if getattr(row, "stale", False) or getattr(row, "complete", True) is False]
+    stale = [row.name for row in rows if row.stale or row.complete is not True]
     if stale:
         raise ValueError(f"stale or incomplete statistics must be reanalyzed before plotting: {', '.join(stale[:5])}")
+    for row in rows:
+        complement = recorded_endpoint_complement(row)
+        if (
+            row.metric_revision != METRIC_REVISION
+            or type(complement) is not bool
+            or row.protocol is None
+            or row.protocol.metrics != metric_protocol(endpoint_complement=complement)
+        ):
+            raise ValueError(f"statistics use an obsolete or missing metric protocol; reanalyze {row.name}")
     identities = [(row.name, row.origin) for row in rows]
     if len(identities) != len(set(identities)):
         raise ValueError("duplicate source identities in statistics selection")

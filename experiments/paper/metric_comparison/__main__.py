@@ -1,10 +1,11 @@
-"""Prepare exact metric comparisons from portable records, without new simulation."""
+"""Prepare canonical metric comparisons from portable records, without new simulation."""
 
 import argparse
 import json
 from pathlib import Path
+from ehk.domain import to_wire
 
-from .core import collect, compare, prepare
+from .core import compare, prepare
 
 
 def main(argv=None):
@@ -14,14 +15,7 @@ def main(argv=None):
     preparation.add_argument("--bundle", type=Path, action="append", required=True)
     preparation.add_argument("--output", type=Path, required=True)
     preparation.add_argument("--raw-root", action="append", default=[], metavar="PROFILE=DATASET")
-    imported = commands.add_parser("collect", help="Import existing historical metric tables with exact identities")
-    imported.add_argument("--preparation", type=Path, required=True)
-    imported.add_argument("--output", type=Path, required=True)
-    imported.add_argument("--points", type=Path)
-    imported.add_argument("--paths", type=Path)
-    imported.add_argument("--collection", type=Path)
-    imported.add_argument("--endpoint-complement", action=argparse.BooleanOptionalAction, default=True)
-    raw = commands.add_parser("collect-raw", help="Use existing historical metrics on available persistent records")
+    raw = commands.add_parser("collect-raw", help="Compute canonical metrics on available persistent records")
     raw.add_argument("--preparation", type=Path, required=True)
     raw.add_argument("--output", type=Path, required=True)
     raw.add_argument("--max-paths", type=int)
@@ -42,17 +36,14 @@ def main(argv=None):
             roots[profile] = directory
     if args.command == "prepare":
         result = prepare(args.bundle, args.output, raw_roots=roots)
-        shown = {key: value for key, value in result.items() if key not in ("files", "sources")}
-    elif args.command == "collect":
-        shown = collect(args.preparation, args.output, points=args.points, paths=args.paths, collection=args.collection,
-                        endpoint_complement=args.endpoint_complement)
+        shown = {key: value for key, value in to_wire(result).items() if key not in ("files", "sources")}
     elif args.command == "collect-raw":
         from .raw import collect_raw
         result = collect_raw(args.preparation, args.output, max_paths=args.max_paths, raw_roots=roots, workers=args.workers,
                              endpoint_complement=args.endpoint_complement)
-        shown = {key: value for key, value in result.items() if key not in ("files", "paths")}
+        shown = {key: value for key, value in to_wire(result).items() if key not in ("files", "paths")}
     else:
-        shown = compare(args.preparation, args.collection, args.output)
+        shown = to_wire(compare(args.preparation, args.collection, args.output))
     print(json.dumps(shown, indent=2))
 
 

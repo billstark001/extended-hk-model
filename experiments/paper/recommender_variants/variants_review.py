@@ -8,15 +8,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from common.experiments.plans import read_plan
+from ehk.domain import parse_dataclass, read_plan, rows_frame, to_wire
 from common.io.json import atomic_json, sha
 from common.plotting import setup_paper_params
 from ehk.metrics.pathway import PATHWAY_LABELS
 from experiments.paper.recommendation_shared import analysis as shared_analysis
 from experiments.paper.recommendation_shared import bundle as shared_bundle
+from experiments.paper.recommendation_shared.storage import read_table, write_table
 from experiments.paper.recommendation_shared import plot as shared_plot
 
-from .analysis import FACTORIAL_CONTRASTS, opinion_random_factorial
+from .analysis import FACTORIAL_CONTRASTS, FactorialSummary, opinion_random_factorial
+from .figure_models import (
+    FactorialObservation, MatchedContrast, MatchedCoverage, MatchedMean, ReviewLayout, ReviewPlotData, ReviewStratum,
+)
 
 SCHEMA = 1
 FACTORS = ((1, 0), (4, 0), (1, 2), (4, 2))
@@ -25,8 +29,20 @@ CONTRAST_LABELS = ("ζ: 4 − 1, σ=0", "ζ: 4 − 1, σ=2", "σ: 2 − 0, ζ=1"
 PATHWAY_COLORS = ("#377eb8", "#e41a1c", "#984ea3", "#4daf4a", "#ff7f00", "#aaaaaa", "#555555")
 
 
-def _rows(frame):
-    return frame.astype(object).where(pd.notna(frame), None).to_dict("records")
+def _observation_rows(frame) -> tuple[FactorialObservation, ...]:
+    return tuple(FactorialObservation(
+        task_id=row.task_id, arm=row.arm, setting=row.setting, influence=row.influence, rewiring=row.rewiring,
+        repost=row.repost, end_separation=row.end_separation, end_excess=row.end_excess, pathway=row.pathway,
+    ) for row in frame.itertuples(index=False))
+
+
+def _factorial_rows(frame) -> tuple[FactorialSummary, ...]:
+    return tuple(FactorialSummary(
+        sensitivity=row.sensitivity, epsilon=row.epsilon, history=row.history, setting=row.setting,
+        repost=row.repost, stage=row.stage, contrast=row.contrast, metric=row.metric, n=int(row.n),
+        mean=None if pd.isna(row.mean) else float(row.mean),
+        lo=None if pd.isna(row.lo) else float(row.lo), hi=None if pd.isna(row.hi) else float(row.hi),
+    ) for row in frame.itertuples(index=False))
 
 
 def matched_factorial_runs(runs):
@@ -47,43 +63,57 @@ def matched_factorial_runs(runs):
     return selected
 
 
+def _export_table(output, name, frame):
+    write_table(output, name, frame)
+    frame.to_csv(output / name, index=False)
+
+
 def _write_matched_tables(output, matched, factorial):
-    matched.to_csv(output / "matched_runs.csv.gz", index=False)
-    factorial.to_csv(output / "matched_factorial.csv", index=False)
+    _export_table(output, "matched_runs.csv.gz", matched)
+    _export_table(output, "matched_factorial.csv", factorial)
     means = []
     for scope, block in shared_analysis.analysis_strata(matched):
         for arm, rows in block.groupby("arm"):
             for metric in ("end_separation", "end_excess"):
-                means.append({**scope, "arm": arm, "metric": metric, **shared_analysis.mean_interval(rows[metric])})
-    pd.DataFrame(means).to_csv(output / "matched_arm_means.csv", index=False)
+                estimate = shared_analysis.mean_interval(rows[metric])
+                means.append(MatchedMean(
+                    sensitivity=scope.sensitivity, epsilon=scope.epsilon, history=scope.history,
+                    setting=scope.setting, repost=scope.repost, arm=arm, metric=metric,
+                    n=estimate.n, mean=estimate.mean, lo=estimate.lo, hi=estimate.hi,
+                ))
+    _export_table(output, "matched_arm_means.csv", rows_frame(means, MatchedMean))
     strata = ["sensitivity", "epsilon", "history", "arm"]
-    matched.groupby([*strata, "outcome"]).size().reset_index(name="n").to_csv(
-        output / "matched_outcome_counts.csv", index=False)
-    matched.groupby([*strata, "setting", "influence", "rewiring", "repost", "pathway"]).size().reset_index(name="n").to_csv(
-        output / "matched_pathway_counts.csv", index=False)
+    _export_table(output, "matched_outcome_counts.csv",
+                  matched.groupby([*strata, "outcome"]).size().reset_index(name="n"))
+    _export_table(output, "matched_pathway_counts.csv",
+                  matched.groupby([*strata, "setting", "influence", "rewiring", "repost", "pathway"]).size().reset_index(name="n"))
     if "OpinionM9" in set(matched["arm"]):
         paired = pd.concat([
             shared_analysis.paired_effects(matched, arm, "OpinionM9").assign(arm=arm, control="OpinionM9")
             for arm in sorted(set(matched["arm"]) - {"OpinionM9"})
         ], ignore_index=True)
-        paired.to_csv(output / "paired_vs_m9.csv.gz", index=False)
+        _export_table(output, "paired_vs_m9.csv.gz", paired)
         summaries = []
         for scope, block in shared_analysis.analysis_strata(paired):
             for arm, rows in block.groupby("arm"):
                 for metric in ("delta_separation", "delta_excess"):
-                    summaries.append({**scope, "arm": arm, "control": "OpinionM9", "metric": metric,
-                                      **shared_analysis.mean_interval(rows[metric])})
-        pd.DataFrame(summaries).to_csv(output / "paired_vs_m9_summary.csv", index=False)
+                    estimate = shared_analysis.mean_interval(rows[metric])
+                    summaries.append(MatchedContrast(
+                        sensitivity=scope.sensitivity, epsilon=scope.epsilon, history=scope.history,
+                        setting=scope.setting, repost=scope.repost, arm=arm, control="OpinionM9", metric=metric,
+                        n=estimate.n, mean=estimate.mean, lo=estimate.lo, hi=estimate.hi,
+                    ))
+        _export_table(output, "paired_vs_m9_summary.csv", rows_frame(summaries, MatchedContrast))
 
 
 def prepare(bundle, output):
     """Authenticate local observations and preserve matched units and estimates."""
     bundle, output = Path(bundle).resolve(), Path(output).resolve()
-    manifest = shared_bundle._bundle_manifest(bundle)
+    manifest = shared_bundle.read_bundle_manifest(bundle)
     plan = read_plan(bundle / "data/study/plan.json")
-    if plan["profile"] != "recommender_variants":
+    if plan.profile != "recommender_variants":
         raise ValueError("factorial review requires a recommender_variants bundle")
-    runs = pd.read_csv(bundle / "data/tables/runs.csv.gz", float_precision="round_trip")
+    runs = read_table(bundle / "data/tables", "runs.csv.gz")
     matched = matched_factorial_runs(runs)
     if matched.empty:
         raise ValueError("no initial state has all four OpinionRandom configurations")
@@ -102,50 +132,48 @@ def prepare(bundle, output):
         mask = ((factorial["sensitivity"] == sensitivity) & (factorial["epsilon"] == epsilon)
                 & (factorial["history"] == history))
         observations = block[block["arm"].isin(arms)]
-        planned = sum(task["sensitivity"] == sensitivity
-                      and task["metadata"]["HKParams"]["Tolerance"] == epsilon
-                      and task["metadata"]["PostRetainCount"] == history for task in plan["tasks"])
-        strata.append({
-            "name": f"{sensitivity}_e{round(100 * epsilon):02}_kh{int(history)}",
-            "title": f"ε={epsilon:g}, history={int(history)}; {block['task_id'].nunique()}/{planned} matched tasks",
-            "observations": _rows(observations[["task_id", "arm", "setting", "influence", "rewiring", "repost",
-                                                "end_separation", "end_excess", "pathway"]]),
-            "factorial": _rows(factorial[mask & factorial["metric"].isin(("separation_change", "excess_change"))]),
-        })
+        planned = sum(task.sensitivity == sensitivity
+                      and task.metadata.HKParams.Tolerance == epsilon
+                      and task.metadata.PostRetainCount == history for task in plan.tasks)
+        strata.append(ReviewStratum(
+            name=f"{sensitivity}_e{round(100 * epsilon):02}_kh{int(history)}",
+            title=f"ε={epsilon:g}, history={int(history)}; {block['task_id'].nunique()}/{planned} matched tasks",
+            observations=_observation_rows(observations),
+            factorial=_factorial_rows(factorial[mask & factorial["metric"].isin(("separation_change", "excess_change"))]),
+        ))
     output.mkdir(parents=True, exist_ok=True)
     _write_matched_tables(output, matched, factorial)
-    atomic_json(output / "plot_data.json", {
-        "schema": SCHEMA, "plan_fingerprint": plan["plan_fingerprint"],
-        "bundle_manifest_sha256": sha(bundle / "data/manifest.json"),
-        "source_completed": manifest["completed"], "source_planned": len(plan["tasks"]),
-        "arms": arms, "labels": labels, "strata": strata,
-        "cohort": "All four OpinionRandom configurations completed for the same task; original M9 reference uses those tasks.",
-    })
+    data = ReviewPlotData(
+        schema=SCHEMA, plan_fingerprint=plan.plan_fingerprint,
+        bundle_manifest_sha256=sha(bundle / "data/manifest.json"),
+        source_completed=manifest.completed, source_planned=len(plan.tasks),
+        arms=tuple(arms), labels=tuple(labels), strata=tuple(strata),
+        cohort="All four OpinionRandom configurations completed for the same task; original M9 reference uses those tasks.",
+    )
+    atomic_json(output / "plot_data.json", to_wire(data))
     if not (output / "layout.json").exists():
-        atomic_json(output / "layout.json", {
-            "schema": SCHEMA, "font_size": 9, "summary_size": [8.6, 6.8],
-            "cell_size": [10.4, 7.3], "cell_limit": None, "cmap": "RdBu_r",
-        })
-    return {"matched": int(matched["task_id"].nunique()), "planned": len(plan["tasks"])}
+        atomic_json(output / "layout.json", to_wire(ReviewLayout()))
+    return MatchedCoverage(matched=int(matched["task_id"].nunique()), planned=len(plan.tasks))
+
 
 
 def _summaries(data, scope, layout, destination):
-    rows = pd.DataFrame(scope["observations"])
-    fig, axes = plt.subplots(2, 2, figsize=layout["summary_size"], constrained_layout=True)
-    fig.suptitle(scope["title"])
+    rows = rows_frame(scope.observations, FactorialObservation)
+    fig, axes = plt.subplots(2, 2, figsize=layout.summary_size, constrained_layout=True)
+    fig.suptitle(scope.title)
     for ax, metric, title in zip(axes[0], ("end_separation", "end_excess"),
                                ("(a) Endpoint separation", "(b) Endpoint excess concordance")):
-        for index, arm in enumerate(data["arms"]):
+        for index, arm in enumerate(data.arms):
             estimate = shared_analysis.mean_interval(rows.loc[rows["arm"] == arm, metric])
             color = "#444444" if arm == "OpinionM9" else "#2171b5"
-            ax.plot(index, estimate["mean"], "o", color=color)
-            if estimate["lo"] is not None:
-                ax.vlines(index, estimate["lo"], estimate["hi"], color=color)
-        ax.set(xticks=range(len(data["arms"])), xticklabels=data["labels"], title=title,
+            ax.plot(index, estimate.mean, "o", color=color)
+            if estimate.lo is not None:
+                ax.vlines(index, estimate.lo, estimate.hi, color=color)
+        ax.set(xticks=range(len(data.arms)), xticklabels=data.labels, title=title,
                ylabel="Mean P" if metric == "end_separation" else "Mean E")
         ax.axhline(0, color="0.7", lw=.7)
     ax = axes[1, 0]
-    effects = pd.DataFrame(scope["factorial"])
+    effects = rows_frame(scope.factorial, FactorialSummary)
     effects = effects[(effects["setting"] == "all") & (effects["repost"] == "all")
                       & (effects["metric"] == "separation_change")].set_index("contrast")
     ax.axvline(0, color="0.6", lw=.8)
@@ -158,14 +186,14 @@ def _summaries(data, scope, layout, destination):
            xlabel="Paired ΔP and 95% t interval", title="(c) Factor effects on endpoint P")
     ax = axes[1, 1]
     balanced = rows[np.isclose(rows["influence"], rows["rewiring"])]
-    bottom = np.zeros(len(data["arms"]))
+    bottom = np.zeros(len(data.arms))
     for pathway, color in zip(PATHWAY_LABELS, PATHWAY_COLORS):
         counts = np.array([int(((balanced["arm"] == arm) & (balanced["pathway"] == pathway)).sum())
-                           for arm in data["arms"]])
+                           for arm in data.arms])
         if counts.any():
             ax.bar(range(len(bottom)), counts, bottom=bottom, color=color, label=pathway.replace("_", " "))
             bottom += counts
-    ax.set(xticks=range(len(bottom)), xticklabels=data["labels"], ylabel="Number of tasks",
+    ax.set(xticks=range(len(bottom)), xticklabels=data.labels, ylabel="Number of tasks",
            title=f"(d) Pathways at α=q (n={balanced['task_id'].nunique()})")
     if balanced.empty:
         ax.text(.5, .5, "No matched α=q tasks", transform=ax.transAxes, ha="center")
@@ -176,16 +204,16 @@ def _summaries(data, scope, layout, destination):
         ax.set_ylim(0, max(bottom) * 1.25)
     for ax in axes.flat:
         ax.spines[["top", "right"]].set_visible(False)
-    shared_plot._save_panel(fig, destination / f"{scope['name']}_summary")
+    shared_plot._save_panel(fig, destination / f"{scope.name}_summary")
 
 
 def _cells(scope, layout, destination):
-    rows = pd.DataFrame(scope["observations"])
+    rows = rows_frame(scope.observations, FactorialObservation)
     settings = sorted(set(zip(rows["influence"], rows["rewiring"])))
     if len(settings) < 2:
         return
     reposts = sorted(rows["repost"].unique())
-    effects = pd.DataFrame(scope["factorial"])
+    effects = rows_frame(scope.factorial, FactorialSummary)
     effects = effects[(effects["setting"] != "all") & (effects["metric"] == "separation_change")]
     matrices = []
     counts = []
@@ -205,42 +233,44 @@ def _cells(scope, layout, destination):
                     matrix[i, j], count[i, j] = sample.iloc[0]["mean"], len(ids)
         matrices.append(matrix)
         counts.append(count)
-    limit = layout["cell_limit"] or max([.001, *(float(np.nanmax(np.abs(m))) for m in matrices if np.isfinite(m).any())])
-    fig, axes = plt.subplots(2, 3, figsize=layout["cell_size"], constrained_layout=True)
+    limit = layout.cell_limit or max([.001, *(float(np.nanmax(np.abs(m))) for m in matrices if np.isfinite(m).any())])
+    fig, axes = plt.subplots(2, 3, figsize=layout.cell_size, constrained_layout=True)
     available_counts = np.unique(np.concatenate([count[count > 0] for count in counts]))
     common_count = int(available_counts[0]) if len(available_counts) == 1 else None
     note = f"n={common_count} paired repeats per cell" if common_count else "cell labels show mean and n"
-    fig.suptitle(scope["title"] + " | " + note)
+    fig.suptitle(scope.title + " | " + note)
     for index, (ax, matrix, count, title) in enumerate(zip(axes.flat, matrices, counts, CONTRAST_LABELS)):
-        shown = ax.imshow(matrix, vmin=-limit, vmax=limit, cmap=layout["cmap"], aspect="auto")
+        shown = ax.imshow(matrix, vmin=-limit, vmax=limit, cmap=layout.cmap, aspect="auto")
         ax.set(xticks=range(len(reposts)), xticklabels=[f"p={p:g}" for p in reposts],
                yticks=range(len(settings)), yticklabels=[f"{a:g}, {q:g}" for a, q in settings],
                ylabel="α, q", title=f"({chr(97 + index)}) {title}")
         for i, j in np.ndindex(matrix.shape):
             if np.isfinite(matrix[i, j]):
                 text = f"{matrix[i,j]:+.3f}" + (f"\nn={count[i,j]}" if common_count is None else "")
-                ax.text(j, i, text, ha="center", va="center", fontsize=layout.get("cell_annotation_size", 6),
+                ax.text(j, i, text, ha="center", va="center", fontsize=(layout.cell_annotation_size if layout.cell_annotation_size is not None else 6),
                         color="white" if abs(matrix[i,j]) > .65 * limit else "black")
     axes[1, 2].set_axis_off()
     fig.colorbar(shown, cax=axes[1, 2].inset_axes([.3, .1, .08, .8]), label="Mean paired ΔP")
-    shared_plot._save_panel(fig, destination / f"{scope['name']}_cells")
+    shared_plot._save_panel(fig, destination / f"{scope.name}_cells")
 
 
 def compose(directory):
     """Render only saved plotting observations and the editable layout."""
     directory = Path(directory).resolve()
-    data = json.loads((directory / "plot_data.json").read_text())
-    layout = json.loads((directory / "layout.json").read_text())
-    if data["schema"] != SCHEMA or layout["schema"] != SCHEMA:
+    data_wire = json.loads((directory / "plot_data.json").read_text(encoding="utf-8"))
+    layout_wire = json.loads((directory / "layout.json").read_text(encoding="utf-8"))
+    if data_wire.get("schema") != SCHEMA or layout_wire.get("schema") != SCHEMA:
         raise ValueError("unsupported factorial figure schema")
-    scopes = {scope["name"]: scope for scope in data["strata"]}
-    selected = layout.get("strata", list(scopes))
+    data = parse_dataclass(ReviewPlotData, data_wire)
+    layout = parse_dataclass(ReviewLayout, layout_wire)
+    scopes = {scope.name: scope for scope in data.strata}
+    selected = layout.strata if layout.strata is not None else tuple(scopes)
     if not selected or len(set(selected)) != len(selected) or set(selected) - scopes.keys():
         raise ValueError("layout must select distinct available strata")
     setup_paper_params()
-    plt.rcParams.update({"font.size": layout["font_size"], "axes.titlesize": layout["font_size"],
-                         "axes.labelsize": layout["font_size"], "xtick.labelsize": layout["font_size"],
-                         "ytick.labelsize": layout["font_size"], "figure.titlesize": layout["font_size"] + 1,
+    plt.rcParams.update({"font.size": layout.font_size, "axes.titlesize": layout.font_size,
+                         "axes.labelsize": layout.font_size, "xtick.labelsize": layout.font_size,
+                         "ytick.labelsize": layout.font_size, "figure.titlesize": layout.font_size + 1,
                          "svg.fonttype": "none"})
     destination = directory / "figures"
     destination.mkdir(parents=True, exist_ok=True)
@@ -268,7 +298,7 @@ def main(argv=None):
     compose_parser.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.command == "prepare":
-        print(json.dumps(prepare(args.bundle, args.output)))
+        print(json.dumps(to_wire(prepare(args.bundle, args.output))))
     else:
         compose(args.directory)
 

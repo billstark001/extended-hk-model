@@ -1,9 +1,37 @@
 """One immutable extraction of an opinion state and its ordered directed edges."""
 
 from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING
 
+import networkx as nx
 import numpy as np
 from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from smp_bindings.record import RawSimulationRecord
+
+
+@dataclass
+class MeasurementRecord:
+    """Saved numeric history and its graph reader, detached from wire metadata."""
+
+    opinions: NDArray | Sequence[NDArray]
+    max_step: int
+    epsilon: float
+    graph_at: Callable[[int], nx.DiGraph]
+    directory: str | None = None
+
+    @classmethod
+    def from_saved_record(cls, record: "RawSimulationRecord") -> "MeasurementRecord":
+        """Read the external SMP record once at the ingestion boundary."""
+        return cls(
+            opinions=record.opinions,
+            max_step=record.max_step,
+            epsilon=float(record.metadata.HKParams.Tolerance),
+            graph_at=record.get_graph,
+            directory=record.directory,
+        )
 
 
 def _readonly(values):

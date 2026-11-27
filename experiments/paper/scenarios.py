@@ -1,11 +1,13 @@
 """Original-paper task generators; axis order also defines persistent scenario IDs.
 
-Generation is lazy at module import. Each call returns fresh metadata dictionaries;
+Generation is lazy at module import. Each call returns fresh typed metadata;
 replicate is the outermost axis and the rightmost axis varies fastest. The mechanism
 study is an explicit case list, rather than a Cartesian parameter sweep.
 """
 
 from itertools import product
+from dataclasses import dataclass
+from ehk.domain import Task, Coordinates
 
 from common.experiments.registry import TaskRegistry
 from ehk.micro.scenarios import ScenarioMetadata, create_scenario_metadata, reproducible_metadata
@@ -37,18 +39,32 @@ REPLICATE_AXES = {"replicate": tuple(range(100)), "recommendation": tuple(REPLIC
 
 # Explicit physical values make the five phase cases inspectable without indices
 # into unrelated scan arrays. Unspecified fields retain create_scenario_metadata defaults.
+@dataclass(frozen=True)
+class MechanismCase:
+    rewiring: float
+    influence: float
+    repost_rate: float
+    recsys_type: str
+    post_retain_count: int = 3
+
+    def metadata(self, name: str) -> ScenarioMetadata:
+        return create_scenario_metadata(name, rewiring=self.rewiring, influence=self.influence,
+                                       repost_rate=self.repost_rate, recsys_type=self.recsys_type,
+                                       post_retain_count=self.post_retain_count)
+
+
 MECHANISM_CASES = {
-    "baseline": dict(rewiring=0.05, influence=0.05, repost_rate=0, recsys_type="Random"),
-    "baseline_pbs": dict(rewiring=0.025, influence=0.05, repost_rate=0, recsys_type="Random"),
-    "baseline_sbp": dict(rewiring=0.025, influence=0.005, repost_rate=0, recsys_type="Random"),
-    "influence": dict(rewiring=0.05, influence=0.1, repost_rate=0, recsys_type="Random"),
-    "retweet": dict(rewiring=0.05, influence=0.05, repost_rate=0.1, recsys_type="Random"),
-    "op_recsys": dict(rewiring=0.05, influence=0.05, repost_rate=0, recsys_type="OpinionM9"),
-    "phase1": dict(rewiring=1.0, influence=0.005, repost_rate=0.5, recsys_type="StructureM9", post_retain_count=0),
-    "phase2": dict(rewiring=1.0, influence=0.005, repost_rate=0.0, recsys_type="StructureM9", post_retain_count=0),
-    "phase3": dict(rewiring=0.1, influence=0.1, repost_rate=0.0, recsys_type="OpinionM9", post_retain_count=6),
-    "phase4": dict(rewiring=0.03, influence=1.0, repost_rate=0.0, recsys_type="OpinionM9", post_retain_count=6),
-    "phase5": dict(rewiring=0.03, influence=1.0, repost_rate=0.0, recsys_type="StructureM9", post_retain_count=0),
+    "baseline": MechanismCase(rewiring=0.05, influence=0.05, repost_rate=0, recsys_type="Random"),
+    "baseline_pbs": MechanismCase(rewiring=0.025, influence=0.05, repost_rate=0, recsys_type="Random"),
+    "baseline_sbp": MechanismCase(rewiring=0.025, influence=0.005, repost_rate=0, recsys_type="Random"),
+    "influence": MechanismCase(rewiring=0.05, influence=0.1, repost_rate=0, recsys_type="Random"),
+    "retweet": MechanismCase(rewiring=0.05, influence=0.05, repost_rate=0.1, recsys_type="Random"),
+    "op_recsys": MechanismCase(rewiring=0.05, influence=0.05, repost_rate=0, recsys_type="OpinionM9"),
+    "phase1": MechanismCase(rewiring=1.0, influence=0.005, repost_rate=0.5, recsys_type="StructureM9", post_retain_count=0),
+    "phase2": MechanismCase(rewiring=1.0, influence=0.005, repost_rate=0.0, recsys_type="StructureM9", post_retain_count=0),
+    "phase3": MechanismCase(rewiring=0.1, influence=0.1, repost_rate=0.0, recsys_type="OpinionM9", post_retain_count=6),
+    "phase4": MechanismCase(rewiring=0.03, influence=1.0, repost_rate=0.0, recsys_type="OpinionM9", post_retain_count=6),
+    "phase5": MechanismCase(rewiring=0.03, influence=1.0, repost_rate=0.0, recsys_type="StructureM9", post_retain_count=0),
 }
 MECHANISM_AXES = {"case": tuple(MECHANISM_CASES)}
 SCENARIO_AXES = {
@@ -112,7 +128,7 @@ def replicate_tasks() -> list[ScenarioMetadata]:
 
 
 def mechanism_tasks() -> list[ScenarioMetadata]:
-    return [create_scenario_metadata(f"s_mech_{name}", **parameters) for name, parameters in MECHANISM_CASES.items()]
+    return [parameters.metadata(f"s_mech_{name}") for name, parameters in MECHANISM_CASES.items()]
 
 
 TASKS = TaskRegistry(
@@ -125,24 +141,43 @@ def generate_tasks(name: str) -> list[ScenarioMetadata]:
     return TASKS.select(name)[0]()
 
 
-def execution_tasks(name: str, *, seed_namespace: str = SEED_NAMESPACE) -> list[dict]:
+@dataclass(frozen=True)
+class SeedIdentity:
+    namespace: str
+    study: str
+    coordinates: Coordinates
+
+
+def _coordinates(name: str, values: tuple) -> Coordinates:
+    if name == "gradation":
+        replicate, rewiring, influence, repost, recommendation = values
+        return Coordinates(replicate=replicate, rewiring=rewiring, influence=influence,
+                           repost=repost, recommendation=recommendation)
+    if name == "epsilon":
+        replicate, tolerance = values
+        return Coordinates(replicate=replicate, tolerance=tolerance)
+    if name == "replicate":
+        replicate, recommendation = values
+        return Coordinates(replicate=replicate, recommendation=recommendation)
+    if name == "mech":
+        return Coordinates(case=values[0])
+    raise ValueError(f"unknown scenario mode: {name}")
+
+
+def execution_tasks(name: str, *, seed_namespace: str = SEED_NAMESPACE) -> list[Task]:
     """New-run metadata with stable independent seeds and explicit axis values.
 
-    Historical ``generate_tasks`` remains byte-for-byte compatible with old
-    inputs. UniqueName is retained; use a fresh workspace for seeded reruns.
+    Original ``generate_tasks`` retains its scientific design and persistent IDs.
+    Use a fresh workspace for seeded reruns.
     """
     if not isinstance(seed_namespace, str) or not seed_namespace.strip():
         raise ValueError("seed_namespace must be a nonempty string")
     axes = SCENARIO_AXES[name]
     tasks = []
     for metadata, values in zip(generate_tasks(name), product(*axes.values()), strict=True):
-        coordinates = dict(zip(axes, values, strict=True))
-        identity = {"namespace": seed_namespace, "study": name, "coordinates": coordinates}
+        coordinates = _coordinates(name, values)
+        identity = SeedIdentity(seed_namespace, name, coordinates)
         tasks.append(
-            {
-                "id": metadata["UniqueName"],
-                "coordinates": coordinates,
-                "metadata": reproducible_metadata(metadata, identity),
-            }
+            Task(id=metadata.UniqueName, coordinates=coordinates, metadata=reproducible_metadata(metadata, identity))
         )
     return tasks

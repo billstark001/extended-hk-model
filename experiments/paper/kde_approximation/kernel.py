@@ -1,17 +1,16 @@
 """Approximate only observed KDE evaluation on the frozen 256-point metric grid.
 
-Sampling, fitted bandwidths, references, Gaussian convolution and relative-JS
+Sampling, fitted bandwidths, references, Gaussian convolution and clustered-reference JS-distance similarity
 evaluation belong to the metric package. This driver selects experimental B
 values and records their diagnostics against explicit exact evaluation.
 """
 
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 
-from ehk.metrics.density import FittedDensity
+from ehk.metrics.density import DensityDiagnostics, FittedDensity
 from ehk.metrics.polarization import DistanceCalculator, PreparedOpinion
 from ehk.metrics.state import MeasurementState
 
@@ -36,7 +35,7 @@ def _grid_stride(axis, bins):
 class PreparedDistance:
     """Worker-local fitted inputs shared by exact evaluation and every B candidate."""
 
-    owner: Any
+    owner: "BinnedDistanceCalculator"
     step: int
     epsilon: float
     opinion: FittedDensity | None
@@ -44,6 +43,25 @@ class PreparedDistance:
     objective_separation: float
     objective_reference: NDArray
     objective: PreparedOpinion
+
+
+@dataclass(frozen=True)
+class KernelDiagnostics:
+    method: str
+    bins: int | None
+    stride: int | None
+    opinion_samples: int
+    edge_samples: int
+    opinion_bandwidth: float | None
+    edge_bandwidth: float | None
+    opinion_constant: bool | None
+    edge_constant: bool | None
+    opinion_negative_count: int = 0
+    edge_negative_count: int = 0
+    opinion_minimum_before_clip: float | None = None
+    edge_minimum_before_clip: float | None = None
+    opinion_fft_length: int = 0
+    edge_fft_length: int = 0
 
 
 class BinnedDistanceCalculator:
@@ -98,18 +116,28 @@ class BinnedDistanceCalculator:
         if prepared.owner is not self:
             raise ValueError("prepared inputs belong to a different calculator")
 
-    def _diagnostics(self, prepared, *, method, bins=None):
+    def _diagnostics(self, prepared, *, method, bins=None,
+                     opinion_detail: DensityDiagnostics | None = None,
+                     edge_detail: DensityDiagnostics | None = None):
         opinion, edge = prepared.opinion, prepared.edge
-        return {
-            "method": method, "bins": bins,
-            "stride": None if bins is None else _grid_stride(self.axis, bins),
-            "opinion_samples": 0 if opinion is None else len(opinion.samples),
-            "edge_samples": 0 if edge is None else len(edge.samples),
-            "opinion_bandwidth": None if opinion is None else opinion.bandwidth,
-            "edge_bandwidth": None if edge is None else edge.bandwidth,
-            "opinion_constant": None if opinion is None else opinion.constant,
-            "edge_constant": None if edge is None else edge.constant,
-        }
+        opinion_detail = DensityDiagnostics() if opinion_detail is None else opinion_detail
+        edge_detail = DensityDiagnostics() if edge_detail is None else edge_detail
+        return KernelDiagnostics(
+            method=method, bins=bins,
+            stride=None if bins is None else _grid_stride(self.axis, bins),
+            opinion_samples=0 if opinion is None else len(opinion.samples),
+            edge_samples=0 if edge is None else len(edge.samples),
+            opinion_bandwidth=None if opinion is None else opinion.bandwidth,
+            edge_bandwidth=None if edge is None else edge.bandwidth,
+            opinion_constant=None if opinion is None else opinion.constant,
+            edge_constant=None if edge is None else edge.constant,
+            opinion_negative_count=opinion_detail.negative_count,
+            edge_negative_count=edge_detail.negative_count,
+            opinion_minimum_before_clip=opinion_detail.minimum_before_clip,
+            edge_minimum_before_clip=edge_detail.minimum_before_clip,
+            opinion_fft_length=opinion_detail.fft_length,
+            edge_fft_length=edge_detail.fft_length,
+        )
 
     def exact(self, prepared):
         """Evaluate original fitted PDFs on the original axis; preparation cost is separate."""
@@ -122,10 +150,9 @@ class BinnedDistanceCalculator:
         """Evaluate one linear-binning resolution, retaining exact constant-sample PDFs."""
         self._check_prepared(prepared)
         _grid_stride(self.axis, bins)
-        diagnostics = self._diagnostics(prepared, method="linear_binned_gaussian", bins=bins)
-        opinion_detail, edge_detail = {}, {}
+        opinion_detail, edge_detail = DensityDiagnostics(), DensityDiagnostics()
         ip = self.reference.opinion_index(prepared.objective, method="binned", bins=bins, diagnostics=opinion_detail)
         isub = self.reference.edge_index(prepared.edge, method="binned", bins=bins, diagnostics=edge_detail)
-        for name, detail in (("opinion", opinion_detail), ("edge", edge_detail)):
-            diagnostics.update({f"{name}_{key}": value for key, value in detail.items()})
+        diagnostics = self._diagnostics(prepared, method="linear_binned_gaussian", bins=bins,
+                                        opinion_detail=opinion_detail, edge_detail=edge_detail)
         return ip, isub, diagnostics

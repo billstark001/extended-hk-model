@@ -102,7 +102,9 @@ def run(args, work, publish):
     from .study import TheoryStudy
 
     attempt = Path(tempfile.mkdtemp(prefix="attempt-", dir=args.control_dir))
-    status = {"resume": args.resume, "workers": args.workers, "state": "running", "action": "verify"}
+    from common.experiments.lifecycle import WorkflowStatus
+
+    status = WorkflowStatus(resume=args.resume, workers=args.workers)
     atomic_json(attempt / "status.json", status)
     try:
         config = settings(work, publish, args)
@@ -128,7 +130,7 @@ def run(args, work, publish):
         study = TheoryStudy(options, work, work / "build", args.meso_root.resolve(), args.micro_root.resolve())
         workflow = study.workflow(attempt / "status.json")
         status = workflow.status
-        status.update(action="run", operation="plan")
+        status.action, status.operation = "run", "plan"
         atomic_json(attempt / "status.json", status)
         study.plan()
         shutil.copyfile(directory / "plan.json", publish / "plan.json")
@@ -158,13 +160,13 @@ def run(args, work, publish):
             options.engine, options.binary = restored
             print("Restored original verified executables; completed tasks will be skipped", flush=True)
         elif "run" in phases:
-            status.update(action="run", operation="build")
+            status.action, status.operation = "run", "build"
             atomic_json(attempt / "status.json", status)
             store.read(study.build)
         os.environ["TMPDIR"] = cache_tmp
         os.environ["GOTMPDIR"] = cache_go_tmp
         workflow.guard = lambda operation: operation()
-        status.pop("operation", None)
+        status.operation = None
         workflow.stages["run"] = lambda: store.read(study.run)
         workflow.stages["analyze"] = lambda: store.read(study.analyze)
 
@@ -178,10 +180,11 @@ def run(args, work, publish):
                     store.event(None, "partial_analysis_failed", error=str(diagnostic_error))
 
         workflow.sequence(phases, after_failure=diagnostic)
-        status["state"] = "complete"
+        status.state = "complete"
         print(f"Completed {', '.join(phases)}; local analysis destination: {publish}", flush=True)
     except BaseException as error:
-        status.update(state="interrupted" if isinstance(error, KeyboardInterrupt) else "failed", error=str(error))
+        status.state = "interrupted" if isinstance(error, KeyboardInterrupt) else "failed"
+        status.error = str(error)
         raise
     finally:
         report = policy.report()

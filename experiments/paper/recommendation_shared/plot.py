@@ -1,12 +1,11 @@
 """Shared presentation helpers for recorded recommendation-study metrics."""
 
-import json
-
 import matplotlib as mpl
 import numpy as np
 import pandas as pd
 
-from common.io.json import sha
+from .storage import task_digest, dataset_raw_root
+from ehk.domain import AnalysisReport, PooledCoverage
 from common.plotting import plt_figure, plt_save_and_close
 from common.plotting.figures import save
 from ehk.metrics.pathway import PATHWAY_LABELS
@@ -149,21 +148,11 @@ def _save_panel(fig, path):
 
 def analysis_report(directory, plan, records, binding, coverage_rows, coverage, complete_ids, completed, created_at):
     """Record coverage and provenance without choosing a study's scientific contrasts."""
-    return {
-        "study": plan["profile"],
-        "created_at_utc": created_at,
-        "source_directory": str(directory.resolve()),
-        "source_plan": plan["plan_fingerprint"],
-        "binding": binding,
-        "snapshot": json.loads((directory / "snapshot.json").read_text())
-        if (directory / "snapshot.json").is_file() else None,
-        "record_sha256": {identifier: sha(directory / "records" / (identifier + ".json.gz")) for identifier in records},
-        "planned": len(plan["tasks"]),
-        "available_records": len(records),
-        "completed": len(completed),
-        "complete": len(completed) == len(plan["tasks"]),
-        "missing": [task["id"] for task in plan["tasks"] if task["id"] not in completed],
-        "settings": coverage_rows,
-        "pooled_figures": {"rule": "completed_parameter_cells_only", "tasks": len(complete_ids),
-                           "cells": int((coverage["completed"] == coverage["planned"]).sum())},
-    }
+    return AnalysisReport(study=plan.profile, created_at_utc=created_at,
+        source_directory=str(directory.resolve()), source_plan=plan.plan_fingerprint, binding=binding,
+        record_sha256={task.id: task_digest(directory,task,plan) for task in plan.tasks if task.id in records},
+        raw_root=str(dataset_raw_root(directory,plan)), planned=len(plan.tasks), available_records=len(records),
+        completed=len(completed), complete=len(completed)==len(plan.tasks),
+        missing=tuple(task.id for task in plan.tasks if task.id not in completed), settings=tuple(coverage_rows),
+        pooled_figures=PooledCoverage(rule="completed_parameter_cells_only",tasks=len(complete_ids),
+                                     cells=int((coverage["completed"]==coverage["planned"]).sum())))

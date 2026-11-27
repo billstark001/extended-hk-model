@@ -1,9 +1,10 @@
 """A small independent design; no pathway classification is used to select times."""
 
-from copy import deepcopy
+from dataclasses import dataclass, replace
 from itertools import product
 
-from ehk.micro.scenarios import create_scenario_metadata, reproducible_metadata
+from ehk.micro.scenarios import reproducible_metadata
+from ehk.domain import Coordinates, ControlProtocol, Plan, Task
 
 from ..scenarios import MECHANISM_CASES
 
@@ -11,6 +12,28 @@ CASES = ("baseline_pbs", "baseline_sbp", "baseline", "op_recsys")
 ARMS = ("full", "q_zero", "alpha_zero")
 SEED_NAMESPACE = "ehk-paper-pathway-controls-v1"
 SNAPSHOT_STEPS = (0, 16, 64, 256, 1024, 2048)
+
+
+@dataclass(frozen=True, slots=True)
+class ControlSeed:
+    namespace: str
+    coordinates: Coordinates
+
+
+@dataclass(frozen=True, slots=True)
+class ControlDesign:
+    cases: tuple[str, ...] = CASES
+    replicates: int = 12
+    horizon: int = 2048
+    node_count: int = 500
+    follow_count: int = 15
+    snapshot_steps: tuple[int, ...] | None = None
+    seed_namespace: str = SEED_NAMESPACE
+
+    def plan(self) -> Plan[ControlProtocol]:
+        return make_plan(cases=self.cases, replicates=self.replicates, horizon=self.horizon,
+                         node_count=self.node_count, follow_count=self.follow_count,
+                         snapshot_steps=self.snapshot_steps, seed_namespace=self.seed_namespace)
 
 
 def make_plan(
@@ -37,40 +60,28 @@ def make_plan(
     tasks = []
     for replicate, case in product(range(replicates), cases):
         name = f"s_control_{case}_sim{replicate:02}"
-        coordinates = {"case": case, "replicate": replicate}
+        coordinates = Coordinates(case=case, replicate=replicate)
         metadata = reproducible_metadata(
-            create_scenario_metadata(name, max_sim_step=horizon, **MECHANISM_CASES[case]),
-            {"namespace": seed_namespace, "coordinates": coordinates},
+            replace(MECHANISM_CASES[case].metadata(name), MaxSimulationStep=horizon),
+            ControlSeed(seed_namespace, coordinates),
             node_count=node_count,
             follow_count=follow_count,
         )
-        metadata.update(DataVersion=3, CheckpointSteps=steps)
-        tasks.append({"id": name, "coordinates": coordinates, "metadata": metadata})
-    return {
-        "schema": 1,
-        "study": "paper_pathway_controls",
-        "profile": "paired_process_controls",
-        "protocol": {
-            "cases": list(cases),
-            "replicates": replicates,
-            "horizon": horizon,
-            "snapshot_steps": steps,
-            "arms": list(ARMS),
-            "seed_namespace": seed_namespace,
-            "pairing": "same initial graph, opinions, posts and complete RNG state",
-            "classification": None,
-        },
-        "tasks": tasks,
-    }
+        metadata = replace(metadata, DataVersion=3, CheckpointSteps=tuple(steps))
+        tasks.append(Task(id=name, coordinates=coordinates, metadata=metadata))
+    return Plan(schema=1, study="paper_pathway_controls", profile="paired_process_controls",
+                protocol=ControlProtocol(cases=cases, replicates=replicates, horizon=horizon,
+                    snapshot_steps=tuple(steps), arms=ARMS, seed_namespace=seed_namespace,
+                    pairing="same initial graph, opinions, posts and complete RNG state", classification=None),
+                tasks=tuple(tasks))
 
 
 def arm_metadata(task, arm):
     if arm not in ARMS:
         raise ValueError(f"unknown process control: {arm}")
-    metadata = deepcopy(task["metadata"])
-    metadata["UniqueName"] += "_" + arm
+    metadata = replace(task.metadata, UniqueName=task.metadata.UniqueName + "_" + arm)
     if arm == "q_zero":
-        metadata["HKParams"]["RewiringRate"] = 0.0
+        metadata = replace(metadata, HKParams=replace(metadata.HKParams, RewiringRate=0.))
     elif arm == "alpha_zero":
-        metadata["HKParams"]["Influence"] = 0.0
+        metadata = replace(metadata, HKParams=replace(metadata.HKParams, Influence=0.))
     return metadata

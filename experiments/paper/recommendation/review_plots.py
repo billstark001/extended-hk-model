@@ -83,18 +83,18 @@ def plot_intervention_case(record, output, *, title):
     fig.suptitle(title)
     colors = {"hold": "0.4", "switch": "tab:blue", "bridge": "tab:green", "hide_reposts": "tab:orange"}
     for column, phase in enumerate(("middle", "late")):
-        block = record["stages"][phase]
+        block = record.stages[phase]
         for row, (metric, threshold, ylabel) in enumerate((
             ("separation", cfg.SEPARATION_THRESHOLD, "Opinion separation"),
             ("excess_concordance", cfg.EXCESS_THRESHOLD, "Excess concordance"),
         )):
             ax = axes[row][column]
-            for arm, data in block["arms"].items():
-                ax.plot([point["step"] for point in data["endpoints"]],
-                        [point["pathway"][metric] for point in data["endpoints"]],
+            for arm, data in block.arms.items():
+                ax.plot([point.step for point in data.endpoints],
+                        [getattr(point.pathway, metric) for point in data.endpoints],
                         label=label(arm), color=colors[arm], ls="--" if arm == "hold" else "-")
             ax.axhline(threshold, color="0.6", ls=":")
             ax.set(xlabel="Simulation step", ylabel=ylabel)
-        axes[0][column].set_title(f"{label(phase)} checkpoint: t={block['checkpoint']['step']}")
+        axes[0][column].set_title(f"{label(phase)} checkpoint: t={block.checkpoint.step}")
         axes[0][column].legend(fontsize=8)
     plt_save_and_close(fig, str(output / "pbs_intervention_case"))

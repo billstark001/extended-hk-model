@@ -4,11 +4,13 @@ import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
 
 from common.io.json import atomic_json
+from ehk.domain import TimingSummary, parse_binding, rows_frame, to_wire
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
 from experiments.paper.recommendation_shared import plot as shared_plot
 
@@ -116,22 +118,22 @@ def plot_references(references, selections, output, *, title):
 
 def plot_late_opinions(tasks, records, output, *, title):
     tasks = sorted(
-        [task for task in tasks if task["id"] in records and "late" in records[task["id"]]["stages"]],
-        key=lambda task: task["replicate"],
+        [task for task in tasks if task.id in records and "late" in records[task.id].stages],
+        key=lambda task: task.replicate,
     )
     if not tasks:
         return
     arm_names = ("hold", "switch", "bridge", "hide_reposts")
-    arms = [arm for arm in arm_names if any(arm in records[task["id"]]["stages"]["late"]["arms"] for task in tasks)]
+    arms = [arm for arm in arm_names if any(arm in records[task.id].stages["late"].arms for task in tasks)]
     bins = np.linspace(-1, 1, 101)
     matrices = {}
     for arm in arms:
         matrix = np.full((len(tasks), 100), np.nan)
         for i, task in enumerate(tasks):
-            variants = records[task["id"]]["stages"]["late"]["arms"]
+            variants = records[task.id].stages["late"].arms
             if arm not in variants:
                 continue
-            opinions = np.asarray(variants[arm]["final_opinions"], dtype=float)
+            opinions = np.asarray(variants[arm].final_opinions, dtype=float)
             if not opinions.size or not np.isfinite(opinions).all() or np.any(np.abs(opinions) > 1):
                 raise ValueError(f"invalid final opinions for {task['id']}/{arm}")
             matrix[i] = np.histogram(opinions, bins=bins)[0] / opinions.size
@@ -143,7 +145,7 @@ def plot_late_opinions(tasks, records, output, *, title):
         image = ax.imshow(matrices[arm], origin="upper", aspect="auto", cmap="viridis", vmin=0, vmax=vmax,
                           extent=(-1, 1, len(tasks) - 0.5, -0.5), interpolation="nearest")
         ax.set(xlabel="Opinion", title=shared_plot.label(arm).replace(" + ", "\n+ "),
-               yticks=range(len(tasks)), yticklabels=[task["replicate"] for task in tasks])
+               yticks=range(len(tasks)), yticklabels=[task.replicate for task in tasks])
     np.asarray(axes, dtype=object).reshape(-1)[0].set_ylabel("Replicate")
     fig.colorbar(image, ax=np.asarray(axes, dtype=object).reshape(-1).tolist(),
                  label="Agent fraction per opinion bin", fraction=0.025, pad=0.025)
@@ -177,24 +179,27 @@ def _plot_scope(
                         stem="outcomes", title=title)
 
 
+from experiments.paper.recommendation_shared.storage import write_table
+
+
 def analyze(directory: Path, output: Path, *, make_figures=True):
     created_at = datetime.now(timezone.utc).isoformat()
     plan, records = read_study(directory)
     if not records:
         raise ValueError(f"no completed recommendation records at {directory}")
-    study = plan["profile"]
+    study = plan.profile
     binding_path = directory / "runtime" / "binding.json"
-    binding = json.loads(binding_path.read_text()) if binding_path.is_file() else None
+    binding = parse_binding(json.loads(binding_path.read_text(encoding="utf-8"))) if binding_path.is_file() else None
     runs, trajectories = study_tables(plan, records, binding=binding)
     if runs.empty:
         raise ValueError("completed references contain no eligible stage checkpoints")
     contrasts = contrast_table(runs, study)
     references, selections = reference_tables(plan, records) if study == "staged" else (pd.DataFrame(), pd.DataFrame())
     coverage_rows = coverage_by_setting(plan, records)
-    coverage = pd.DataFrame([
-        {**{key: value for key, value in row.items() if key != "stages"}, **row.get("stages", {})}
-        for row in coverage_rows
-    ])
+    coverage = rows_frame(coverage_rows).drop(columns="stages")
+    if study == "staged":
+        for stage in cfg.STAGES:
+            coverage[stage] = [(row.stages or {}).get(stage, 0) for row in coverage_rows]
     complete_ids = completed_cell_task_ids(plan, records)
     completed = completed_task_ids(plan, records)
     complete_runs = runs[runs["task_id"].isin(complete_ids)]
@@ -204,6 +209,7 @@ def analyze(directory: Path, output: Path, *, make_figures=True):
         ("runs", runs), ("trajectories", trajectories), ("contrasts", contrasts),
         ("coverage", coverage), ("complete_cell_contrasts", complete_contrasts),
     ):
+        write_table(output, f"{name}.csv.gz", table)
         table.to_csv(output / f"{name}.csv", index=False)
     report = shared_plot.analysis_report(
         directory, plan, records, binding, coverage_rows, coverage, complete_ids, completed, created_at,
@@ -212,22 +218,28 @@ def analyze(directory: Path, output: Path, *, make_figures=True):
         setup_paper_params()
         shared_plot.plot_coverage(coverage, output)
     if study == "staged":
-        gate = stage_gate(plan["tasks"], records)
-        status = "pending" if not gate["complete"] else ("passed" if gate["passed"] else "not_passed")
-        report["stage_gate"] = {**gate, "status": status}
-        stage_interactions(runs).to_csv(output / "stage_interactions.csv", index=False)
+        gate = stage_gate(plan.tasks, records)
+        status = "pending" if not gate.complete else ("passed" if gate.passed else "not_passed")
+        report.stage_gate = replace(gate, status=status)
+        interactions = stage_interactions(runs)
+        write_table(output, "stage_interactions.csv.gz", interactions)
+        write_table(output, "references.csv.gz", references)
+        write_table(output, "stage_selection.csv.gz", selections)
+        interactions.to_csv(output / "stage_interactions.csv", index=False)
         references.to_csv(output / "references.csv", index=False)
         selections.to_csv(output / "stage_selection.csv", index=False)
     elif study == "staged_timing":
-        report["latest_fallback_count"] = int(((runs["arm"] == "state") & runs["switch_fallback"]).sum())
+        report.latest_fallback_count = int(((runs["arm"] == "state") & runs["switch_fallback"]).sum())
         fixed_comparison = contrasts[contrasts["control"] == "fixed"]
         primary = fixed_comparison[
             (fixed_comparison["setting"] == "all") & (fixed_comparison["metric"] == "separation_change")
         ].iloc[0]
-        report["primary_outcome"] = {
-            "metric": "end_separation", "contrast": "state minus fixed", "n": int(primary["n"]),
-            **{key: float(primary[key]) if pd.notna(primary[key]) else None for key in ("mean", "lo", "hi")},
-        }
+        report.primary_outcome = TimingSummary(
+            metric="end_separation", contrast="state minus fixed", n=int(primary["n"]),
+            mean=float(primary["mean"]) if pd.notna(primary["mean"]) else None,
+            lo=float(primary["lo"]) if pd.notna(primary["lo"]) else None,
+            hi=float(primary["hi"]) if pd.notna(primary["hi"]) else None,
+        )
 
     groups = runs.groupby(["sensitivity", "epsilon", "history"]) if make_figures else ()
     for (sensitivity, epsilon, history), sample in groups:
@@ -250,7 +262,7 @@ def analyze(directory: Path, output: Path, *, make_figures=True):
                 title=title, setting=setting, repost=repost,
             )
             if study == "staged":
-                plot_late_opinions([task for task in plan["tasks"] if task["id"] in ids], records,
+                plot_late_opinions([task for task in plan.tasks if task.id in ids], records,
                                    destination / f"{setting}_p{round(100 * repost):02}", title=title)
         pooled = sample[sample["task_id"].isin(complete_ids)]
         if pooled.empty:
@@ -268,13 +280,13 @@ def analyze(directory: Path, output: Path, *, make_figures=True):
             selections[selections["task_id"].isin(pooled_ids)] if not selections.empty else selections,
             destination / "complete_cells", title=title,
         )
-    atomic_json(output / "coverage.json", report)
+    atomic_json(output / "coverage.json", to_wire(report))
     return report
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("dataset", type=Path, help="Directory containing plan.json and records/")
+    parser.add_argument("dataset", type=Path, help="Directory containing plan.json and analysis.sqlite")
     parser.add_argument(
         "--output", type=Path, help="Analysis destination, defaulting to the dataset's analysis directory"
     )

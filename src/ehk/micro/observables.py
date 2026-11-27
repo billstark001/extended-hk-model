@@ -12,6 +12,7 @@ from scipy.stats import kurtosis, skew
 from common.numerics import adaptive_discrete_sampling, first_more_or_equal_than
 from common.pipeline import Context
 from ehk.metrics.evaluation import MeasurementEvaluator
+from ehk.metrics.state import MeasurementRecord
 from ehk.metrics.homophily import mean_followee_edge_concordance, normalize_homophily
 from ehk.metrics.pathway import OBSERVATION_INTERVAL, first_passage
 from ehk.metrics.polarization import DistanceCalculator, opinion_peak_count
@@ -147,11 +148,11 @@ def calc_distance(rec: RawSimulationRecord, step: int, *, evaluator=None):
     """Evaluate the adopted B=4081 distance indices on one saved state."""
     if evaluator is None:
         evaluator = MeasurementEvaluator(calculator=distance_collector)
-    return evaluator.distance(rec, int(step))
+    return evaluator.distance(MeasurementRecord.from_saved_record(rec), int(step))
 
 
 def calc_homophily(rec: RawSimulationRecord, step: int):
-    epsilon = rec.metadata["HKParams"]["Tolerance"]
+    epsilon = rec.metadata.HKParams.Tolerance
     rho = mean_followee_edge_concordance(rec.get_graph(step), rec.opinions[step], epsilon)
     return normalize_homophily(rho, epsilon) if np.isfinite(rho) else np.nan
 
@@ -168,12 +169,12 @@ def followee_post_concordance(rec: RawSimulationRecord, step: int) -> float:
 
 @c.selector(("x_indices", "h_index", "p_index", "g_index"))
 def get_indices(scenario_record: RawSimulationRecord):
-    return MeasurementEvaluator(calculator=distance_collector).indices(scenario_record)
+    return MeasurementEvaluator(calculator=distance_collector).indices(MeasurementRecord.from_saved_record(scenario_record))
 
 
 @c.selector
 def get_concordance_series(scenario_record: RawSimulationRecord, x_indices: NDArray):
-    epsilon = scenario_record.metadata["HKParams"]["Tolerance"]
+    epsilon = scenario_record.metadata.HKParams.Tolerance
     rho_edge = np.array(
         [
             mean_followee_edge_concordance(scenario_record.get_graph(int(t)), scenario_record.opinions[t], epsilon)
@@ -187,16 +188,16 @@ def get_concordance_series(scenario_record: RawSimulationRecord, x_indices: NDAr
 @c.selector(("pathway_label", "separation_step", "segregation_step"))
 def get_pathway_passage(scenario_record: RawSimulationRecord, probe_binary: Path):
     end = scenario_record.max_step
-    epsilon = scenario_record.metadata["HKParams"]["Tolerance"]
+    epsilon = scenario_record.metadata.HKParams.Tolerance
     steps = [*range(0, end, OBSERVATION_INTERVAL), end]
     measured = scenario_record.evaluate_probe(
         steps, measurements=["pathway"], epsilon=epsilon, binary_path=str(probe_binary),
     )
-    if measured["source_max_step"] != end or [state["step"] for state in measured["results"]] != steps:
+    if measured.source_max_step != end or [state.step for state in measured.results] != steps:
         raise ValueError("native pathway observations differ from the requested saved history")
     passage = first_passage(
-        (state["step"], state["pathway"]["separation"], state["pathway"]["excess_concordance"])
-        for state in measured["results"]
+        (state.step, state.pathway.separation, state.pathway.excess_concordance)
+        for state in measured.results
     )
     return passage.label, passage.separation_step, passage.segregation_step
 

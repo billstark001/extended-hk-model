@@ -1,6 +1,7 @@
 """Recompute named contrasts with matched histories and explicit denominators."""
 
 import numpy as np
+from dataclasses import replace
 import pytest
 
 from experiments.paper.analysis.records import ScenarioStatistics
@@ -30,7 +31,7 @@ def test_grouped_percentages_use_reference_means_and_exclude_history_confounding
                         triads=100 * value,
                     )
                 )
-    history = ScenarioStatistics(**vars(records[0]))
+    history = replace(records[0])
     history.name, history.post_retain_count, history.event_count = "s_grad_history2", 2, 99999
     data, summary, contrasts = summarize([*records, history], 0.6)
     assert len(data) == 8 and set(data["origin"]) == {"raw"}

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import argparse
-import pickle
-from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Dict, List, Tuple
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,6 +12,11 @@ from scipy.interpolate import interp1d
 
 import experiments.paper.scenarios as cfg
 from common.numerics import estimate_force_field_kde
+from common.storage.documents import DocumentStore
+from common.io.json import fingerprint, sha
+from experiments.paper.analysis.statistics import analysis_protocol, source_identity
+from experiments.paper.analysis.models import AnalysisProtocol
+from ehk.domain import ScenarioMetadata, InputIdentity
 from common.plotting import plt_figure, setup_paper_params
 from ehk.micro.observables import c
 from ehk.plotting.landscape import (
@@ -30,7 +34,7 @@ from experiments.workspaces import workspace_dir
 if TYPE_CHECKING:
     from smp_bindings import RawSimulationRecord
 
-CACHE_FILE_PATH = MECHANISM_OUTPUT.resolve() / "derived" / "basic_data_cache.pkl"
+CACHE_FILE_PATH = MECHANISM_OUTPUT.resolve() / "derived" / "analysis.sqlite"
 PLOT_RES = 100
 EXTRAPOLATE_FILL: float = "extrapolate"  # type: ignore
 
@@ -48,44 +52,34 @@ class ParsedRecord:
     knr_seq: np.ndarray
 
 
-def load_cache() -> dict:
-    if CACHE_FILE_PATH.exists():
-        try:
-            with CACHE_FILE_PATH.open("rb") as f:
-                return pickle.load(f)
-        except Exception as e:
-            print(f"Warning: Failed to load cache: {e}")
-    return {}
+@dataclass(frozen=True, slots=True)
+class CacheIdentity:
+    name: str
+    metadata: ScenarioMetadata
+    source: InputIdentity
+    implementation: str
+    analysis: AnalysisProtocol
 
 
-def save_cache(cache: dict):
-    try:
-        CACHE_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with CACHE_FILE_PATH.open("wb") as f:
-            pickle.dump(cache, f)
-    except Exception as e:
-        print(f"Warning: Failed to save cache: {e}")
+@dataclass(frozen=True, slots=True)
+class CachedRecord:
+    identity: CacheIdentity
+    values: ParsedRecord
 
 
 def get_basic_data(rec: RawSimulationRecord, force_reload=False) -> ParsedRecord:
-    if globals().get("basic_data_cache", None) is None:
-        globals()["basic_data_cache"] = load_cache()
-
-    cache: Dict[str, dict] = globals()["basic_data_cache"]
-    rec_key = rec.unique_name
-
-    if rec_key in cache and not force_reload:
-        cached = cache[rec_key]
-        try:
-            return ParsedRecord(**cached)
-        except Exception as e:
-            print(f"Warning: Failed to parse cached data for {rec_key}: {e}")
-            del cache[rec_key]
-
+    identity = CacheIdentity(rec.unique_name, rec.metadata, source_identity(rec.directory),
+                             sha(__file__), analysis_protocol())
+    key = fingerprint(identity)
+    with DocumentStore(CACHE_FILE_PATH) as store:
+        cached = store.get("mechanism.basic", key)
+    if cached is not None and not force_reload:
+        return ParsedRecord(**cached["values"])
     c.set_state(active_threshold=0.98, min_inactive_value=0.75, scenario_record=rec)
-    c.debug = True
 
     active_step = c.active_step
+    if active_step <= 0:
+        raise ValueError("mechanism time normalization requires a positive active step")
     t_seq = np.arange(rec.opinions.shape[0]) / active_step
     x_seq = rec.opinions[:, :]
 
@@ -100,7 +94,7 @@ def get_basic_data(rec: RawSimulationRecord, force_reload=False) -> ParsedRecord
     dx_r_seq = rec.agent_opinion_sums[:, :, 1] / kr_seq_l_1
     dx_nr_seq = (rec.agent_opinion_sums[:, :, 0] + rec.agent_opinion_sums[:, :, 1]) / knr_seq_l_1
 
-    print(rec_key, rec.max_step, active_step)
+    print(rec.unique_name, rec.max_step, active_step)
 
     record = ParsedRecord(
         t_seq=t_seq,
@@ -114,8 +108,10 @@ def get_basic_data(rec: RawSimulationRecord, force_reload=False) -> ParsedRecord
         knr_seq=knr_seq,
     )
 
-    cache[rec_key] = asdict(record)
-    save_cache(cache)
+    if source_identity(rec.directory) != identity.source:
+        raise RuntimeError("mechanism raw inputs changed during analysis")
+    with DocumentStore(CACHE_FILE_PATH) as store:
+        store.put("mechanism.basic", key, CachedRecord(identity, record))
 
     return record
 

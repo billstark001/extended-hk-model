@@ -12,6 +12,8 @@ from ehk.micro.observables import calc_active_step
 from ehk.metrics.trajectory import pathway_index
 from experiments.paper.analysis.records import ScenarioStatistics, StatisticsStore
 from experiments.paper.analysis.statistics import analysis_protocol
+from experiments.paper.analysis.models import AnalysisProtocol, AnalysisOptions, FirstPassage
+from ehk.metrics.protocol import parse_metric_protocol
 
 
 def test_documents_roundtrip_arrays_metadata_nonfinite_and_atomic_upserts(tmp_path):
@@ -63,6 +65,7 @@ def test_activity_already_above_criterion_starts_at_initial_observation():
     assert result[4] == 1.0
 
 
+
 def test_document_statistics_reject_legacy_wide_tables(tmp_path):
     path = tmp_path / "archived.db"
     with sqlite3.connect(path) as db:
@@ -80,20 +83,20 @@ def test_recorded_exact_revision_remains_readable_after_binned_adoption(tmp_path
     path = tmp_path / "historical.sqlite"
     value = ScenarioStatistics(name="old", origin="raw", metric_revision=3, pathway_integral=.21844215537211242)
     with StatisticsStore(path) as store:
-        store.put(value, analysis_id="original-exact", mode="gradation", protocol={"metrics": {"revision": 3}})
+        store.put(value, analysis_id="original-exact", mode="gradation", protocol=AnalysisProtocol(metrics=parse_metric_protocol({"revision": 3})))
     with StatisticsStore(path, readonly=True) as store:
         old = store.get("old", "raw", "original-exact")
-        assert old.metric_revision == 3 and old.protocol["metrics"]["revision"] == 3
+        assert old.metric_revision == 3 and old.protocol.metrics.revision == 3
         assert old.pathway_integral == .21844215537211242
-        assert METRIC_PROTOCOL["distance_kde"]["bins"] == 4081
+        assert METRIC_PROTOCOL.distance_kde.bins == 4081
 
 
 def test_optional_probe_binary_identity_is_required_only_when_enabled(tmp_path, monkeypatch):
     binary = tmp_path / "probe"
     monkeypatch.setenv("SMP_PROBE_BINARY", str(binary))
-    assert "native_probe" not in analysis_protocol()
+    assert analysis_protocol().native_probe is None
     binary.write_bytes(b"version one")
-    first = analysis_protocol({"first_passage": {"cadence": 16}})
+    first = analysis_protocol(AnalysisOptions(first_passage=FirstPassage(16)))
     binary.write_bytes(b"version two")
-    second = analysis_protocol({"first_passage": {"cadence": 16}})
-    assert first["native_probe"]["sha256"] != second["native_probe"]["sha256"]
+    second = analysis_protocol(AnalysisOptions(first_passage=FirstPassage(16)))
+    assert first.native_probe.sha256 != second.native_probe.sha256

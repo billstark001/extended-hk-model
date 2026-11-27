@@ -1,10 +1,10 @@
 # Distance-KDE approximation experiment
 
-This independent experiment evaluates linear binning and Gaussian convolution for the observed distance densities used by `I_p` and `I_s`. It reads existing simulation histories and the completed metric-comparison baseline. It neither advances a model nor replaces the production metrics.
+This independent experiment evaluates linear binning and Gaussian convolution for the observed distance densities used by `I_p` and `I_s`. It reads existing simulation histories and a completed canonical metric-comparison cohort. The formal cohort uses B=4081; this numerical study computes explicit `method="exact"` references internally with the same formula and independent adaptive sampling. It neither advances a model nor replaces the production metrics.
 
 The experiment starts only after the baseline collection, alignment and report confirm complete coverage. Its configuration and receipts bind the baseline generation, selected tasks, raw sources and numerical implementation. Original experiment seeds, plans, simulation-binary identities and result files remain unchanged.
 
-`I_w` includes `(1-I_p(T))*I_h(T)` by default in the internal exact reference, fixed-grid approximation and independently adaptive approximation. `--no-endpoint-complement` selects the observed integral alone for all three. The selected convention must match the baseline and is recorded in configuration, path outputs and receipts. Historical metric-comparison baselines without this flag are uncompleted and require that explicit option; changing the convention requires a new destination and a matching baseline.
+`I_w` includes `(1-I_p(T))*I_h(T)` by default in the exact baseline, fixed-grid approximation and independently adaptive approximation. `--no-endpoint-complement` selects the observed integral alone for all three. The selected convention must match the baseline and is recorded in configuration, path outputs and receipts. Missing endpoint-policy fields are rejected. Changing the convention requires a new destination and matching source cohort.
 
 ## Numerical scope
 
@@ -33,14 +33,14 @@ A small integration check can use `--max-tasks 1 --benchmark-states 2 --repeats 
 
 The experiment separates three effects:
 
-1. Approximate versus frozen exact `I_p/I_s` at the original prepared observation times.
-2. Approximate `I_w` on each path's saved exact adaptive grid versus the frozen exact index under the same endpoint convention.
+1. Approximate versus explicitly recomputed exact `I_p/I_s` at the original prepared observation times.
+2. Approximate `I_w` on each path's saved exact adaptive grid versus the internally computed exact index under the same endpoint convention.
 3. Independently adaptive approximate `I_w`, accepted steps and activity time versus the fixed-grid result and baseline.
 
 The 16-step observation export is never substituted for the exact adaptive integration grid. Reconstructing exact activity curves can require additional off-grid exact evaluations; their coverage and cost are recorded separately. `I_h` retains its existing computation throughout.
 
 Kernel benchmarks pair exact and approximate methods on identical prepared states. Preparation and density-evaluation costs are distinguished, and single-candidate timing includes its preparation cost. Cache-validation time from the earlier baseline run is not used as an exact-computation benchmark.
 
-The collection writes per-path receipts, coverage and progress; the report writes error tables, matched intervention comparisons and scientific figures. A report requires complete selected-cohort coverage. Results describe approximation error and measured performance; no candidate automatically becomes the production implementation.
+The collection stores per-path receipts and named tables in `analysis.sqlite`; process workers return computations to one parent writer. CSV files are exports, and reports read SQLite tables. The collection writes coverage and progress; the report writes error tables, matched intervention comparisons and scientific figures. A report requires complete selected-cohort coverage. Results describe approximation error and measured performance. B=4081 is the formal implementation; the study preserves comparisons against exact evaluation and other resolutions as a numerical audit.
 
-The formal source cohort uses B=4081. This numerical study recomputes exact reference curves from raw history and keeps the formal source values separately in `source_*` columns.
+Repeated collection commands with the same frozen configuration reuse committed per-path receipts. Reports require a fresh destination. Selection, worker jobs, numerical diagnostics and receipts use declared dataclasses; only persistence encodes dictionaries.

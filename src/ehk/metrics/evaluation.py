@@ -2,10 +2,37 @@
 
 import operator
 from collections import OrderedDict
+from dataclasses import dataclass
 
 import numpy as np
 
-from .state import MeasurementState
+from .state import MeasurementRecord, MeasurementState
+
+
+@dataclass(frozen=True)
+class ScalarCacheInfo:
+    hits: int
+    misses: int
+    size: int
+    capacity: int
+
+
+@dataclass(frozen=True)
+class CacheInfo:
+    opinion: ScalarCacheInfo
+    edge: ScalarCacheInfo
+    homophily: ScalarCacheInfo
+
+    @property
+    def total_hits(self) -> int:
+        return self.opinion.hits + self.edge.hits + self.homophily.hits
+
+    @property
+    def total_misses(self) -> int:
+        return self.opinion.misses + self.edge.misses + self.homophily.misses
+
+    def components(self) -> tuple[ScalarCacheInfo, ScalarCacheInfo, ScalarCacheInfo]:
+        return self.opinion, self.edge, self.homophily
 
 
 class _ScalarCache:
@@ -31,7 +58,7 @@ class _ScalarCache:
         self.hits = self.misses = 0
 
     def info(self):
-        return {"hits": self.hits, "misses": self.misses, "size": len(self.values), "capacity": self.capacity}
+        return ScalarCacheInfo(self.hits, self.misses, len(self.values), self.capacity)
 
 
 class MeasurementEvaluator:
@@ -71,7 +98,7 @@ class MeasurementEvaluator:
         return self._calculator
 
     @staticmethod
-    def _extract(record, step):
+    def _extract(record: MeasurementRecord, step):
         if isinstance(step, (bool, np.bool_)):
             raise ValueError("step must be a nonnegative integer")
         try:
@@ -80,9 +107,8 @@ class MeasurementEvaluator:
             raise ValueError("step must be a nonnegative integer") from error
         if step < 0:
             raise ValueError("step must be a nonnegative integer")
-        epsilon = float(record.metadata["HKParams"]["Tolerance"])
-        state = MeasurementState.from_graph(record.get_graph(step), record.opinions[step])
-        return state, int(step), epsilon
+        state = MeasurementState.from_graph(record.graph_at(step), record.opinions[step])
+        return state, int(step), record.epsilon
 
     @staticmethod
     def _physical_keys(state, epsilon):
@@ -121,24 +147,24 @@ class MeasurementEvaluator:
 
         return self._homophily.resolve(key, measure)
 
-    def point(self, record, step):
+    def point(self, record: MeasurementRecord, step):
         """Return (I_p, I_s, I_h) after extracting opinions and topology once."""
         state, step, epsilon = self._extract(record, step)
         keys = self._keys(state, step, epsilon)
         ip, isub = self._distance(state, step, epsilon, keys)
         return ip, isub, self._homophily_value(state, epsilon, keys[2])
 
-    def distance(self, record, step):
+    def distance(self, record: MeasurementRecord, step):
         """Return (I_p, I_s), reusing graph-independent opinion results."""
         state, step, epsilon = self._extract(record, step)
         return self._distance(state, step, epsilon, self._keys(state, step, epsilon))
 
-    def homophily(self, record, step):
+    def homophily(self, record: MeasurementRecord, step):
         """Compute only I_h, without fitting or evaluating either KDE."""
         state, _, epsilon = self._extract(record, step)
         return self._homophily_value(state, epsilon, self._physical_keys(state, epsilon))
 
-    def indices(self, record):
+    def indices(self, record: MeasurementRecord):
         """Use the canonical adaptive sampler and full saved prefix."""
         from .trajectory import sample_indices
 
@@ -149,5 +175,5 @@ class MeasurementEvaluator:
         for cache in (self._opinion, self._edge, self._homophily):
             cache.clear()
 
-    def cache_info(self):
-        return {"opinion": self._opinion.info(), "edge": self._edge.info(), "homophily": self._homophily.info()}
+    def cache_info(self) -> CacheInfo:
+        return CacheInfo(self._opinion.info(), self._edge.info(), self._homophily.info())

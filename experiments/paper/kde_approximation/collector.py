@@ -1,4 +1,4 @@
-"""Validate binned KDE on frozen exact histories without changing model metrics."""
+"""Validate binned KDE with exact references recomputed on frozen raw histories."""
 
 import hashlib
 import inspect
@@ -6,6 +6,7 @@ import json
 import sys
 import time
 from collections import OrderedDict
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 
 import numpy as np
@@ -14,12 +15,27 @@ import scipy
 
 from common.experiments.lifecycle import interruptible, session_lock
 from common.experiments.plans import freeze_manifest
-from common.io.json import atomic_json, fingerprint, read_result, save_result, sha
+from common.io.json import atomic_json, fingerprint, sha
 from common.runtime.process import run_tasks
 from experiments.paper.metric_comparison import core, raw
 from experiments.paper.metric_comparison import report as baseline_reporting
 from ehk.metrics.evaluation import MeasurementEvaluator
-from ehk.metrics.state import MeasurementState
+from ehk.metrics.state import MeasurementRecord
+from ehk.metrics.density import DensityDiagnostics
+from ehk.domain import parse_dataclass, rows_frame
+from common.experiments.progress import Progress
+from experiments.paper.metric_comparison.contracts import (CollectionConfiguration, CollectionManifest as MainCollection,
+    CollectionReceipt, PipelineStatus, ReportManifest, PreparedPath, PathKey, table_records, CollectionProgress, CacheCounts, StatusCounts)
+from experiments.paper.recommendation_shared.storage import write_table
+from .kernel import KernelDiagnostics
+from .contracts import (
+    ActivityConfiguration, AdaptiveConfiguration, BaselineEvidence, BaselinePoint, BenchmarkKey,
+    CollectionManifest, Configuration, DiagnosticObservation, GroupResult, Job,
+    NumericalSources, PathEntry, PathResult, PathRow, PathStatus, PointRow, Receipt, ReportIdentity,
+    Selection, TimingRow,
+)
+from common.storage.documents import DocumentWrite, DocumentWriter, encode_document
+from experiments.paper.metric_comparison.receipts import receipt
 
 PATH_KEYS = ("profile", "task_id", "stage", "arm")
 DEFAULT_BINS = (1021, 2041, 4081, 8161)
@@ -46,66 +62,51 @@ def _source_configuration():
                Path(inspect.getfile(observables.get_indices)), Path(inspect.getfile(MeasurementEvaluator)),
                Path(smp_bindings.events_db.__file__), Path(smp_bindings.model_state.__file__),
                Path(smp_bindings.trajectory.__file__)}
-    return {
-        "sources": {str(path.resolve()): sha(path) for path in sorted(sources)},
-        "exact_protocol": raw._source_configuration(),
-        "versions": {"python": sys.version.split()[0], "numpy": np.__version__, "scipy": scipy.__version__,
-                     "networkx": networkx.__version__},
-        "kernel": "linear_binned_gaussian", "seed": "absolute completed step",
-        "adaptive": {"tolerance": .01, "max_interval": 512, "full_prefix": True},
-        "activity": {"active_threshold": .98, "min_inactive_value": .75},
-        "baseline_activity_audit": "all selected paths; prepared lookup plus exact off-grid accepted steps",
-        "timing": "uncached paired same-state exact/binned totals; each includes its own prepare",
-    }
-
-
-def _read_csv(path):
-    return pd.read_csv(path, keep_default_na=False, float_precision="round_trip", low_memory=False)
+    return NumericalSources({str(path.resolve()): sha(path) for path in sorted(sources)},
+        raw._source_configuration(), "exact",
+        {"python": sys.version.split()[0], "numpy": np.__version__, "scipy": scipy.__version__, "networkx": networkx.__version__},
+        "linear_binned_gaussian", "absolute completed step", AdaptiveConfiguration(.01, 512, True),
+        ActivityConfiguration(.98, .75), "internal explicit exact reference and exact adaptive grid on every selected path",
+        "uncached paired same-state exact/binned totals; each includes its own prepare")
 
 
 def _load_baseline(preparation, baseline):
     points, paths, provenance = baseline_reporting.load_aligned(preparation, baseline / "alignment")
+    policies = [core.endpoint_mode(provenance.comparison)]
     manifests = {}
-    policies = [core.endpoint_mode(provenance["comparison"])]
-    for directory, name in ((baseline, "run_status.json"), (baseline / "collection", "collection.json"),
-                            (baseline / "report", "report.json")):
-        manifest = json.loads((directory / name).read_text())
-        if manifest.get("state", manifest.get("status")) != "complete":
-            raise ValueError(f"exact baseline is incomplete: {directory / name}")
-        if name != "run_status.json":
+    for directory, name, contract in ((baseline, "run_status.json", PipelineStatus),
+            (baseline / "collection", "collection.json", MainCollection),
+            (baseline / "report", "report.json", ReportManifest)):
+        manifest = core.load_contract(directory / name, contract)
+        state = manifest.state if isinstance(manifest, PipelineStatus) else manifest.status
+        if state != "complete":
+            raise ValueError(f"formal baseline is incomplete: {directory / name}")
+        if not isinstance(manifest, PipelineStatus):
             core._authenticate_files(directory, manifest)
         policies.append(core.endpoint_mode(manifest))
         manifests[name] = sha(directory / name)
-    source = json.loads((baseline / "collection/configuration.json").read_text())
+    source = core.load_contract(baseline / "collection/configuration.json", CollectionConfiguration)
     endpoint_complement = core.endpoint_mode(source)
     if any(policy != endpoint_complement for policy in policies):
-        raise ValueError("exact baseline endpoint_complement policies disagree")
-    if source["preparation_fingerprint"] != fingerprint(provenance["preparation"]):
+        raise ValueError("formal baseline endpoint_complement policies disagree")
+    if source.preparation_fingerprint != fingerprint(provenance.preparation):
         raise ValueError("baseline collection belongs to a different preparation")
-    if source["metrics"] != raw._source_configuration():
-        raise ValueError("current exact metric/reader sources differ from the frozen baseline")
-    return points, paths, {
-        "endpoint_complement": endpoint_complement,
-        "preparation_sha256": sha(preparation / "preparation.json"),
-        "run_status_sha256": manifests["run_status.json"],
-        "collection_sha256": manifests["collection.json"],
-        "collection_configuration_fingerprint": fingerprint(source),
-        "comparison_sha256": sha(baseline / "alignment/comparison.json"),
-        "baseline_report": {"directory": str(baseline / "report"), "sha256": manifests["report.json"]},
-    }
+    if source.metrics != raw._source_configuration():
+        raise ValueError("current metric/reader sources differ from the frozen baseline")
+    return points, paths, BaselineEvidence(endpoint_complement, sha(preparation / "preparation.json"),
+        manifests["run_status.json"], manifests["collection.json"], fingerprint(source),
+        sha(baseline / "alignment/comparison.json"), ReportIdentity(str(baseline / "report"), manifests["report.json"]))
 
 
 def _features(block):
     features = set()
-    for row in block.to_dict("records"):
-        profile = row["profile"]
-        for field in ("profile", "stage", "arm", "epsilon", "history", "repost", "sensitivity"):
-            if field in row:
-                features.add((field, str((profile, row[field]))))
-        features.add(("setting", str((profile, row.get("influence"), row.get("rewiring")))))
-        features.add(("condition", str((profile, row.get("sensitivity"), row.get("epsilon"), row.get("history")))))
-        terminal = json.loads(row.get("terminal_json", "{}"))
-        features.add(("terminal", str((profile, terminal.get("status"), terminal.get("k_major")))))
+    for row in table_records(block, PreparedPath):
+        profile = row.profile
+        for name in ("profile", "stage", "arm", "epsilon", "history", "repost", "sensitivity"):
+            features.add((name, str((profile, getattr(row, name)))))
+        features.add(("setting", str((profile, row.influence, row.rewiring))))
+        features.add(("condition", str((profile, row.sensitivity, row.epsilon, row.history))))
+        features.add(("terminal", str((profile, row.terminal_status, row.major_components))))
     return features
 
 
@@ -144,18 +145,13 @@ def select_tasks(paths, points, max_tasks=32, *, full=False):
     selected.sort()
     selected_keys = set(selected)
     rows = paths[[key in selected_keys for key in zip(paths["profile"], paths["task_id"])]].copy()
-    selection = {
-        "mode": "full" if full else "representative", "max_tasks": None if full else max_tasks,
-        "available_tasks": len(groups), "selected_tasks": len(selected),
-        "available_paths": len(paths), "selected_paths": len(rows),
-        "task_keys": [list(key) for key in selected],
-        "profile_tasks": {profile: sum(key[0] == profile for key in selected) for profile in sorted(paths["profile"].unique())},
-        "path_keys": rows[list(PATH_KEYS)].to_dict("records"),
-        "covered_features": [list(item) for item in sorted(covered)],
-        "uncovered_features": [list(item) for item in sorted(set().union(*feature_sets.values()) - covered)],
-        "selection_rule": "greedy existing-design/state coverage; deterministic lexical ties",
-        "adaptive_stress_rule": "existing-grid midpoint residual near .01; proxy, not original rejected candidates",
-    }
+    selection = Selection("full" if full else "representative", None if full else max_tasks,
+        len(groups), len(selected), len(paths), len(rows), tuple(selected),
+        {profile: sum(key[0] == profile for key in selected) for profile in sorted(paths["profile"].unique())},
+        table_records(rows, PathKey), tuple(sorted(covered)),
+        tuple(sorted(set().union(*feature_sets.values()) - covered)),
+        "greedy existing-design/state coverage; deterministic lexical ties",
+        "existing-grid midpoint residual near .01; proxy, not original rejected candidates")
     return rows, selection
 
 
@@ -182,10 +178,10 @@ def _benchmark_keys(points, paths, count):
         identity = tuple(row[name] for name in (*PATH_KEYS, "step"))
         if identity not in seen:
             seen.add(identity)
-            result.append({**{name: row[name] for name in PATH_KEYS}, "step": int(row["step"])})
+            result.append(BenchmarkKey(*(row[name] for name in PATH_KEYS), int(row["step"])))
         if len(result) >= count:
             break
-    return result
+    return tuple(result)
 
 
 def _state_key(record, step):
@@ -194,7 +190,7 @@ def _state_key(record, step):
 
 
 class CandidateEvaluator(MeasurementEvaluator):
-    """Reuse canonical scalar caches and preserve per-resolution diagnostics."""
+    """Canonical scalar caches with per-resolution numerical diagnostics."""
 
     def __init__(self, bins, shared):
         super().__init__(method="binned", bins=bins, calculator=shared.calculator.reference)
@@ -213,7 +209,7 @@ class CandidateEvaluator(MeasurementEvaluator):
         prepared, _, input_sha = self.shared.prepare_state(state, step, epsilon)
         key = keys[:2]
         if key not in self._details:
-            self._details[key] = ({}, {})
+            self._details[key] = (DensityDiagnostics(), DensityDiagnostics())
         details = self._details[key]
         self._details.move_to_end(key)
         def measure(index):
@@ -228,10 +224,9 @@ class CandidateEvaluator(MeasurementEvaluator):
             return value
         values = (self._opinion.resolve(keys[0], lambda: measure(0)),
                   self._edge.resolve(keys[1], lambda: measure(1)))
-        diagnostic = self.shared.calculator._diagnostics(prepared, method="linear_binned_gaussian", bins=self.bins)
-        for name, detail in (("opinion", details[0]), ("edge", details[1])):
-            diagnostic.update({f"{name}_{key}": value for key, value in detail.items()})
-        self.diagnostics[self._observation] = {**diagnostic, "same_input_sha": input_sha}
+        diagnostic = self.shared.calculator._diagnostics(prepared, method="linear_binned_gaussian", bins=self.bins,
+            opinion_detail=details[0], edge_detail=details[1])
+        self.diagnostics[self._observation] = DiagnosticObservation(diagnostic, input_sha)
         if len(self._details) > 512:
             self._details.popitem(last=False)
         return values
@@ -243,7 +238,6 @@ class SharedInputs:
         self.inputs = OrderedDict()
         self.prepare_seconds = 0.
         self.evaluate_seconds = dict.fromkeys(bins, 0.)
-        self.benchmarked = set()
 
     def prepare_state(self, state, step, epsilon):
         from ehk.metrics.homophily import mean_state_edge_concordance, normalize_homophily
@@ -285,53 +279,51 @@ def _iw(p, h, *, endpoint_complement=True):
     return float(pathway_index(np.asarray(p), np.asarray(h), endpoint_complement=endpoint_complement))
 
 
-def _timing(record, step, bins, repeats, calculator, identity):
-    graph, opinions = record.get_graph(step), record.opinions[step]
-    epsilon = float(record.metadata["HKParams"]["Tolerance"])
-    key = _state_key(record, step)
-    digest = _input_sha(key)
+@dataclass(frozen=True, slots=True)
+class TimedEvaluation:
+    values: tuple[float, float, KernelDiagnostics]
+    prepare: float
+    evaluate: float
+    total: float
+
+
+def _timing(record, step, bins, repeats, calculator, identity: PathKey):
+    graph, opinions, epsilon = record.graph_at(step), record.opinions[step], record.epsilon
+    digest = _input_sha(_state_key(record, step))
     rows = []
     for repeat in range(repeats):
         for resolution in bins:
-            measured = {}
+            measured: dict[str, TimedEvaluation] = {}
             for method in (("exact", "binned") if repeat % 2 == 0 else ("binned", "exact")):
                 started = time.perf_counter()
                 prepared = calculator.prepare(graph, opinions, epsilon, step)
                 prepared_at = time.perf_counter()
-                values = (calculator.exact(prepared) if method == "exact"
-                          else calculator.evaluate(prepared, resolution))
+                values = calculator.exact(prepared) if method == "exact" else calculator.evaluate(prepared, resolution)
                 finished_at = time.perf_counter()
-                measured[method] = (values, prepared_at - started, finished_at - prepared_at, finished_at - started)
-            ((exact_p, exact_s, _), exact_prepare, exact_evaluate, exact_total) = measured["exact"]
-            ((ip, isub, diagnostics), prepare, evaluate, total) = measured["binned"]
-            rows.append({
-                **identity, "case_id": fingerprint({**identity, "step": step}), "step": step,
-                "bins": resolution, "repeat": repeat, "same_input_sha": digest,
-                "timing_order": "exact_first" if repeat % 2 == 0 else "binned_first",
-                "exact_prepare_seconds": exact_prepare, "exact_evaluate_seconds": exact_evaluate,
-                "exact_total_seconds": exact_total, "prepare_seconds": prepare,
-                "evaluate_seconds": evaluate, "binned_total_seconds": total,
-                "exact_Ip": float(exact_p), "exact_Is": float(exact_s),
-                "approx_Ip": float(ip), "approx_Is": float(isub), **diagnostics,
-            })
+                measured[method] = TimedEvaluation(values, prepared_at - started, finished_at - prepared_at, finished_at - started)
+            exact, candidate = measured["exact"], measured["binned"]
+            rows.append(TimingRow(identity.profile, identity.task_id, identity.stage, identity.arm,
+                fingerprint((identity, step)), step, resolution, repeat, digest,
+                "exact_first" if repeat % 2 == 0 else "binned_first", exact.prepare, exact.evaluate, exact.total,
+                candidate.prepare, candidate.evaluate, candidate.total,
+                float(exact.values[0]), float(exact.values[1]), float(candidate.values[0]), float(candidate.values[1]), candidate.values[2]))
     return rows
 
 
-def _measure_path(entry, bins, repeats, shared, evaluators, *, endpoint_complement=True):
+def _measure_path(entry: PathEntry, bins, repeats, shared, evaluators, *, endpoint_complement=True) -> PathResult:
     from smp_bindings import RawSimulationRecord
     from ehk.metrics.trajectory import sample_indices
 
-    path, baseline_points, baseline_receipt = entry["path"], entry["points"], entry["baseline"]
-    if core.endpoint_mode(baseline_receipt["result"]["path"]) != endpoint_complement:
+    path, baseline_points, baseline_receipt = entry.path, entry.points, entry.baseline
+    if baseline_receipt.result.path.endpoint_complement != endpoint_complement:
         raise ValueError("baseline receipt endpoint_complement differs from selected policy")
-    identity = {name: path[name] for name in PATH_KEYS}
-    directory = Path(path["raw_directory"])
-    metadata = raw._validate_raw(directory, path, pd.DataFrame(baseline_points))
-    prepared_steps = tuple(int(point["step"]) for point in baseline_points)
-    source_points = {int(point["step"]): tuple(float(point[name]) for name in ("I_p", "I_s", "I_h"))
-                     for point in baseline_points}
+    identity, directory = path.key, Path(path.raw_directory)
+    metadata = raw._validate_raw(directory, path, baseline_points)
+    prepared_steps = tuple(point.step for point in baseline_points)
+    source_points = {point.step: (point.I_p, point.I_s, point.I_h) for point in baseline_points}
     rows, path_rows, timings = [], [], []
-    with RawSimulationRecord(str(directory.parent), metadata) as record:
+    with RawSimulationRecord(str(directory.parent), metadata) as saved:
+        record = MeasurementRecord.from_saved_record(saved)
         for evaluator in evaluators.values():
             evaluator.diagnostics.clear()
         started_reference = time.perf_counter()
@@ -339,7 +331,7 @@ def _measure_path(entry, bins, repeats, shared, evaluators, *, endpoint_compleme
         def exact_point(step):
             return reference.point(record, int(step))
         baseline_steps, h, p, s = sample_indices(record.max_step, exact_point)
-        baseline_steps = [int(step) for step in baseline_steps]
+        baseline_steps = tuple(int(step) for step in baseline_steps)
         exact = {step: tuple(float(v) for v in exact_point(step))
                  for step in sorted(set(prepared_steps) | set(baseline_steps))}
         exact_curve = np.array([exact[step] for step in baseline_steps])
@@ -358,85 +350,94 @@ def _measure_path(entry, bins, repeats, shared, evaluators, *, endpoint_compleme
                     reference_values = exact[step]
                     if values[2] != reference_values[2]:
                         raise ValueError("KDE experiment changed exact homophily")
-                    rows.append({**identity, "bins": resolution, "step": step, "grid": grid,
-                        **{f"exact_{name}": reference_values[index] for index, name in enumerate(METRICS)},
-                        **{f"source_{name}": source_points.get(step, (None, None, None))[index] for index, name in enumerate(METRICS)},
-                        **{f"approx_{name}": values[index] for index, name in enumerate(METRICS)},
-                        **evaluator.diagnostics[(record.directory, step)]})
-            steps, h, p, s = evaluator.indices(record)
+                    detail = evaluator.diagnostics[(record.directory, step)]
+                    rows.append(PointRow(identity.profile, identity.task_id, identity.stage, identity.arm,
+                        resolution, step, grid, *reference_values, *source_points.get(step, (None, None, None)),
+                        *values, detail.diagnostic, detail.same_input_sha))
+            def candidate_point(step):
+                return evaluator.point(record, int(step))
+            steps, h, p, s = sample_indices(record.max_step, candidate_point)
             for index, step in enumerate(steps):
                 step = int(step)
                 reference_values = exact.get(step, (None, None, float(h[index])))
-                rows.append({**identity, "bins": resolution, "step": step, "grid": "candidate_adaptive",
-                    **{f"exact_{name}": reference_values[i] for i, name in enumerate(METRICS)},
-                    **{f"source_{name}": None for name in METRICS},
-                    "approx_Ip": float(p[index]), "approx_Is": float(s[index]), "approx_Ih": float(h[index]),
-                    **evaluator.diagnostics[(record.directory, step)]})
+                detail = evaluator.diagnostics[(record.directory, step)]
+                rows.append(PointRow(identity.profile, identity.task_id, identity.stage, identity.arm,
+                    resolution, step, "candidate_adaptive", *reference_values, None, None, None,
+                    float(p[index]), float(s[index]), float(h[index]), detail.diagnostic, detail.same_input_sha))
             fixed = np.array([point_values[step] for step in baseline_steps])
             fixed_active, fixed_threshold = _activity(baseline_steps, fixed[:, 1])
             adaptive_active, adaptive_threshold = _activity(steps, s)
-            path_rows.append({**identity, "bins": resolution, "start_step": int(path["start_step"]),
-                "end_step": int(path["end_step"]), "endpoint_complement": endpoint_complement,
-                "baseline_Iw": baseline_iw, "source_Iw": baseline_receipt["result"]["path"]["I_w"],
-                "fixed_Iw": _iw(fixed[:, 0], fixed[:, 2], endpoint_complement=endpoint_complement),
-                "adaptive_Iw": _iw(p, h, endpoint_complement=endpoint_complement),
-                "baseline_steps_json": json.dumps(baseline_steps),
-                "candidate_steps_json": json.dumps([int(step) for step in steps]),
-                "baseline_active_step": active_step, "fixed_active_step": fixed_active,
-                "adaptive_active_step": adaptive_active, "baseline_active_threshold": active_threshold,
-                "fixed_active_threshold": fixed_threshold, "adaptive_active_threshold": adaptive_threshold,
-                "activity_audit_status": "measured", "extra_exact_calls": extra_calls,
-                "extra_exact_seconds": extra_seconds, "shared_prepare_seconds": shared.prepare_seconds - before_prepare,
-                "evaluate_seconds": shared.evaluate_seconds[resolution] - before_evaluate,
-                "candidate_path_seconds": time.perf_counter() - started_path})
-        for step in entry["benchmark_steps"]:
-            key = _state_key(record, int(step))
-            if key not in shared.benchmarked:
-                shared.benchmarked.add(key)
-                timings.extend(_timing(record, int(step), bins, repeats, shared.calculator, identity))
-    return {"points": rows, "paths": path_rows, "benchmarks": timings}
+            path_rows.append(PathRow(identity.profile, identity.task_id, identity.stage, identity.arm,
+                resolution, path.start_step, path.end_step, endpoint_complement, baseline_iw,
+                baseline_receipt.result.path.I_w, _iw(fixed[:, 0], fixed[:, 2], endpoint_complement=endpoint_complement),
+                _iw(p, h, endpoint_complement=endpoint_complement), json.dumps(baseline_steps),
+                json.dumps([int(step) for step in steps]), active_step, fixed_active, adaptive_active,
+                active_threshold, fixed_threshold, adaptive_threshold, "measured", extra_calls, extra_seconds,
+                shared.prepare_seconds - before_prepare, shared.evaluate_seconds[resolution] - before_evaluate,
+                time.perf_counter() - started_path))
+        for step in entry.benchmark_steps:
+            timings.extend(_timing(record, step, bins, repeats, shared.calculator, identity))
+    return PathResult(tuple(rows), tuple(path_rows), tuple(timings))
 
 
-def _collect_group(job):
-    shared = SharedInputs(_calculator(), job["bins"])
-    evaluators = {bins: CandidateEvaluator(bins, shared) for bins in job["bins"]}
-    statuses = []
-    for entry in job["entries"]:
-        identity = {name: entry["path"][name] for name in PATH_KEYS}
-        receipt = Path(job["output"]) / "records" / (fingerprint(identity) + ".json.gz")
-        directory = Path(entry["path"]["raw_directory"])
-        if raw._required_files(directory):
-            statuses.append({**identity, "status": "pending", "missing_files": raw._required_files(directory)})
+@dataclass(slots=True)
+class WorkerContext:
+    configuration_fingerprint: str
+    bins: tuple[int,...]
+    shared: SharedInputs
+    evaluators: dict[int,CandidateEvaluator]
+
+
+_WORKER_CONTEXT: WorkerContext | None = None
+
+
+def _collect_group(job: Job) -> GroupResult:
+    global _WORKER_CONTEXT
+    if (_WORKER_CONTEXT is None or _WORKER_CONTEXT.configuration_fingerprint != job.configuration_fingerprint
+            or _WORKER_CONTEXT.bins != job.bins):
+        shared = SharedInputs(_calculator(), job.bins)
+        _WORKER_CONTEXT = WorkerContext(job.configuration_fingerprint, job.bins, shared,
+            {bins: CandidateEvaluator(bins, shared) for bins in job.bins})
+    shared, evaluators = _WORKER_CONTEXT.shared, _WORKER_CONTEXT.evaluators
+    statuses, receipts = [], []
+    for entry in job.entries:
+        identity, directory = entry.path.key, Path(entry.path.raw_directory)
+        saved = receipt(job.output, "kde_approximation.paths", identity, Receipt)
+        missing = raw._required_files(directory)
+        if missing:
+            statuses.append(PathStatus(identity.profile, identity.task_id, identity.stage, identity.arm, "pending", missing))
             continue
         source = raw._raw_sources(directory)
-        if source != entry["baseline"]["raw_sha256"]:
-            raise ValueError("raw inputs differ from the frozen exact baseline")
-        if receipt.is_file():
-            saved = read_result(receipt)
-            if (saved["configuration_fingerprint"] != job["configuration_fingerprint"] or saved["identity"] != identity
-                    or saved["raw_sha256"] != source or saved["baseline_receipt_sha256"] != entry["baseline_receipt_sha256"]):
+        if source != entry.baseline.raw_sha256:
+            raise ValueError("raw inputs differ from the frozen formal baseline")
+        if saved is not None:
+            if (saved.configuration_fingerprint != job.configuration_fingerprint or saved.identity != identity
+                    or saved.raw_sha256 != source or saved.baseline_receipt_sha256 != entry.baseline_receipt_sha256):
                 raise ValueError("approximation receipt differs from the frozen experiment")
-            statuses.append({**identity, "status": "cached"})
+            statuses.append(PathStatus(identity.profile, identity.task_id, identity.stage, identity.arm, "cached"))
             continue
         try:
-            result = _measure_path(entry, job["bins"], job["repeats"], shared, evaluators,
-                                   endpoint_complement=job["endpoint_complement"])
+            result = _measure_path(entry, job.bins, job.repeats, shared, evaluators, endpoint_complement=job.endpoint_complement)
             if raw._raw_sources(directory) != source:
-                raise ValueError("raw inputs changed during approximation measurement")
-        except (OSError, ValueError, KeyError) as error:
-            statuses.append({**identity, "status": "failed", "error": str(error)})
-            continue
-        save_result(receipt, {"identity": identity, "configuration_fingerprint": job["configuration_fingerprint"],
-                              "endpoint_complement": job["endpoint_complement"],
-                              "baseline_receipt_sha256": entry["baseline_receipt_sha256"],
-                              "raw_sha256": source, "result": result})
-        statuses.append({**identity, "status": "complete"})
-    return statuses
+                raise ValueError("raw source files changed during approximation calculation")
+            receipts.append(Receipt(job.configuration_fingerprint, identity, source, entry.baseline_receipt_sha256, result))
+            statuses.append(PathStatus(identity.profile, identity.task_id, identity.stage, identity.arm, "complete"))
+        except Exception as error:
+            statuses.append(PathStatus(identity.profile, identity.task_id, identity.stage, identity.arm, "failed", error=str(error)))
+    return GroupResult(tuple(statuses), tuple(receipts))
 
 
-def collect(preparation, baseline, output, *, bins=DEFAULT_BINS, workers=4, max_tasks=32, full=False,
-            benchmark_states=64, repeats=3, endpoint_complement=True):
-    """Measure a frozen representative/full cohort and resume only matching receipts."""
+def _measurement_frame(rows, kind):
+    """Flatten the declared diagnostics at the scientific table export boundary."""
+    frame = rows_frame(rows, kind)
+    if "diagnostics" in frame:
+        detail = rows_frame([row.diagnostics for row in rows], KernelDiagnostics).drop(columns="bins")
+        frame = frame.drop(columns="diagnostics").join(detail)
+    return frame
+
+
+def collect(preparation, baseline, output, *, bins=DEFAULT_BINS, max_tasks=32, full=False,
+            benchmark_states=64, repeats=3, workers=1, endpoint_complement=True):
     if (type(workers) is not int or not 1 <= workers <= 8 or type(max_tasks) is not int or max_tasks < 1
             or type(benchmark_states) is not int or benchmark_states < 1 or type(repeats) is not int or repeats < 1):
         raise ValueError("workers must be 1..8; task, benchmark and repeat counts must be positive integers")
@@ -447,111 +448,99 @@ def collect(preparation, baseline, output, *, bins=DEFAULT_BINS, workers=4, max_
     if any(output == source or output in source.parents or source in output.parents for source in (preparation, baseline)):
         raise ValueError("approximation output must be separate from frozen evidence")
     points, paths, evidence = _load_baseline(preparation, baseline)
-    if core.endpoint_mode(evidence) != endpoint_complement:
-        raise ValueError("frozen exact baseline endpoint_complement differs from the selected policy; choose matching evidence")
+    if evidence.endpoint_complement != endpoint_complement:
+        raise ValueError("frozen baseline endpoint_complement differs from selected policy")
     from ehk.metrics.protocol import metric_protocol
     selected, selection = select_tasks(paths, points, max_tasks, full=full)
-    keys = {tuple(row[name] for name in PATH_KEYS) for row in selected.to_dict("records")}
-    selected_points = points[points.apply(lambda row: tuple(row[name] for name in PATH_KEYS) in keys, axis=1)]
+    keys = set(selection.path_keys)
+    selected_points = points[[PathKey(*key) in keys for key in points[list(PATH_KEYS)].itertuples(index=False, name=None)]]
     benchmarks = _benchmark_keys(selected_points, selected, benchmark_states)
-    configuration = {
-        "schema": 1, "preparation": str(preparation), "baseline": str(baseline), **evidence,
-        "selection": selection, "selected_paths": selection["path_keys"], "bins": list(bins),
-        "benchmark_states": benchmarks, "repeats": repeats, "metrics": _source_configuration(),
-        "endpoint_complement": endpoint_complement, "metric_protocol": metric_protocol(endpoint_complement=endpoint_complement),
-    }
+    configuration = Configuration(schema=1, preparation=str(preparation), baseline=str(baseline),
+        endpoint_complement=endpoint_complement, preparation_sha256=evidence.preparation_sha256,
+        run_status_sha256=evidence.run_status_sha256, collection_sha256=evidence.collection_sha256,
+        collection_configuration_fingerprint=evidence.collection_configuration_fingerprint,
+        comparison_sha256=evidence.comparison_sha256, baseline_report=evidence.baseline_report,
+        selection=selection, selected_paths=selection.path_keys, bins=bins, benchmark_states=benchmarks,
+        repeats=repeats, metrics=_source_configuration(), metric_protocol=metric_protocol(endpoint_complement=endpoint_complement),
+        exact_reference="numerical study computes method=exact with the canonical formula and independent adaptive grid")
+    configuration_fingerprint = fingerprint(configuration)
     groups = selected_points.groupby(list(PATH_KEYS), sort=False).indices
-    outcomes = {}
+    outcomes: dict[PathKey,PathStatus] = {}
     started = time.monotonic()
     output.mkdir(parents=True, exist_ok=True)
+    terminal = Progress(len(selected), stream=sys.stderr)
 
     def jobs():
-        for (profile, task_id), block in selected.groupby(["profile", "task_id"], sort=True):
-            entries = []
-            for path in block.to_dict("records"):
-                identity = {name: path[name] for name in PATH_KEYS}
-                baseline_identity = {**identity, **{name: path[name] for name in raw.SOURCE_KEYS}}
-                receipt = baseline / "collection/records" / (fingerprint(baseline_identity) + ".json.gz")
-                saved = read_result(receipt)
-                if (saved["identity"] != baseline_identity or
-                        saved["configuration_fingerprint"] != evidence["collection_configuration_fingerprint"]):
-                    raise ValueError("exact path receipt differs from the authenticated baseline")
-                key = tuple(identity[name] for name in PATH_KEYS)
-                entries.append({
-                    "path": path, "points": selected_points.iloc[groups[key]].to_dict("records"),
-                    "baseline": saved, "baseline_receipt_sha256": sha(receipt),
-                    "benchmark_steps": [int(row["step"]) for row in benchmarks
-                                        if all(row[name] == identity[name] for name in PATH_KEYS)],
-                })
-            yield {"id": (profile, task_id), "bins": bins, "repeats": repeats,
-                   "endpoint_complement": endpoint_complement,
-                   "configuration_fingerprint": fingerprint(configuration), "entries": entries, "output": str(output)}
+        for path in table_records(selected, PreparedPath):
+            saved = receipt(baseline / "collection", "metric_comparison.paths", path.identity, CollectionReceipt)
+            if saved is None:
+                raise ValueError("formal baseline SQLite path receipt is missing")
+            if saved.identity != path.identity or saved.configuration_fingerprint != evidence.collection_configuration_fingerprint:
+                raise ValueError("path receipt differs from the authenticated baseline")
+            key = (path.profile, path.task_id, path.stage, path.arm)
+            entry = PathEntry(path, table_records(selected_points.iloc[groups[key]], BaselinePoint), saved,
+                fingerprint(saved), tuple(row.step for row in benchmarks
+                    if PathKey(row.profile,row.task_id,row.stage,row.arm) == path.key))
+            yield Job((path.profile,path.task_id), bins, repeats, endpoint_complement, configuration_fingerprint, (entry,), output)
 
     def progress(state):
-        counts = {kind: sum(row["status"] == kind for row in outcomes.values())
-                  for kind in ("complete", "cached", "pending", "failed")}
-        atomic_json(output / "progress.json", {"schema": 1, "state": state, "workers": workers,
-                    "planned_paths": len(selected), "completed_paths": counts["complete"] + counts["cached"],
-                    "counts": counts, "elapsed_seconds": time.monotonic() - started})
+        counts = StatusCounts.count(outcomes.values())
+        atomic_json(output / "progress.json", CollectionProgress(state,workers,len(selected),len(selected),
+            counts.complete + counts.cached,counts,time.monotonic() - started,CacheCounts()))
 
-    def finished(job, statuses):
-        for row in statuses:
-            outcomes[tuple(row[name] for name in PATH_KEYS)] = row
+    def finished(job: Job, result: GroupResult):
+        writer.put_many(DocumentWrite("kde_approximation.paths", fingerprint(saved.identity), saved) for saved in result.receipts)
+        for row in result.paths:
+            key = PathKey(row.profile,row.task_id,row.stage,row.arm)
+            outcomes[key] = row
+            terminal.event(key.label,"deferred" if row.status == "pending" else row.status)
         progress("running")
 
     failure = None
-    with session_lock(output / "runtime"), interruptible():
+    with session_lock(output / "runtime"), interruptible(), DocumentWriter(output / "analysis.sqlite") as writer:
         freeze_manifest(output / "configuration.json", configuration)
         progress("running")
         try:
             if workers == 1:
                 for job in jobs():
-                    finished(job, _collect_group(job))
+                    terminal.event(job.entries[0].path.key.label,"running")
+                    finished(job,_collect_group(job))
             else:
-                run_tasks(_collect_group, jobs(), workers, executor="process", on_result=finished)
+                run_tasks(_collect_group,jobs(),workers,executor="process",on_result=finished,
+                    event=lambda job,state,**details: terminal.event(job.entries[0].path.key.label,state))
         except BaseException as error:
             failure = error
-        rows = {"points": [], "paths": [], "benchmarks": []}
-        statuses = []
-        for identity in selection["path_keys"]:
-            key = tuple(identity[name] for name in PATH_KEYS)
-            receipt = output / "records" / (fingerprint(identity) + ".json.gz")
-            state = outcomes.get(key, {**identity, "status": "pending"})
-            if receipt.is_file():
-                saved = read_result(receipt)
-                if saved["configuration_fingerprint"] != fingerprint(configuration) or saved["identity"] != identity:
+        point_rows,path_rows,timing_rows,statuses = [],[],[],[]
+        for identity in selection.path_keys:
+            document = writer.get("kde_approximation.paths",fingerprint(identity))
+            saved = None if document is None else parse_dataclass(Receipt,document)
+            state = outcomes.get(identity,PathStatus(identity.profile,identity.task_id,identity.stage,identity.arm,"pending"))
+            if saved is not None:
+                if saved.configuration_fingerprint != configuration_fingerprint or saved.identity != identity:
                     raise ValueError("receipt does not belong to this approximation configuration")
-                for table in rows:
-                    rows[table].extend(saved["result"][table])
-                if state["status"] == "pending":
-                    state = {**identity, "status": "complete"}
+                point_rows.extend(saved.result.points)
+                path_rows.extend(saved.result.paths)
+                timing_rows.extend(saved.result.benchmarks)
+                if state.status == "pending":
+                    state = replace(state,status="complete")
             statuses.append(state)
-        # Explicit headers preserve readable pending tables without inventing values.
-        for name, data in rows.items():
-            fields = [*PATH_KEYS, "bins"]
-            if name == "points":
-                fields += ["step", "grid", *[f"{kind}_{metric}" for kind in ("exact", "approx") for metric in METRICS]]
-            elif name == "paths":
-                fields += ["end_step", "baseline_Iw", "fixed_Iw", "adaptive_Iw", "baseline_steps_json", "candidate_steps_json"]
-            else:
-                fields += ["case_id", "step", "repeat", "exact_total_seconds", "binned_total_seconds"]
-            frame = pd.DataFrame(data, columns=list(dict.fromkeys([*fields, *[key for row in data for key in row]])))
-            if name == "benchmarks" and len(frame):
-                frame = frame.drop_duplicates(["same_input_sha", "repeat", "bins"])
-            frame.to_csv(
-                output / (name + (".csv" if name == "benchmarks" else ".csv.gz")), index=False,
-            )
-        complete = sum(row["status"] in ("complete", "cached") for row in statuses)
-        failed = sum(row["status"] == "failed" for row in statuses)
-        state = (("interrupted" if isinstance(failure, KeyboardInterrupt) else "failed") if failure else
+        for name,frame in (("points.csv.gz",_measurement_frame(point_rows,PointRow)),
+                ("paths.csv.gz",rows_frame(path_rows,PathRow)),("benchmarks.csv",_measurement_frame(timing_rows,TimingRow))):
+            if name == "benchmarks.csv" and len(frame):
+                frame = frame.drop_duplicates(["same_input_sha","repeat","bins"])
+            write_table(output,name,frame,writer=writer)
+            frame.to_csv(output / name,index=False)
+        complete = sum(row.status in ("complete","cached") for row in statuses)
+        failed = sum(row.status == "failed" for row in statuses)
+        state = (("interrupted" if isinstance(failure,KeyboardInterrupt) else "failed") if failure else
                  ("complete" if complete == len(selected) else ("failed" if failed else "pending")))
-        manifest = {"schema": 1, "status": state, "planned_paths": len(selected), "completed_paths": complete,
-                    "endpoint_complement": endpoint_complement,
-                    "pending_paths": len(selected) - complete - failed, "failed_paths": failed,
-                    "selection": selection, "paths": statuses,
-                    "configuration_sha256": sha(output / "configuration.json"),
-                    "files": {name: sha(output / name) for name in ("points.csv.gz", "paths.csv.gz", "benchmarks.csv")}}
-        atomic_json(output / "collection.json", manifest)
+        manifest = CollectionManifest(schema=1,status=state,planned_paths=len(selected),completed_paths=complete,
+            endpoint_complement=endpoint_complement,pending_paths=len(selected)-complete-failed,failed_paths=failed,
+            selection=selection,paths=tuple(statuses),configuration_sha256=sha(output / "configuration.json"),
+            sqlite_tables={name:fingerprint(encode_document(writer.get("tables",name)))
+                for name in ("points.csv.gz","paths.csv.gz","benchmarks.csv")},
+            files={name:sha(output / name) for name in ("points.csv.gz","paths.csv.gz","benchmarks.csv")})
+        atomic_json(output / "collection.json",manifest)
         progress(state)
         if failure:
             raise failure

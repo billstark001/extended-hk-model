@@ -1,37 +1,86 @@
-"""Full-trajectory recommendation-family and OpinionRandom factorial comparisons."""
+"""Typed full-trajectory and OpinionRandom factorial comparisons."""
 
+from dataclasses import dataclass
 import pandas as pd
 
+from ehk.domain import MeanInterval, rows_frame
 from experiments.paper.recommendation_shared import analysis as shared
-
 from . import design as cfg
 
+
+@dataclass(frozen=True)
+class FactorTerm:
+    zeta: float
+    score_noise: float
+    coefficient: float
+
+    @property
+    def factors(self) -> tuple[float, float]:
+        return self.zeta, self.score_noise
+
+
+@dataclass(frozen=True)
+class FactorialContrast:
+    terms: tuple[FactorTerm, ...]
+
+
 FACTORIAL_CONTRASTS = {
-    "zeta_at_score_noise_0": {(4, 0): 1, (1, 0): -1},
-    "zeta_at_score_noise_2": {(4, 2): 1, (1, 2): -1},
-    "score_noise_at_zeta_1": {(1, 2): 1, (1, 0): -1},
-    "score_noise_at_zeta_4": {(4, 2): 1, (4, 0): -1},
-    "interaction": {(4, 2): 1, (1, 2): -1, (4, 0): -1, (1, 0): 1},
+    "zeta_at_score_noise_0": FactorialContrast((FactorTerm(4, 0, 1), FactorTerm(1, 0, -1))),
+    "zeta_at_score_noise_2": FactorialContrast((FactorTerm(4, 2, 1), FactorTerm(1, 2, -1))),
+    "score_noise_at_zeta_1": FactorialContrast((FactorTerm(1, 2, 1), FactorTerm(1, 0, -1))),
+    "score_noise_at_zeta_4": FactorialContrast((FactorTerm(4, 2, 1), FactorTerm(4, 0, -1))),
+    "interaction": FactorialContrast((FactorTerm(4, 2, 1), FactorTerm(1, 2, -1),
+                                      FactorTerm(4, 0, -1), FactorTerm(1, 0, 1))),
 }
 
 
+@dataclass(frozen=True)
+class VariantColumns:
+    recommender: str
+    zeta: float | None = None
+    score_noise: float | None = None
+
+
+@dataclass(kw_only=True)
+class VariantCoverageRow:
+    setting: str
+    sensitivity: str
+    repost: float
+    arm: str
+    recommender: str
+    zeta: float | None
+    score_noise: float | None
+    binary_sha256: str | None
+    planned: int = 0
+    completed: int = 0
+
+
+@dataclass(kw_only=True)
+class FactorialSummary(MeanInterval):
+    sensitivity: str
+    epsilon: float
+    history: int
+    setting: str
+    repost: float | str
+    stage: str
+    contrast: str
+    metric: str
+
+
 def completed_task_ids(plan, records):
-    """Require every arm specified by this frozen protocol, including legacy six-arm plans."""
-    if plan["profile"] != cfg.STUDY:
-        raise ValueError(f"not an implementation-comparison profile: {plan['profile']}")
-    expected = set(cfg.variant_arms(plan["protocol"]))
-    return {
-        task["id"] for task in plan["tasks"]
-        if task["id"] in records and expected <= set(records[task["id"]]["arms"])
-    }
+    if plan.profile != cfg.STUDY:
+        raise ValueError(f"not an implementation-comparison profile: {plan.profile}")
+    expected = set(cfg.variant_arms(plan.protocol))
+    return {task.id for task in plan.tasks if task.id in records and expected <= set(records[task.id].arms)}
 
 
-def _variant_columns(metadata, configuration):
-    values = {"recommender": configuration["recommender"], "zeta": None, "score_noise": None}
-    if configuration["recommender"] == "OpinionRandom":
-        parameters = {**metadata["RecSysParams"], **configuration["parameters"]}
-        values.update(zeta=parameters["Steepness"], score_noise=parameters["OpRandomNoiseStd"])
-    return values
+def _variant_columns(metadata, configuration) -> VariantColumns:
+    if configuration.recommender == "OpinionRandom":
+        if metadata.RecSysParams is None:
+            raise ValueError("OpinionRandom requires recorded recommendation parameters")
+        parameters = metadata.RecSysParams.with_overrides(configuration.parameters)
+        return VariantColumns(configuration.recommender, parameters.Steepness, parameters.OpRandomNoiseStd)
+    return VariantColumns(configuration.recommender)
 
 
 def read_study(directory, study=None):
@@ -39,9 +88,9 @@ def read_study(directory, study=None):
 
 
 def study_tables(plan, records, *, binding=None):
-    if plan["profile"] != cfg.STUDY:
-        raise ValueError(f"not an implementation-comparison profile: {plan['profile']}")
-    configurations = cfg.variant_arms(plan["protocol"])
+    if plan.profile != cfg.STUDY:
+        raise ValueError(f"not an implementation-comparison profile: {plan.profile}")
+    configurations = cfg.variant_arms(plan.protocol)
     return shared.study_tables(
         plan, records, binding=binding,
         arm_columns=lambda metadata, name: _variant_columns(metadata, configurations[name]),
@@ -57,52 +106,49 @@ def completed_cell_task_ids(plan, records):
 
 
 def contrast_table(runs):
-    pairs = [
-        (policy, family[1]) for family in cfg.VARIANTS.values() for policy in (family[0], family[2])
-    ] + list(zip(cfg.VARIANTS["Opinion"], cfg.VARIANTS["Structure"]))
+    pairs = [(policy, family[1]) for family in cfg.VARIANTS.values() for policy in (family[0], family[2])]
+    pairs.extend(zip(cfg.VARIANTS["Opinion"], cfg.VARIANTS["Structure"]))
     return shared.contrast_table(runs, pairs)
 
 
 def variant_arm_coverage(plan, records, *, binding=None):
-    """Keep completed original arms visible while factorial additions are pending."""
-    if plan["profile"] != cfg.STUDY:
-        raise ValueError(f"not an implementation-comparison profile: {plan['profile']}")
-    groups = {}
-    configurations = cfg.variant_arms(plan["protocol"])
-    for task in plan["tasks"]:
-        repost = task["metadata"]["HKParams"]["RepostRate"]
-        available = records.get(task["id"], {}).get("arms", {})
+    if plan.profile != cfg.STUDY:
+        raise ValueError(f"not an implementation-comparison profile: {plan.profile}")
+    groups: dict[tuple[str, float, str], VariantCoverageRow] = {}
+    configurations = cfg.variant_arms(plan.protocol)
+    for task in plan.tasks:
+        repost = task.metadata.HKParams.RepostRate
+        available = records[task.id].arms if task.id in records else {}
         for name, configuration in configurations.items():
-            key = task["setting"], repost, name
-            binary_sha256 = shared._arm_binary_sha256(binding, name, available.get(name, {}))
+            key = task.setting, repost, name
+            binary_sha256 = shared._arm_binary_sha256(binding, name, available.get(name))
             if key not in groups:
-                groups[key] = {
-                    "setting": task["setting"], "sensitivity": task["sensitivity"], "repost": repost,
-                    "arm": name, **_variant_columns(task["metadata"], configuration),
-                    "binary_sha256": binary_sha256, "planned": 0, "completed": 0,
-                }
-            elif binary_sha256 is not None:
-                if groups[key]["binary_sha256"] not in (None, binary_sha256):
+                columns = _variant_columns(task.metadata, configuration)
+                groups[key] = VariantCoverageRow(
+                    setting=task.setting, sensitivity=task.sensitivity, repost=repost, arm=name,
+                    recommender=columns.recommender, zeta=columns.zeta, score_noise=columns.score_noise,
+                    binary_sha256=binary_sha256,
+                )
+            group = groups[key]
+            if binary_sha256 is not None:
+                if group.binary_sha256 not in (None, binary_sha256):
                     raise ValueError(f"arm uses different binaries across repeats: {name}")
-                groups[key]["binary_sha256"] = binary_sha256
-            groups[key]["planned"] += 1
-            groups[key]["completed"] += name in available
-    return pd.DataFrame(groups.values())
+                group.binary_sha256 = binary_sha256
+            group.planned += 1
+            group.completed += name in available
+    return rows_frame(groups.values(), VariantCoverageRow)
 
 
 def opinion_random_factorial(plan, runs):
-    """Pair factor changes within initial states; interaction is the difference of zeta effects."""
-    columns = [
-        "sensitivity", "epsilon", "history", "setting", "repost", "stage", "contrast", "metric",
-        "n", "mean", "lo", "hi",
-    ]
-    if plan["profile"] != cfg.STUDY:
-        raise ValueError(f"not an implementation-comparison profile: {plan['profile']}")
+    columns = ["sensitivity", "epsilon", "history", "setting", "repost", "stage", "contrast", "metric",
+               "n", "mean", "lo", "hi"]
+    if plan.profile != cfg.STUDY:
+        raise ValueError(f"not an implementation-comparison profile: {plan.profile}")
     planned = set()
-    for configuration in cfg.variant_arms(plan["protocol"]).values():
-        if configuration["recommender"] == "OpinionRandom":
-            factors = _variant_columns(plan["tasks"][0]["metadata"], configuration)
-            planned.add((factors["zeta"], factors["score_noise"]))
+    for configuration in cfg.variant_arms(plan.protocol).values():
+        if configuration.recommender == "OpinionRandom":
+            factors = _variant_columns(plan.tasks[0].metadata, configuration)
+            planned.add((factors.zeta, factors.score_noise))
     if not {(1, 0), (1, 2), (4, 0), (4, 2)} <= planned:
         return pd.DataFrame(columns=columns)
     summaries = []
@@ -111,13 +157,16 @@ def opinion_random_factorial(plan, runs):
             selected = phases[phases["recommender"] == "OpinionRandom"]
             for metric in shared.EFFECTS:
                 paired = selected.pivot(index="task_id", columns=["zeta", "score_noise"], values=metric)
-                for contrast, coefficients in FACTORIAL_CONTRASTS.items():
+                for name, contrast in FACTORIAL_CONTRASTS.items():
+                    keys = [term.factors for term in contrast.terms]
                     values = []
-                    if set(coefficients) <= set(paired.columns):
-                        observations = paired[list(coefficients)].astype(float).dropna()
-                        values = sum(observations[key] * coefficient for key, coefficient in coefficients.items())
-                    summaries.append({
-                        **identifying, "stage": stage, "contrast": contrast, "metric": metric,
-                        **shared.mean_interval(values),
-                    })
-    return pd.DataFrame(summaries, columns=columns)
+                    if set(keys) <= set(paired.columns):
+                        observations = paired[keys].astype(float).dropna()
+                        values = sum(observations[term.factors] * term.coefficient for term in contrast.terms)
+                    estimate = shared.mean_interval(values)
+                    summaries.append(FactorialSummary(
+                        sensitivity=identifying.sensitivity, epsilon=identifying.epsilon, history=identifying.history,
+                        setting=identifying.setting, repost=identifying.repost, stage=stage, contrast=name, metric=metric,
+                        n=estimate.n, mean=estimate.mean, lo=estimate.lo, hi=estimate.hi,
+                    ))
+    return rows_frame(summaries, FactorialSummary).reindex(columns=columns)

@@ -2,6 +2,10 @@
 
 import json
 import subprocess
+from dataclasses import replace
+from ehk.domain import to_wire
+from tests.experiments import numerical_fixtures as f
+from experiments.paper.metric_comparison.contracts import PathStatus,PipelineStatus,PipelinePaths
 
 import pytest
 
@@ -18,15 +22,14 @@ def forbid_native_processes(monkeypatch):
 
 
 def _complete():
-    return {"status": "complete", "planned_paths": 2, "selected_paths": 2,
-            "completed_paths": 2, "pending_paths": 0, "failed_paths": 0, "points": 4, "paths": []}
+    return f.collection()
 
 
-def _failed(*errors, pending=0):
-    return {"status": "failed", "planned_paths": len(errors) + pending, "completed_paths": 0,
-            "pending_paths": pending, "failed_paths": len(errors),
-            "paths": [{"task_id": str(index), "status": "failed", "error": error}
-                      for index, error in enumerate(errors)]}
+def _failed(*errors,pending=0):
+    paths=tuple(PathStatus("staged",str(index),"late","hold","plan","binary","raw", "failed",error=error)
+        for index,error in enumerate(errors))
+    return f.collection(status="failed",planned_paths=len(errors)+pending,completed_paths=0,
+        pending_paths=pending,failed_paths=len(errors),paths=paths)
 
 
 def _stages(monkeypatch, *, collection=None):
@@ -39,12 +42,12 @@ def _stages(monkeypatch, *, collection=None):
     def compare(preparation, collection, output):
         calls.append(("alignment", preparation, collection, output))
         output.mkdir()
-        return {"status": "complete", "coverage": {"paths": {"requested": 2, "matched": 2, "pending": 0}}}
+        return f.comparison()
 
     def report(preparation, comparison, output, **options):
         calls.append(("report", preparation, comparison, output, options))
         output.mkdir()
-        return {"status": "complete", "paths": 2, "points": 4}
+        return f.report()
 
     monkeypatch.setattr(runner.raw, "collect_raw", collect)
     monkeypatch.setattr(runner.core, "compare", compare)
@@ -64,11 +67,11 @@ def test_complete_collection_automatically_aligns_and_reports(tmp_path, monkeypa
         ("alignment", preparation, selected, output / "alignment"),
         ("report", preparation, output / "alignment", output / "report", {"make_figures": False}),
     ]
-    assert result["state"] == "complete" and result["phase"] == "report"
-    assert result["collection"]["completed_paths"] == 2
-    assert result["paths"]["collection"] == str(selected)
-    assert json.loads((output / "run_status.json").read_text()) == result
-    assert len(result["runner_sha256"]) == 64
+    assert result.state == "complete" and result.phase == "report"
+    assert result.collection.completed_paths == 2
+    assert result.paths.collection == str(selected)
+    assert runner.core.load_contract(output / "run_status.json",PipelineStatus) == result
+    assert len(result.runner_sha256) == 64
 
 
 def test_only_source_change_failures_retry_the_same_collection_configuration(tmp_path, monkeypatch):
@@ -78,25 +81,24 @@ def test_only_source_change_failures_retry_the_same_collection_configuration(tmp
     result = runner.run(tmp_path / "preparation", output, workers=3)
     assert [call[0] for call in calls] == ["collect", "collect", "alignment", "report"]
     assert calls[0] == calls[1]
-    assert result["attempt"] == 2 and result["state"] == "complete"
-    assert "reason" not in result
+    assert result.attempt == 2 and result.state == "complete"
+    assert result.reason is None
 
 
 @pytest.mark.parametrize("failure", [
     _failed("unreadable raw record"),
     _failed(runner.RETRYABLE_SOURCE_CHANGE, "different confidence radius"),
     _failed(runner.RETRYABLE_SOURCE_CHANGE, pending=1),
-    {"status": "pending", "planned_paths": 2, "completed_paths": 1,
-     "pending_paths": 1, "failed_paths": 0, "paths": []},
-    {**_complete(), "completed_paths": 1, "pending_paths": 1},
+    f.collection(status="pending",completed_paths=1,pending_paths=1),
+    replace(_complete(),completed_paths=1,pending_paths=1),
 ])
 def test_failed_or_missing_data_stop_without_zero_filling_or_downstream_work(tmp_path, monkeypatch, failure):
     calls = _stages(monkeypatch, collection=lambda: failure)
     output = tmp_path / "pipeline"
     result = runner.run(tmp_path / "preparation", output)
     assert [call[0] for call in calls] == ["collect"]
-    assert result["state"] != "complete" and result["phase"] == "collect"
-    assert result["collection"]["completed_paths"] == failure["completed_paths"]
+    assert result.state != "complete" and result.phase == "collect"
+    assert result.collection.completed_paths == failure.completed_paths
     assert not (output / "alignment").exists() and not (output / "report").exists()
 
 
@@ -104,7 +106,7 @@ def test_retry_attempts_are_bounded(tmp_path, monkeypatch):
     calls = _stages(monkeypatch, collection=lambda: _failed(runner.RETRYABLE_SOURCE_CHANGE))
     result = runner.run(tmp_path / "preparation", tmp_path / "pipeline", attempts=2)
     assert [call[0] for call in calls] == ["collect", "collect"]
-    assert result["state"] == "failed" and result["attempt"] == 2
+    assert result.state == "failed" and result.attempt == 2
 
 
 @pytest.mark.parametrize("name", ["alignment", "report"])
@@ -145,7 +147,7 @@ def test_interruption_is_visible_and_resumes_existing_path_receipts(tmp_path, mo
         return _complete()
 
     calls = _stages(monkeypatch, collection=resumed)
-    assert runner.run(preparation, output, collection=collection)["state"] == "complete"
+    assert runner.run(preparation, output, collection=collection).state == "complete"
     assert [call[0] for call in calls] == ["collect", "alignment", "report"]
 
 
@@ -163,10 +165,10 @@ def test_exception_is_visible_and_is_not_automatically_retried(tmp_path, monkeyp
 
 def test_pending_alignment_never_starts_the_report(tmp_path, monkeypatch):
     calls = _stages(monkeypatch)
-    monkeypatch.setattr(runner.core, "compare", lambda *args: {"status": "pending_legacy_metrics"})
+    monkeypatch.setattr(runner.core, "compare", lambda *args: f.comparison(status="pending_metrics"))
     result = runner.run(tmp_path / "preparation", tmp_path / "pipeline")
     assert [call[0] for call in calls] == ["collect"]
-    assert result["state"] == "pending" and result["phase"] == "alignment"
+    assert result.state == "pending" and result.phase == "alignment"
 
 
 def test_pipeline_lock_does_not_overwrite_an_active_run_status(tmp_path, monkeypatch):
@@ -193,7 +195,7 @@ def test_cli_exposes_complete_pipeline_and_nonzero_pending_exit(tmp_path, monkey
 
     def pending(*args, **kwargs):
         calls.append((args, kwargs))
-        return {"state": "pending", "phase": "collect"}
+        return PipelineStatus(schema=1,state="pending",phase="collect",attempt=0,workers=8,attempts=2,make_figures=False,endpoint_complement=True,runner_sha256="s",paths=PipelinePaths("p","o","c","a","r","g"))
 
     monkeypatch.setattr(runner, "run", pending)
     preparation, output, collection = (tmp_path / name for name in ("prepared", "pipeline", "collection"))
@@ -202,4 +204,4 @@ def test_cli_exposes_complete_pipeline_and_nonzero_pending_exit(tmp_path, monkey
     assert calls == [((preparation, output), {"collection": collection, "workers": 8, "attempts": 2,
                                             "make_figures": False, "endpoint_complement": True})]
     assert code == 1
-    assert json.loads(capsys.readouterr().out) == {"state": "pending", "phase": "collect"}
+    assert json.loads(capsys.readouterr().out)["state"] == "pending"

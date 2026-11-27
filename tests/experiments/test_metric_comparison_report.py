@@ -6,7 +6,12 @@ import subprocess
 import pandas as pd
 import pytest
 
-from common.io.json import atomic_json, read_result, save_result, sha
+from common.io.json import atomic_json, sha
+from ehk.domain import read_plan
+from common.io.json import canonical
+from tests.experiments import recommendation_fixtures as fixtures
+from experiments.paper.metric_comparison.contracts import PreparationManifest, ComparisonManifest, Weighting, Coverage
+from experiments.paper.recommendation_shared.storage import StudyStore, write_table
 from experiments.paper.metric_comparison.core import PATH_KEYS, prepare
 from experiments.paper.metric_comparison.report import (
     STATE_METRICS,
@@ -39,7 +44,7 @@ def _tables():
                            "separation": p, "excess_concordance": e, "edge_concordance": .5+e,
                            "pair_concordance": .5, "I_p": p, "I_h": ih, "I_s": .4})
         paths.append({**keys, "start_step": states[0][0], "end_step": states[-1][0],
-                      "I_w": iw, "terminal_json": json.dumps({"status": "absorbed", "k_major": 1 if consensus else 2}),
+                      "I_w": iw, "endpoint_complement": True, "terminal_json": canonical(fixtures.terminal("absorbed",1 if consensus else 2)),
                       "influence": influence, "rewiring": rewiring, "repost": .1,
                       "sensitivity": "core", "epsilon": .45, "history": 0})
     for task, middle, final, alpha, q in (
@@ -123,18 +128,23 @@ def _evidence(tmp_path, *, status="complete"):
     prep, compared = tmp_path / "prepared", tmp_path / "compared"
     prep.mkdir()
     compared.mkdir()
+    write_table(prep, "points.csv.gz", points)
+    write_table(prep, "paths.csv", paths)
     points.to_csv(prep / "points.csv.gz", index=False)
     paths.to_csv(prep / "paths.csv", index=False)
-    atomic_json(prep / "preparation.json", {
-        "schema": 1, "points": len(points), "paths": len(paths),
-        "files": {p.name: sha(p) for p in prep.iterdir()},
-    })
+    atomic_json(prep / "preparation.json",PreparationManifest(
+        schema=1,status="pending_metrics",sources=(),points=len(points),paths=len(paths),
+        available_raw_paths=0,pending_raw_paths=len(paths),missing_metrics=("I_p","I_s","I_h","I_w"),
+        weighting=Weighting("equal positive-outdegree users","directed edge endpoints"),
+        path_requirement="full chronological prefix",files={p.name:sha(p) for p in prep.iterdir()}))
+    write_table(compared, "points_aligned.csv.gz", points)
+    write_table(compared, "paths_aligned.csv.gz", paths)
     points.to_csv(compared / "points_aligned.csv.gz", index=False)
     paths.to_csv(compared / "paths_aligned.csv.gz", index=False)
-    atomic_json(compared / "comparison.json", {
-        "schema": 1, "status": status, "preparation_sha256": sha(prep / "preparation.json"),
-        "files": {p.name: sha(p) for p in compared.iterdir()},
-    })
+    atomic_json(compared / "comparison.json",ComparisonManifest(schema=1,status=status,
+        endpoint_complement=True,preparation_sha256=sha(prep / "preparation.json"),collection_sha256="fixture",
+        coverage={"points":Coverage(len(points),len(points),0),"paths":Coverage(len(paths),len(paths),0)},
+        files={p.name:sha(p) for p in compared.iterdir()}))
     return prep, compared
 
 
@@ -149,7 +159,7 @@ def test_report_authenticates_and_renders_scientific_artifacts(tmp_path, monkeyp
     prep, compared = _evidence(tmp_path)
     output = tmp_path / "report"
     result = report(prep, compared, output)
-    assert result["status"] == "complete"
+    assert result.status == "complete"
     assert (output / "report.md").is_file()
     assert "middle_consensus_gains" in (output / "report.md").read_text(encoding="utf-8")
     assert (output / "checkpoint_states.csv").is_file()
@@ -161,7 +171,7 @@ def test_report_authenticates_and_renders_scientific_artifacts(tmp_path, monkeyp
 
 
 def test_pending_comparison_requires_explicit_interim_report(tmp_path):
-    prep, compared = _evidence(tmp_path, status="pending_legacy_metrics")
+    prep, compared = _evidence(tmp_path, status="pending_metrics")
     with pytest.raises(ValueError, match="pending"):
         report(prep, compared, tmp_path / "report", make_figures=False)
     assert not (tmp_path / "report").exists()
@@ -191,14 +201,14 @@ def test_checkpoint_table_keeps_one_hold_start_per_task_and_stage():
     assert a.arm == "hold"
 
 
-def test_consensus_need_not_have_a_low_legacy_objective_index():
+def test_consensus_need_not_have_a_low_objective_index():
     points, paths = _tables()
     selected = (points.task_id == "a") & (points.stage == "middle") & (points.arm == "switch") & (points.step == 32)
-    points.loc[selected, "I_p"] = 1.4
+    points.loc[selected, "I_p"] = .95
     pairs = paired_table(endpoint_table(points, paths))
     row = pairs[(pairs.task_id == "a") & (pairs.stage == "middle")].iloc[0]
     assert row.consensus_gain
-    assert row.treatment_I_p == 1.4
+    assert row.treatment_I_p == .95
     assert row.delta_separation < 0 and row.delta_I_p > 0
 
 
@@ -206,16 +216,20 @@ def _peak_source(tmp_path, *, archived_count=2):
     from tests.experiments.test_metric_comparison import _bundle
     bundle = _bundle(tmp_path)
     data = bundle / "data"
-    record_path = next((data / "study/records").glob("*.json.gz"))
-    record = read_result(record_path)
-    record["result"]["reference"]["final_opinions"] = [-.1] * 500
-    record["result"]["stages"]["middle"]["arms"]["switch"]["final_opinions"] = [-.8] * 400 + [.8] * 100
-    save_result(record_path, record)
-    task_id = record_path.name.removesuffix(".json.gz")
-    (data / "tables").mkdir()
-    pd.DataFrame([{"task_id": task_id, "stage": "middle", "arm": "switch", "end_step": 32,
-                   "opinion_peaks": archived_count}]).to_csv(data / "tables/runs.csv.gz", index=False)
-    manifest = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
+    plan = read_plan(data / "study/plan.json")
+    task = plan.tasks[0]
+    record_path = data / "study/analysis.sqlite"
+    with StudyStore(data / "study") as store:
+        record = store.get_task(task, plan)
+        record.result.reference.final_opinions = (-.1,) * 500
+        record.result.stages["middle"].arms["switch"].final_opinions = (-.8,) * 400 + (.8,) * 100
+        store.put_task(task,record.result,plan=plan)
+    task_id = task.id
+    frame = pd.DataFrame([{"task_id": task_id, "stage": "middle", "arm": "switch", "end_step": 32,
+                           "opinion_peaks": archived_count, "raw_record": record.result.stages["middle"].arms["switch"].raw_record}])
+    write_table(data / "tables", "runs.csv.gz", frame)
+    frame.to_csv(data / "tables/runs.csv.gz", index=False)
+    manifest = json.loads((data / "manifest.json").read_text())
     manifest["files"] = {p.relative_to(data).as_posix(): sha(p) for p in data.rglob("*")
                          if p.is_file() and p.name != "manifest.json"}
     atomic_json(data / "manifest.json", manifest)
@@ -258,5 +272,5 @@ def test_endpoint_feature_join_rejects_horizon_mismatch_and_tampered_source(tmp_
     with pytest.raises(ValueError, match="horizon"):
         endpoint_features(prepared, wrong)
     record_path.write_bytes(b"tampered")
-    with pytest.raises(ValueError, match="hash mismatch"):
+    with pytest.raises(ValueError, match="study/analysis.sqlite"):
         endpoint_features(prepared, paths)

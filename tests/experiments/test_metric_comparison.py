@@ -7,21 +7,24 @@ import subprocess
 import pandas as pd
 import pytest
 
-from common.experiments.plans import freeze_plan
+from ehk.domain import freeze_plan, Binding, StagedResult, StageResult
+from dataclasses import replace
+from tests.experiments import recommendation_fixtures as fixtures
+from experiments.paper.metric_comparison.contracts import CollectionManifest, CacheCounts, Coverage
 from common.io.json import atomic_json, fingerprint, save_result, sha
 from experiments.paper.metric_comparison.core import (
     IW_SAMPLING_METHOD,
-    LEGACY_PATHS,
-    LEGACY_POINTS,
+    PATH_METRICS,
+    POINT_METRICS,
     PATH_KEYS,
     POINT_KEYS,
     PROVENANCE,
     authenticate_preparation,
-    collect,
     compare,
     prepare,
 )
 from experiments.paper.recommendation.design import generate_tasks
+from experiments.paper.recommendation_shared.storage import StudyStore
 
 
 @pytest.fixture(autouse=True)
@@ -35,26 +38,21 @@ def _bundle(tmp_path):
     root = tmp_path / "bundle"
     data = root / "data"
     task = generate_tasks("staged")[0]
-    plan = freeze_plan(data / "study/plan.json", {
-        "schema": 3, "study": "paper_recommendation", "profile": "staged", "protocol": {}, "tasks": [task],
-    })
-    def point(step):
-        return {"step": step, "relative_step": step,
-                "pathway": {"separation": .2, "excess_concordance": .1,
-                            "edge_concordance": .6, "pair_concordance": .5}}
-    def arm(stage, name, steps):
-        return {"raw_record": f"raw/{task['id']}/{stage}/{name}", "endpoints": [point(s) for s in steps],
-                "terminal": {"status": "nonterminal", "k_major": 1}}
-    record = {"reference": arm("reference", "reference", [0, 16]),
-              "stages": {"middle": {"arms": {"switch": arm("middle", "switch", [16, 32])}}}}
-    save_result(data / f"study/records/{task['id']}.json.gz", {
-        "task_fingerprint": fingerprint(task), "result": record,
-    })
-    atomic_json(data / "study/runtime/binding.json", {"binary_sha256": "original-binary", "stage_evidence": None})
-    manifest = {"schema": 1, "planned": 1, "completed": 1, "plan_fingerprint": plan["plan_fingerprint"],
-                "source_dataset": str(tmp_path / "unmounted"),
-                "files": {p.relative_to(data).as_posix(): sha(p) for p in data.rglob("*") if p.is_file()}}
-    atomic_json(data / "manifest.json", manifest)
+    plan = freeze_plan(data / "study/plan.json", fixtures.plan(tasks=[task]))
+    def point(step, start=0):
+        return fixtures.point(step,start,separation=.2,excess=.1)
+    def arm(stage,name,steps):
+        return replace(fixtures.arm(endpoints=[point(s,steps[0]) for s in steps], k_major=1,
+                raw_record=f"raw/{task.id}/{stage}/{name}"), stop_reason="horizon")
+    record = StagedResult(reference=arm("reference","reference",[0,16]),
+        stages={"middle":StageResult(checkpoint=point(16),arms={"switch":arm("middle","switch",[16,32])})})
+    with StudyStore(data / "study") as store:
+        store.put_task(task,record,plan=plan)
+    atomic_json(data / "study/runtime/binding.json",Binding(binary_sha256="original-binary"))
+    manifest=replace(fixtures.bundle_manifest(completed=1,planned=1,plan_fingerprint=plan.plan_fingerprint),
+        source_dataset=str(tmp_path / "unmounted"), observation_dataset=str(data / "study"),
+        files={p.relative_to(data).as_posix():sha(p) for p in data.rglob("*") if p.is_file()})
+    atomic_json(data / "manifest.json",manifest)
     return root
 
 
@@ -63,8 +61,8 @@ def test_prepare_exports_reference_and_branch_with_pending_raw(tmp_path):
     output = tmp_path / "prepared"
     before = {p: sha(p) for p in bundle.rglob("*") if p.is_file()}
     report = prepare([bundle], output)
-    assert (report["points"], report["paths"], report["pending_raw_paths"]) == (4, 2, 2)
-    assert report["missing_metrics"] == ["I_p", "I_s", "I_h", "I_w"]
+    assert (report.points, report.paths, report.pending_raw_paths) == (4, 2, 2)
+    assert report.missing_metrics == ("I_p", "I_s", "I_h", "I_w")
     points = pd.read_csv(output / "points.csv.gz")
     paths = pd.read_csv(output / "paths.csv")
     assert not points.duplicated(POINT_KEYS).any()
@@ -74,7 +72,7 @@ def test_prepare_exports_reference_and_branch_with_pending_raw(tmp_path):
     assert not paths["available"].any()
     assert paths.loc[paths["stage"] == "middle", "start_step"].item() == 16
     assert json.loads(paths.iloc[0]["metadata_json"])["RNG"] == json.loads(paths.iloc[0]["seed_json"])
-    assert authenticate_preparation(output)["points"] == 4
+    assert authenticate_preparation(output).points == 4
     assert all(sha(p) == digest for p, digest in before.items())
 
 
@@ -84,62 +82,60 @@ def test_prepare_rejects_tampered_manifest_and_duplicate_generations(tmp_path):
         prepare([bundle, bundle], tmp_path / "duplicates")
     binding = bundle / "data/study/runtime/binding.json"
     binding.write_text('{}')
-    with pytest.raises(ValueError, match="hash mismatch"):
+    with pytest.raises(ValueError, match="study/runtime/binding.json"):
         prepare([bundle], tmp_path / "tampered")
     assert not (tmp_path / "tampered").exists()
 
 
-def _legacy(tmp_path, preparation):
-    points = pd.read_csv(preparation / "points.csv.gz", keep_default_na=False).iloc[:1][[*POINT_KEYS, *PROVENANCE]].copy()
-    for name, value in zip(LEGACY_POINTS, [.3, .4, .5]):
+def _collection(tmp_path, preparation, *, complement=True):
+    from experiments.paper.recommendation_shared.storage import read_table, write_table
+    root = tmp_path / "collection"
+    root.mkdir()
+    points = read_table(preparation, "points.csv.gz").iloc[:1][[*POINT_KEYS, *PROVENANCE]].copy()
+    for name, value in zip(POINT_METRICS, [.3, .4, .5]):
         points[name] = value
-    paths = pd.read_csv(preparation / "paths.csv", keep_default_na=False).iloc[:1].copy()
+    paths = read_table(preparation, "paths.csv").iloc[:1].copy()
     paths["I_w"], paths["sampling_method"], paths["prefix_start"] = .7, IW_SAMPLING_METHOD, 0
-    paths["trajectory_end"] = paths["end_step"]
-    paths["endpoint_complement"] = True
-    paths = paths[[*PATH_KEYS, *PROVENANCE, *LEGACY_PATHS]]
-    points.to_csv(tmp_path / "old-points.csv", index=False)
-    paths.to_csv(tmp_path / "old-paths.csv", index=False)
-    return points, paths
+    paths["trajectory_end"], paths["endpoint_complement"] = paths["end_step"], complement
+    paths = paths[[*PATH_KEYS, *PROVENANCE, *PATH_METRICS]]
+    for name, frame in (("indices.csv.gz", points), ("pathways.csv", paths)):
+        write_table(root, name, frame)
+    atomic_json(root / "collection.json",CollectionManifest(schema=1,status="pending_metrics",
+        endpoint_complement=complement,preparation_sha256=sha(preparation / "preparation.json"),
+        preparation_fingerprint="fixture", planned_paths=2,selected_paths=1,completed_paths=1,
+        pending_paths=1,failed_paths=0,points=len(points),paths=(),cache=CacheCounts(),
+        files={"analysis.sqlite":sha(root / "analysis.sqlite")}))
+    return root
 
 
-def test_exact_import_and_join_leave_missing_values_pending(tmp_path):
+def test_exact_sqlite_alignment_leaves_missing_measurements_pending(tmp_path):
     prepared = tmp_path / "prepared"
     prepare([_bundle(tmp_path)], prepared)
-    _legacy(tmp_path, prepared)
-    imported = tmp_path / "imported"
-    report = collect(prepared, imported, points=tmp_path / "old-points.csv", paths=tmp_path / "old-paths.csv")
-    assert report["status"] == "pending_legacy_metrics"
-    report = compare(prepared, imported, tmp_path / "comparison")
-    assert report["coverage"] == {"points": {"requested": 4, "matched": 1, "pending": 3},
-                                   "paths": {"requested": 2, "matched": 1, "pending": 1}}
-    aligned = pd.read_csv(tmp_path / "comparison/points_aligned.csv.gz")
+    collection = _collection(tmp_path, prepared)
+    result = compare(prepared, collection, tmp_path / "compared")
+    assert result.coverage == {"points": Coverage(4,1,3),"paths":Coverage(2,1,1)}
+    from experiments.paper.recommendation_shared.storage import read_table
+    aligned = read_table(tmp_path / "compared", "points_aligned.csv.gz")
     assert aligned["I_p"].isna().sum() == 3
-    assert aligned.loc[aligned["legacy_coverage"] == "both", "I_h"].item() == .5
-    assert aligned["separation"].tolist() == [.2] * 4
+    assert aligned.loc[aligned.metric_coverage == "both", "I_h"].item() == .5
 
 
-@pytest.mark.parametrize("problem", ["duplicate", "off_grid", "provenance", "prefix", "nonfinite", "16_step_integral"])
-def test_import_rejects_inexact_or_unusable_legacy_data(tmp_path, problem):
+@pytest.mark.parametrize("fault", ["duplicate", "provenance", "nonfinite", "foreign"])
+def test_sqlite_alignment_rejects_ambiguous_or_unbound_measurements(tmp_path, fault):
+    from experiments.paper.recommendation_shared.storage import read_table, write_table
     prepared = tmp_path / "prepared"
     prepare([_bundle(tmp_path)], prepared)
-    points, paths = _legacy(tmp_path, prepared)
-    if problem == "duplicate":
-        points = pd.concat([points, points])
-    elif problem == "off_grid":
-        points.loc[points.index[0], "step"] = 8
-    elif problem == "provenance":
-        points.loc[points.index[0], "binary_sha256"] = "other"
-    elif problem == "prefix":
-        paths.loc[paths.index[0], "prefix_start"] = 16
-    elif problem == "16_step_integral":
-        paths.loc[paths.index[0], "sampling_method"] = "16_step_trapezoid"
-    else:
-        points.loc[points.index[0], "I_p"] = float('nan')
-    points.to_csv(tmp_path / "old-points.csv", index=False)
-    paths.to_csv(tmp_path / "old-paths.csv", index=False)
-    with pytest.raises(ValueError):
-        collect(prepared, tmp_path / "bad-import", points=tmp_path / "old-points.csv", paths=tmp_path / "old-paths.csv")
+    collection = _collection(tmp_path, prepared)
+    frame = read_table(collection, "indices.csv.gz")
+    if fault == "duplicate": frame = pd.concat([frame, frame], ignore_index=True)
+    elif fault == "provenance": frame.loc[0, "binary_sha256"] = "wrong"
+    elif fault == "nonfinite": frame.loc[0, "I_p"] = float("inf")
+    else: frame.loc[0, "task_id"] = "outside"
+    write_table(collection, "indices.csv.gz", frame)
+    manifest = json.loads((collection / "collection.json").read_text())
+    manifest["files"]["analysis.sqlite"] = sha(collection / "analysis.sqlite")
+    atomic_json(collection / "collection.json", manifest)
+    with pytest.raises(ValueError): compare(prepared, collection, tmp_path / "bad")
 
 
 def test_preparation_authentication_rejects_modified_output(tmp_path):
@@ -150,28 +146,16 @@ def test_preparation_authentication_rejects_modified_output(tmp_path):
         authenticate_preparation(prepared)
 
 
-def test_historical_import_requires_explicit_integral_only_policy(tmp_path):
+def test_alignment_preserves_an_explicit_integral_only_policy(tmp_path):
     prepared = tmp_path / "prepared"
     prepare([_bundle(tmp_path)], prepared)
-    _, paths = _legacy(tmp_path, prepared)
-    historical = tmp_path / "old-paths.csv"
-    paths.drop(columns="endpoint_complement").to_csv(historical, index=False)
-    with pytest.raises(ValueError, match="no endpoint_complement policy"):
-        collect(prepared, tmp_path / "ambiguous", paths=historical)
-    imported = tmp_path / "historical"
-    result = collect(prepared, imported, paths=historical, endpoint_complement=False)
-    assert result["endpoint_complement"] is False
-    saved = pd.read_csv(imported / "legacy_paths.csv")
-    assert saved["I_w"].item() == .7 and not saved["endpoint_complement"].item()
-    comparison = compare(prepared, imported, tmp_path / "historical-comparison")
-    assert comparison["endpoint_complement"] is False
-    with pytest.raises(ValueError, match="differs from the selected policy"):
-        collect(prepared, tmp_path / "relabelled", collection=imported)
+    result = compare(prepared, _collection(tmp_path, prepared, complement=False), tmp_path / "comparison")
+    assert result.endpoint_complement is False
 
 
-def test_prepare_authenticates_legacy_review_layout(tmp_path):
+def test_prepare_rejects_retired_review_layout(tmp_path):
     bundle = _bundle(tmp_path)
-    saved = json.loads((bundle / "data/manifest.json").read_text(encoding="utf-8"))
+    saved = json.loads((bundle / "data/manifest.json").read_text())
     review = tmp_path / "review"
     review.mkdir()
     shutil.move(bundle / "data/study", review / "source")
@@ -179,5 +163,5 @@ def test_prepare_authenticates_legacy_review_layout(tmp_path):
     manifest["source"] = saved["source_dataset"]
     manifest["files"] = {key.removeprefix("study/"): value for key, value in saved["files"].items()}
     atomic_json(review / "source_manifest.json", manifest)
-    report = prepare([review], tmp_path / "prepared-review")
-    assert (report["points"], report["paths"]) == (4, 2)
+    with pytest.raises(FileNotFoundError):
+        prepare([review], tmp_path / "prepared-review")

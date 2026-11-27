@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from experiments.paper.recommendation import plot, review_plots
+from tests.experiments.recommendation_fixtures import arm, point, stage, staged
 
 
 def test_bridge_review_keeps_one_influential_repeat_visible(tmp_path, monkeypatch):
@@ -71,14 +72,9 @@ def test_pathway_grid_rejects_ambiguous_or_invalid_counts(tmp_path, invalid):
 def test_case_plot_uses_absolute_steps_of_each_checkpoint(tmp_path, monkeypatch):
     figures = []
     monkeypatch.setattr(review_plots, "plt_save_and_close", lambda fig, path: figures.append(fig))
-    record = {"stages": {phase: {
-        "checkpoint": {"step": start}, "arms": {
-            "hold": {"endpoints": [
-                {"step": start, "pathway": {"separation": 0.6, "excess_concordance": 0.05}},
-                {"step": start + 512, "pathway": {"separation": 0.9, "excess_concordance": 0.2}},
-            ]},
-        },
-    } for phase, start in (("middle", 64), ("late", 256))}}
+    record = staged({phase: stage(start, {"hold": arm(endpoints=(
+        point(start, start, .6, .05), point(start+512, start, .9, .2)))})
+        for phase, start in (("middle", 64), ("late", 256))})
     review_plots.plot_intervention_case(record, tmp_path, title="one initial state")
     try:
         np.testing.assert_array_equal(figures[0].axes[0].lines[0].get_xdata(), [64, 576])

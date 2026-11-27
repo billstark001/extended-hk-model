@@ -4,6 +4,10 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import pytest
+from dataclasses import replace
+from ehk.domain import Task, to_wire, freeze_plan
+from tests.experiments.recommendation_fixtures import (arm as fixture_arm, exposure, point as fixture_point,
+                                                     plan as fixture_plan, stage as fixture_stage, staged)
 
 from common.io.json import fingerprint
 from ehk.metrics.homophily import mean_followee_edge_concordance, uniform_concordance_probability
@@ -50,14 +54,11 @@ def test_edge_and_agent_weighting_are_explicit_and_iw_is_signed():
 
 def test_checkpoints_use_only_current_state_and_recent_activity():
     def point(step, separation, excess, move):
-        return {
-            "step": step,
-            "pathway": {"separation": separation, "excess_concordance": excess},
-            "exposure": {"updates": int(step > 0) * 10, "rewires": 0, "absolute_shift": move},
-        }
+        return fixture_point(step, separation=separation, excess=excess,
+                             counters=replace(exposure(), updates=int(step > 0)*10, absolute_shift=move))
 
     points = [point(0, 0.23, 0, 0), point(16, 0.42, 0.02, 1), point(112, 0.5, 0.09, 0), point(128, 0.5, 0.09, 0)]
-    assert {stage: row["step"] for stage, row in select_stages(points).items()} == {
+    assert {stage: row.step for stage, row in select_stages(points).items()} == {
         "early": 0,
         "middle": 16,
         "late": 128,
@@ -67,22 +68,19 @@ def test_checkpoints_use_only_current_state_and_recent_activity():
 
 def test_timing_gate_uses_same_seed_stage_contrasts_and_complete_evidence():
     def stage(effect):
-        return {
-            "arms": {
-                name: {"endpoints": [{"pathway": {"separation": value}}]}
-                for name, value in {"hold": 0.25, "switch": 0.25 + effect}.items()
-            }
-        }
+        return fixture_stage(arms={name: fixture_arm(endpoints=(fixture_point(separation=value),))
+                                  for name, value in {"hold": .25, "switch": .25+effect}.items()})
 
-    tasks = [{"id": str(i), "sensitivity": "core"} for i in range(4)]
-    records = {task["id"]: {"stages": {"early": stage(0), "late": stage(0.1)}} for task in tasks}
-    assert stage_gate(tasks, records)["passed"]
-    sensitivity = [{"id": f"s{i}", "sensitivity": "epsilon"} for i in range(2)]
-    records.update({task["id"]: {"stages": {"early": stage(0), "late": stage(-0.2)}} for task in sensitivity})
+    template = generate_tasks("staged")[0]
+    tasks = [replace(template, id=str(i), sensitivity="core") for i in range(4)]
+    records = {task.id: staged({"early": stage(0), "late": stage(.1)}) for task in tasks}
+    assert stage_gate(tasks, records).passed
+    sensitivity = [replace(template, id=f"s{i}", sensitivity="epsilon") for i in range(2)]
+    records.update({task.id: staged({"early": stage(0), "late": stage(-.2)}) for task in sensitivity})
     gate = stage_gate([*tasks, *sensitivity], records)
-    assert gate["passed"] and gate["n"] == gate["planned_core"] == gate["completed_core"] == 4
+    assert gate.passed and gate.n == gate.planned_core == gate.completed_core == 4
     records.pop("0")
-    assert not stage_gate([*tasks, *sensitivity], records)["passed"]
+    assert not stage_gate([*tasks, *sensitivity], records).passed
 
 
 def test_design_covers_core_cells_and_paired_single_factor_sensitivities():
@@ -93,27 +91,27 @@ def test_design_covers_core_cells_and_paired_single_factor_sensitivities():
         (0.01, 0.30), (0.03, 0.10), (0.05, 0.05), (0.10, 0.03), (0.30, 0.01),
         (0.01, 0.10), (0.03, 0.30), (0.10, 0.01), (0.30, 0.03),
     ]
-    assert all(task["sensitivity"] == "core" for task in timing)
+    assert all(task.sensitivity == "core" for task in timing)
     for a, b in zip(staged, timing):
-        assert a["metadata"]["RNG"] != b["metadata"]["RNG"]
+        assert a.metadata.RNG != b.metadata.RNG
     for tasks in (staged, variants):
-        assert len({task["id"] for task in tasks}) == len(tasks)
-        assert [task["replicate"] for task in tasks] == sorted(task["replicate"] for task in tasks)
+        assert len({task.id for task in tasks}) == len(tasks)
+        assert [task.replicate for task in tasks] == sorted(task.replicate for task in tasks)
         cells = {}
         for task in tasks:
-            metadata = task["metadata"]
-            key = task["setting"], metadata["HKParams"]["RepostRate"]
-            cells.setdefault(key, set()).add(task["replicate"])
+            metadata = task.metadata
+            key = task.setting, metadata.HKParams.RepostRate
+            cells.setdefault(key, set()).add(task.replicate)
         assert len(cells) == 31 and all(replicates == set(range(16)) for replicates in cells.values())
         center = {
-            task["replicate"]: task["metadata"]["RNG"]
-            for task in tasks if task["sensitivity"] == "core"
-            and task["metadata"]["HKParams"]["Influence"] == 0.05
-            and task["metadata"]["HKParams"]["RepostRate"] == 0.1
+            task.replicate: task.metadata.RNG
+            for task in tasks if task.sensitivity == "core"
+            and task.metadata.HKParams.Influence == 0.05
+            and task.metadata.HKParams.RepostRate == 0.1
         }
         for task in tasks:
-            if task["sensitivity"] != "core":
-                assert task["metadata"]["RNG"] == center[task["replicate"]]
+            if task.sensitivity != "core":
+                assert task.metadata.RNG == center[task.replicate]
 
 
 @pytest.mark.parametrize("study, expected_count, expected_hash", [
@@ -125,11 +123,11 @@ def test_extension_preserves_every_existing_task_field(study, expected_count, ex
     existing_settings = {(0.01, 0.30), (0.03, 0.10), (0.05, 0.05), (0.10, 0.03), (0.30, 0.01)}
     tasks = variants_design.generate_tasks() if study == "recommender_variants" else generate_tasks(study)
     existing = [task for task in tasks if (
-        task["metadata"]["HKParams"]["Influence"], task["metadata"]["HKParams"]["RewiringRate"]
+        task.metadata.HKParams.Influence, task.metadata.HKParams.RewiringRate
     ) in existing_settings]
     assert len(existing) == expected_count
-    assert fingerprint(sorted(existing, key=lambda task: task["id"])) == expected_hash
-    seeds = [fingerprint(task["metadata"]["RNG"]) for task in tasks if task["sensitivity"] == "core"]
+    assert fingerprint(to_wire(sorted(existing, key=lambda task: task.id))) == expected_hash
+    seeds = [fingerprint(task.metadata.RNG) for task in tasks if task.sensitivity == "core"]
     assert len(seeds) == len(set(seeds))
 
 
@@ -158,58 +156,53 @@ def test_contrasts_and_stage_interactions_keep_measurement_settings_separate():
 
 def test_setting_coverage_keeps_missing_stages_visible():
     tasks = generate_tasks("staged")
-    records = {tasks[0]["id"]: {"stages": {"early": {}}}}
-    coverage = coverage_by_setting({"profile": "staged", "tasks": tasks}, records)
-    assert len(coverage) == 31 and sum(row["planned"] for row in coverage) == 496
-    assert sum(row["completed"] for row in coverage) == 1
-    assert sum(row["stages"]["early"] for row in coverage) == 1
-    assert sum(row["stages"]["late"] for row in coverage) == 0
+    records = {tasks[0].id: staged({"early": fixture_stage()})}
+    coverage = coverage_by_setting(fixture_plan(tasks=tasks), records)
+    assert len(coverage) == 31 and sum(row.planned for row in coverage) == 496
+    assert sum(row.completed for row in coverage) == 1
+    assert sum(row.stages["early"] for row in coverage) == 1
+    assert sum(row.stages["late"] for row in coverage) == 0
 
 
 def test_complete_cell_selection_excludes_partially_finished_repeats():
     tasks = generate_tasks("staged")
-    first = [task for task in tasks if task["setting"] == tasks[0]["setting"]
-             and task["metadata"]["HKParams"]["RepostRate"] == 0 and task["replicate"] < 2]
-    second = [task for task in tasks if task["setting"] == tasks[0]["setting"]
-              and task["metadata"]["HKParams"]["RepostRate"] == 0.1 and task["replicate"] < 2]
+    first = [task for task in tasks if task.setting == tasks[0].setting
+             and task.metadata.HKParams.RepostRate == 0 and task.replicate < 2]
+    second = [task for task in tasks if task.setting == tasks[0].setting
+              and task.metadata.HKParams.RepostRate == 0.1 and task.replicate < 2]
     selected = [*first, *second]
-    records = {task["id"]: {"stages": {}} for task in selected[:3]}
-    assert completed_cell_task_ids({"profile": "staged", "tasks": selected}, records) == {task["id"] for task in first}
+    records = {task.id: staged() for task in selected[:3]}
+    assert completed_cell_task_ids(fixture_plan(tasks=selected), records) == {task.id for task in first}
 
 
 def test_stage_passage_keeps_reference_order_and_marks_window_censoring():
     def point(step, separation, excess):
-        exposure = dict.fromkeys(EXPOSURE_COUNTS, 0)
-        exposure.update({source: dict.fromkeys(SLOT_MEASURES, 0) for source in SLOT_SOURCES})
-        return {"step": step, "pathway": {"separation": separation, "excess_concordance": excess,
-                                           "edge_concordance": 0.9, "pair_concordance": 0.7}, "exposure": exposure}
+        return fixture_point(step, separation=separation, excess=excess)
 
     prefix = [point(0, 0.1, 0), point(16, 0.1, 0.2)]
-    arm = {"endpoints": [point(256, 0.6, 0.2), point(768, 0.7, 0.2)],
-           "final_opinions": [-0.7, -0.7, 0.7, 0.7], "terminal": {"status": "unresolved"}, "raw_record": "raw/test"}
-    arm["endpoints"][-1]["exposure"]["policy"]["cross_confident"] = 3
-    arm["endpoints"][-1]["exposure"]["bridge"]["cross_confident"] = 7
+    arm = fixture_arm(endpoints=(point(256, .6, .2), point(768, .7, .2)),
+                      opinions=(-.7, -.7, .7, .7), status="unresolved")
+    arm.endpoints[-1].exposure.policy.cross_confident = 3
+    arm.endpoints[-1].exposure.bridge.cross_confident = 7
     result = summarize_arm(arm, iter(prefix))
-    assert result["pathway"] == "SbP"
-    assert (result["segregation_step"], result["separation_step"]) == (16, 256)
-    assert result["window_pathway"] == "left_censored"
-    assert result["window_separation_step"] is None and result["window_segregation_step"] is None
-    assert result["non_exploration_cross_confident"] == 10
+    assert result.pathway == "SbP"
+    assert (result.segregation_step, result.separation_step) == (16, 256)
+    assert result.window_pathway == "left_censored"
+    assert result.window_separation_step is None and result.window_segregation_step is None
+    assert result.non_exploration_cross_confident == 10
 
 
 def test_new_exposure_protocol_requires_actual_counters():
-    with pytest.raises(KeyError, match="requested"):
-        exposure_columns({"updates": 5})
+    from ehk.domain import Exposure, parse_dataclass
+    with pytest.raises(TypeError, match="requested"):
+        parse_dataclass(Exposure, {"updates": 5})
 
 
 def test_new_analysis_rejects_old_design_schema(tmp_path):
-    from common.experiments.plans import freeze_plan
+    from ehk.domain import freeze_plan
     from experiments.paper.recommendation import analysis
 
-    freeze_plan(tmp_path / "plan.json", {
-        "study": "paper_recommendation", "profile": "staged", "schema": 1,
-        "tasks": [{"id": "old-design-fixture"}],
-    })
+    freeze_plan(tmp_path / "plan.json", replace(fixture_plan(tasks=generate_tasks("staged")[:1]), schema=1))
     with pytest.raises(ValueError, match="unsupported recommendation design version"):
         analysis.read_study(tmp_path)
 

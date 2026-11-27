@@ -1,29 +1,61 @@
 # Recomputing original-paper statistics
 
-Run from the model repository with its `.venv`. The existing index family is retained: `p_index` is `I_p`, `g_index` is `I_s`, `h_index` is `I_h`, and `pathway_integral` is `I_w`. By default, `I_w = integral I_h dI_p + (1-I_p(T))*I_h(T)`, using signed chronological trapezoids. The completion extends the endpoint to `I_p=1` at terminal homophily, so the tendency measure retains that homophily for consensual endpoints. `I_p` measures deviation from the random distance reference; it can increase under consensus and is not bounded by one. Neither `I_p` nor `I_w` is clipped.
+The adopted indices use one measurement core. `I_p` and `I_s` are
+`1 - JS_distance(observed, clustered) / JS_distance(clustered, random)`.
+PDFs are normalized on the finite integration grid. Values can be negative and
+are at most one. Consensus is not required to have index zero.
+`I_h` averages current directed-edge endpoint concordance over positive-outdegree
+users and uses the baseline `epsilon-epsilon**2/4`, with a strict confidence
+boundary. Production measurements use Gaussian linear binning with 4081 internal
+nodes and the original 256-point output grid.
 
-```sh
-.venv/bin/python -m experiments.paper.analysis.run gradation \
-  --raw-root /path/to/new/raw --database /path/to/new/stats-v3.sqlite \
-  --limit 1 --concurrency 1
+`I_w = integral I_h dI_p + (1-I_p(T))*I_h(T)` by default. The implementation uses
+chronological signed trapezoids on its own full zero-to-end adaptive grid.
+`--no-endpoint-complement` selects the existing integral-only convention.
+There is no alternate formula switch or historical multi-convention audit.
+
+Run from the model repository using its installed environment:
+
+```powershell
+$env:OPENBLAS_NUM_THREADS = '1'
+$env:OMP_NUM_THREADS = '1'
+.\.venv\Scripts\python.exe -m experiments.paper.analysis.run gradation `
+  --raw-root F:/pathway-index-scan/data2/run `
+  --metadata-source original-design --origin original-data2 `
+  --database outputs/paper/reanalysis_20261127/stats.sqlite --concurrency 4
 ```
 
-Drop `--limit` to fill the full selected design. The modes are `gradation`, `epsilon`, and `replicate`. The positional workspace alias remains available; `--raw-root` instead accepts a direct directory containing scenario directories. Use `--origin` to assign an explicit source label. `--plan-only` prints the selection without reading raw records or creating the database.
+The default `--metadata-source record` requires a real `metadata.json`.
+Historical accumulated-state datasets without that file require the explicit
+`original-design` declaration. Their parameters and collection configuration are
+identified as supplied from the original design, not independently recorded in
+raw files; RNG provenance remains unavailable. Population size is read and
+validated from actual history. Existing metadata cannot be overridden through
+this declaration. The raw files are never rewritten.
 
-`--endpoint-complement` is the default. Add `--no-endpoint-complement` to calculate the observed integral alone. The boolean is stored in each record and metric protocol and changes the analysis identity, preventing reuse across the two conventions. Historical values retain their original recorded convention; an unrecorded convention is not assigned the new default.
+The modes are `gradation`, `epsilon`, and `replicate`. Omission of `--tasks` and
+`--limit` selects the entire design. `--tasks NAME ...` selects named tasks;
+`--limit N` selects a bounded prefix. `--plan-only` performs no writes.
+`--raw-root` selects a direct directory; the positional workspace name selects a
+configured entry in `sim_ws.json`. These are explicit data locations.
 
-Each committed SQLite document contains the complete **recorded** raw metadata, the requested metadata separately, the metric protocol, source-file identities, and typed NumPy statistics. Missing historical RNG metadata remains unavailable; seeds from a newer execution design are never assigned retrospectively. The protocol identity binds numerical and collector source hashes, binding sources, and relevant Python/package versions. Metadata, trajectory manifests and finish markers are hashed; bulk raw files use size and nanosecond modification time, rather than full byte hashes. Changes invalidate old documents before retrying.
+SQLite documents contain requested and recorded metadata separately, the metric
+protocol, source identities and typed, pickle-free arrays. The parent process
+commits results transactionally. Input identity, formula, numerical parameters
+and source changes invalidate cached results. A failed recomputation cannot
+supply a stale complete result. Repeated matching runs resume; `--force` recomputes.
+Incomplete selections return a nonzero command status. Figure readers reject old
+or missing metric protocols and mixed origins or endpoint conventions.
 
-The store uses standard-library SQLite transactions with one writer, compressed `.npy` arrays with pickle disabled, and JSON documents. New fields do not require table migrations. Archived ORM databases are rejected; use a separate new path. Reruns reuse matching complete records; `--force` explicitly invalidates and recomputes them. Failure or unavailable raw inputs leave stale documents marked incomplete. Readers refuse such a selected dataset. Limited and full selections have separate resumable journals while sharing the same metric protocol identity.
+Plans, tasks, parameters, source identities and statistics are explicit dataclasses.
+Decoders reject unknown record fields. JSON and SQLite adapters serialize these
+records only at their I/O boundaries; historical missing protocol fields remain
+missing evidence. Progress prints task starts, completed/cache counts and ETA.
 
-The default calculation also reconstructs historical conventions from raw trajectories: the `/8` versus `/4` baseline, post versus edge concordance, clustered versus random reference, JS distance versus divergence, and endpoint completion. The selected main result and both completed/uncompleted full-trajectory values are stored separately. It uses the revised adaptive observation grid. Missing post observations are not imputed; sequential historical comparisons share the available observations and disclose their actual prefix. `remove_endpoint_complement` refers to that common-prefix comparison, not the uncompleted full trajectory. `--skip-metric-audit` omits these extra calculations.
+`--include-pathway-probe` explicitly adds the independent supplementary P/E
+first-passage labels and requires the selected native probe executable. Ordinary
+four-index analysis requires no native executable. The descriptive `I_w` split
+is specified independently; it is not a first-passage classifier.
 
-```sh
-.venv/bin/python -m experiments.paper.pathway_index.audit \
-  --database /path/to/new/stats-v3.sqlite --analysis-id ANALYSIS_ID \
-  --origin SOURCE_LABEL --output /path/to/audit
-```
-
-The audit writes continuous convention changes and a migration table for the historical `0.6` **low/high index split**, identifying the selected completion convention and exporting both full-trajectory values when recorded. It does not validate this cutoff as a PbS/SbP classifier. `--legacy OLD.db` optionally reads archived scores without modifying them. A subsequent grouped summary retains the convention alongside run-level values and in its receipt.
-
-P/E first-passage measurements are an independent optional comparison. They are not required by the four-index analysis or its default storage. Enable `--include-pathway-probe` to collect them; only then does the protocol require and hash the native probe executable.
+See [the workflow guide](../../../docs/ehk-reanalysis-20261122.md) for paired-study
+SQLite import, full metric collection and figure entry points.

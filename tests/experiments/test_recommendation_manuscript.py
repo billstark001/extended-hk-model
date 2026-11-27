@@ -2,13 +2,22 @@
 
 import json
 import shutil
+from dataclasses import replace
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
-from common.experiments.plans import freeze_plan
-from common.io.json import atomic_json, fingerprint, save_result, sha
+from ehk.domain import Binding, FullResult, freeze_plan, to_wire
+from tests.experiments.recommendation_fixtures import (
+    arm as fixture_arm, point as fixture_point, exposure, plan as fixture_plan, stage, staged,
+    bundle_manifest, report as fixture_report)
+from experiments.paper.recommendation.figure_models import (
+    BridgePanel, CaseCurve, CasePanel, IllustrativeCase, PairedEffectRow,
+    PanelSpecifications, PlotLayout, PlotStyle, Thresholds)
+from experiments.paper.recommendation.figure_models import parse_panel
+from common.io.json import atomic_json, sha
+from common.storage.documents import DocumentStore
 from experiments.paper.recommendation import manuscript
 from experiments.paper.recommendation.design import DESIGN_VERSION, generate_tasks
 from experiments.paper.recommendation_shared import bundle as shared_bundle
@@ -20,41 +29,55 @@ from experiments.paper.recommendation_shared.analysis import (
 )
 from experiments.paper.recommender_variants import design as variants_design
 from experiments.paper.recommender_variants.design import variant_arms
+from experiments.paper.recommendation_shared.storage import DATABASE, StudyStore
 
 
 def _point(step, start):
-    exposure = dict.fromkeys(EXPOSURE_COUNTS, 0)
-    exposure.update({source: dict.fromkeys(SLOT_MEASURES, 0) for source in SLOT_SOURCES})
-    exposure["updates"] = 0 if step == start else 100
-    return {"step": step, "relative_step": step - start, "exposure": exposure,
-            "pathway": {"separation": 0.5, "excess_concordance": 0.05,
-                        "edge_concordance": 0.55, "pair_concordance": 0.5}}
+    return fixture_point(step, start, counters=replace(exposure(), updates=0 if step == start else 100))
 
 
 def _arm(start):
-    return {"endpoints": [_point(start, start), _point(start + 512, start)],
-            "terminal": {"status": "nonterminal"}, "final_opinions": [-0.8, -0.7, 0.7, 0.8],
-            "raw_record": "/unmounted/test/raw", "stopped_at": start + 512}
+    return fixture_arm(endpoints=(_point(start, start), _point(start+512, start)), raw_record="/unmounted/test/raw")
 
 
-@pytest.mark.parametrize("legacy_cache", [False, True])
-def test_export_then_compose_without_source_bundle_or_panel_images(tmp_path, monkeypatch, legacy_cache):
+def _binding(source):
+    atomic_json(source / "runtime/binding.json", Binding(binary_sha256="a" * 64))
+
+
+def _specs(panels):
+    return PanelSpecifications(schema=1, data_manifest_sha256="fixture", completed=1, planned=1,
+        core_completed=1, core_planned=1, source_dataset="fixture", plan_fingerprint="fixture",
+        coverage=(), panels=panels, thresholds=Thresholds(separation=.4, excess_concordance=.1),
+        comparison_unit="paired initial state")
+
+
+def _layout(*, marker_size=3.3, colors=None):
+    return PlotLayout(schema=1, style=PlotStyle(marker_size=marker_size,
+                      colors=manuscript.COLORS if colors is None else colors), figures={})
+
+
+def _effect(*, delta_separation=0., delta_excess=0., replicate=0, repost=0., bridge_shown=0, updates=1000):
+    return PairedEffectRow(task_id="fixture", stage="late", setting="fixture", sensitivity="core",
+        influence=.1, rewiring=.01, repost=repost, replicate=replicate, epsilon=.45, history=0,
+        bridge_shown=bridge_shown, cross_confident=0, updates=updates,
+        delta_separation=delta_separation, delta_excess=delta_excess)
+
+
+def test_export_then_compose_without_source_bundle_or_panel_images(tmp_path, monkeypatch):
     source, bundle, output = (tmp_path / name for name in ("source", "bundle", "paper"))
     source.mkdir()
+    _binding(source)
     task = generate_tasks("staged")[0]
-    freeze_plan(source / "plan.json", {"schema": DESIGN_VERSION, "study": "paper_recommendation",
-                                       "profile": "staged", "tasks": [task],
-                                       "protocol": {"separation_threshold": 0.4, "excess_threshold": 0.1}})
-    record = {"reference": _arm(0), "stages": {}}
+    plan = freeze_plan(source / "plan.json", fixture_plan(tasks=(task,)))
+    record = staged()
     for phase, start in (("early", 0), ("middle", 16), ("late", 128)):
-        record["stages"][phase] = {"checkpoint": _point(start, start),
-                                  "arms": {name: _arm(start) for name in ("hold", "switch", "bridge")}}
-    save_result(source / "records" / f"{task['id']}.json.gz",
-                {"task_fingerprint": fingerprint(task), "result": record})
+        record.stages[phase] = stage(start, {name: _arm(start) for name in ("hold", "switch", "bridge")})
+    with StudyStore(source) as store:
+        store.put_task(task, record, plan=plan)
     manifest = shared_bundle.export_bundle(source, bundle)
-    assert manifest["completed"] == manifest["planned"] == 1
+    assert manifest.completed == manifest.planned == 1
     shutil.rmtree(source)
-    monkeypatch.setattr(manuscript, "CASES", (("fixture", task["id"], "late", "fixture"),))
+    monkeypatch.setattr(manuscript, "CASES", (IllustrativeCase("fixture", task.id, "late", "fixture"),))
     manuscript.prepare(bundle, output)
     assert not (output / "panels").exists()
     assert not (output / "figures").exists()
@@ -65,16 +88,11 @@ def test_export_then_compose_without_source_bundle_or_panel_images(tmp_path, mon
     assert json.loads((output / "layout.json").read_text()) == layout
     shutil.rmtree(bundle)
     data_path = output / "plot_data.json"
-    if legacy_cache:
-        (output / "panels").mkdir()
-        data_path = output / "panels/specs.json"
-        (output / "plot_data.json").rename(data_path)
     manuscript.compose(output)
     for figure in layout["figures"]:
         for extension in ("pdf", "svg", "png"):
             assert (output / "figures" / f"{figure}.{extension}").is_file()
-    if not legacy_cache:
-        assert not (output / "panels").exists()
+    assert not (output / "panels").exists()
     manifest = json.loads((output / "figure_manifest.json").read_text())
     assert manifest["plot_data"] == str(data_path.relative_to(output))
     assert manifest["plot_data_sha256"] == sha(data_path)
@@ -113,29 +131,36 @@ def test_pairs_reject_duplicates():
 
 
 def test_unsupported_layout_schema_is_rejected(tmp_path):
-    atomic_json(tmp_path / "panels/specs.json", {"schema": 99})
+    atomic_json(tmp_path / "plot_data.json", {"schema": 99})
     atomic_json(tmp_path / "layout.json", {"schema": 1})
     with pytest.raises(ValueError, match="schema"):
         manuscript.compose(tmp_path)
+
+
+def test_saved_panel_rows_reject_missing_measurement_fields():
+    with pytest.raises(TypeError, match="task_id"):
+        parse_panel({"kind": "bridge", "metric": "dose", "title": "fixture",
+                     "rows": [{"bridge_shown": 5, "updates": 100}]})
 
 
 def test_manifest_failure_keeps_previous_bundle_readable(tmp_path, monkeypatch):
     output = tmp_path / "bundle"
     (output / "data").mkdir(parents=True)
     (output / "data/old.txt").write_text("previous observations")
-    atomic_json(output / "data/manifest.json", {"schema": 1, "files": {}})
+    atomic_json(output / "data/manifest.json", bundle_manifest())
     source = tmp_path / "source"
     source.mkdir()
-    (source / "plan.json").write_text("{}")
-    (source / "records").mkdir()
-    (source / "records/task.json.gz").write_bytes(b"new observations")
+    _binding(source)
+    plan = freeze_plan(source / "plan.json", fixture_plan(tasks=generate_tasks("staged")[:1]))
+    with DocumentStore(source / DATABASE):
+        pass
     monkeypatch.setattr(shared_bundle, "read_study", lambda *args: (
-        {"plan_fingerprint": "new", "profile": "staged", "tasks": [{}]}, {"task": {}},
+        plan, {plan.tasks[0].id: staged()},
     ))
 
     def analyze_fixture(source, output, **kwargs):
         output.mkdir()
-        return {"source_plan": "new", "complete": True, "available_records": 1, "completed": 1, "planned": 1}
+        return fixture_report(plan.plan_fingerprint)
 
     monkeypatch.setattr(shared_bundle, "analyze_study", analyze_fixture)
     write_json = shared_bundle.atomic_json
@@ -149,7 +174,7 @@ def test_manifest_failure_keeps_previous_bundle_readable(tmp_path, monkeypatch):
     with pytest.raises(OSError, match="injected"):
         shared_bundle.export_bundle(source, output)
     assert (output / "data/old.txt").read_text() == "previous observations"
-    assert shared_bundle._bundle_manifest(output)["schema"] == 1
+    assert shared_bundle.read_bundle_manifest(output).schema == shared_bundle.SCHEMA
     assert not (output / ".previous-data").exists()
 
 
@@ -159,12 +184,12 @@ def test_shared_export_cli_accepts_study_data_without_a_manuscript_wrapper(tmp_p
 
     def export(source, destination, *, require_complete):
         calls.append((source, destination, require_complete))
-        return {"profile": "recommender_variants", "completed": 1}
+        return bundle_manifest(profile="recommender_variants", completed=1)
 
     monkeypatch.setattr(shared_bundle, "export_bundle", export)
     shared_bundle.main(["export", "--dataset", str(dataset), "--output", str(output), "--require-complete"])
     assert calls == [(dataset, output, True)]
-    assert json.loads(capsys.readouterr().out) == {"profile": "recommender_variants", "completed": 1}
+    assert json.loads(capsys.readouterr().out) == to_wire(bundle_manifest(profile="recommender_variants", completed=1))
 
 
 def test_stage_manuscript_cli_rejects_the_removed_export_entry(tmp_path, capsys):
@@ -177,68 +202,69 @@ def test_stage_manuscript_cli_rejects_the_removed_export_entry(tmp_path, capsys)
 
 def test_variant_export_counts_complete_arms_and_keeps_previous_generation(tmp_path):
     source, bundle = tmp_path / "source", tmp_path / "bundle"
+    _binding(source)
     task = variants_design.generate_tasks()[0]
     protocol = variants_design.design_protocol()
-    freeze_plan(source / "plan.json", {
-        "schema": DESIGN_VERSION, "study": "paper_recommendation", "profile": "recommender_variants",
-        "protocol": protocol, "tasks": [task],
-    })
-    original = [arm for family in protocol["variants"].values() for arm in family]
-    path = source / "records" / f"{task['id']}.json.gz"
-    record = {"task_fingerprint": fingerprint(task), "result": {"arms": {arm: _arm(0) for arm in original}}}
-    save_result(path, record)
+    plan = freeze_plan(source / "plan.json", fixture_plan("recommender_variants", tasks=(task,)))
+    original = [arm for family in protocol.variants.values() for arm in family]
+    record = FullResult(arms={arm: _arm(0) for arm in original})
+    with StudyStore(source) as store:
+        store.put_task(task, record, plan=plan)
     manifest = shared_bundle.export_bundle(source, bundle)
-    assert manifest["profile"] == "recommender_variants"
-    assert manifest["available_records"] == 1 and manifest["completed"] == 0
+    assert manifest.profile == "recommender_variants"
+    assert manifest.available_records == 1 and manifest.completed == 0
     previous = sha(bundle / "data/manifest.json")
     with pytest.raises(ValueError, match="incomplete: 0/1"):
         shared_bundle.export_bundle(source, bundle, require_complete=True)
     assert sha(bundle / "data/manifest.json") == previous
-    record["result"]["arms"].update({arm: _arm(0) for arm in variant_arms(protocol)})
-    save_result(path, record)
+    record.arms.update({arm: _arm(0) for arm in variant_arms(protocol)})
+    with StudyStore(source) as store:
+        store.put_task(task, record, plan=plan)
     complete = shared_bundle.export_bundle(source, bundle, require_complete=True)
-    assert complete["completed"] == complete["planned"] == 1
+    assert complete.completed == complete.planned == 1
 
 
 def test_export_counts_the_copied_generation_when_a_record_advances(tmp_path, monkeypatch):
     source, bundle = tmp_path / "source", tmp_path / "bundle"
+    _binding(source)
     task = variants_design.generate_tasks()[0]
     protocol = variants_design.design_protocol()
-    freeze_plan(source / "plan.json", {
-        "schema": DESIGN_VERSION, "study": "paper_recommendation", "profile": "recommender_variants",
-        "protocol": protocol, "tasks": [task],
-    })
-    original = [arm for family in protocol["variants"].values() for arm in family]
-    path = source / "records" / f"{task['id']}.json.gz"
-    record = {"task_fingerprint": fingerprint(task), "result": {"arms": {arm: _arm(0) for arm in original}}}
-    save_result(path, record)
-    copy = shared_bundle.shutil.copy2
+    plan = freeze_plan(source / "plan.json", fixture_plan("recommender_variants", tasks=(task,)))
+    original = [arm for family in protocol.variants.values() for arm in family]
+    record = FullResult(arms={arm: _arm(0) for arm in original})
+    with StudyStore(source) as store:
+        store.put_task(task, record, plan=plan)
+    backup = DocumentStore.backup
 
-    def copy_advancing_record(src, dest, **kwargs):
-        if src == path:
-            record["result"]["arms"].update({arm: _arm(0) for arm in variant_arms(protocol)})
-            save_result(path, record)
-        return copy(src, dest, **kwargs)
+    def backup_then_advance(store, destination):
+        result = backup(store, destination)
+        record.arms.update({arm: _arm(0) for arm in variant_arms(protocol)})
+        with StudyStore(source) as current:
+            current.put_task(task, record, plan=plan)
+        return result
 
-    monkeypatch.setattr(shared_bundle.shutil, "copy2", copy_advancing_record)
+    monkeypatch.setattr(DocumentStore, "backup", backup_then_advance)
+    copied = shared_bundle.export_bundle(source, bundle)
+    assert copied.completed == 0 and copied.planned == 1
+    monkeypatch.setattr(DocumentStore, "backup", backup)
     manifest = shared_bundle.export_bundle(source, bundle, require_complete=True)
-    assert manifest["completed"] == manifest["planned"] == 1
+    assert manifest.completed == manifest.planned == 1
 
 
 def test_interrupted_old_generation_rename_is_recovered(tmp_path):
     backup = tmp_path / ".previous-data"
     backup.mkdir()
-    atomic_json(backup / "manifest.json", {"schema": 1, "files": {}})
-    assert shared_bundle._bundle_manifest(tmp_path)["schema"] == 1
+    atomic_json(backup / "manifest.json", bundle_manifest())
+    assert shared_bundle.read_bundle_manifest(tmp_path).schema == shared_bundle.SCHEMA
     assert (tmp_path / "data/manifest.json").is_file()
     assert not backup.exists()
 
 
 def test_bridge_limits_expand_to_every_saved_effect():
-    specs = {"panels": {
-        "p": {"kind": "bridge", "metric": "delta_separation", "rows": [{"delta_separation": -1}, {"delta_separation": 1}]},
-        "e": {"kind": "bridge", "metric": "delta_excess", "rows": [{"delta_excess": 0.8}]},
-    }}
+    specs = _specs({
+        "p": BridgePanel(title="p", metric="delta_separation", rows=(_effect(delta_separation=-1), _effect(delta_separation=1))),
+        "e": BridgePanel(title="e", metric="delta_excess", rows=(_effect(delta_excess=.8),)),
+    })
     limits = manuscript._bridge_limits(specs)
     assert limits["delta_separation"][0] < -1 and limits["delta_separation"][1] > 1
     assert limits["delta_excess"][1] > 0.8
@@ -246,13 +272,12 @@ def test_bridge_limits_expand_to_every_saved_effect():
 
 def test_bridge_dose_panels_use_a_shared_scale():
     panels = {
-        name: {"kind": "bridge", "metric": "dose", "title": name, "rows": [{
-            "repost": 0.1, "replicate": 0, "bridge_shown": count, "updates": 1000,
-        }]}
+        name: BridgePanel(metric="dose", title=name, rows=(_effect(
+            repost=.1, replicate=0, bridge_shown=count, updates=1000),))
         for name, count in (("low", 40), ("high", 230))
     }
-    specs = {"panels": panels}
-    style = manuscript._figure_style(specs, {"style": {"marker_size": 16}})
+    specs = _specs(panels)
+    style = manuscript._figure_style(specs, _layout(marker_size=16))
     fig, axes = plt.subplots(1, 2)
     try:
         for ax, panel in zip(axes, panels.values()):
@@ -265,10 +290,10 @@ def test_bridge_dose_panels_use_a_shared_scale():
 
 
 def test_case_panels_keep_negative_excess_and_omit_unrelated_arm():
-    case = {"kind": "case", "metric": "excess_concordance", "title": "case", "threshold": 0.1,
-            "arms": {name: {"step": [64, 576], "value": values} for name, values in (
-                ("hold", [-0.2, 0.4]), ("switch", [-0.2, 0.55]), ("hide_reposts", [-0.2, 0.3]))}}
-    style = manuscript._figure_style({"panels": {"case": case}}, {"style": {"colors": manuscript.COLORS}})
+    case = CasePanel(metric="excess_concordance", title="case", threshold=.1,
+        arms={name: CaseCurve(step=(64, 576), value=tuple(values)) for name, values in (
+                ("hold", [-.2, .4]), ("switch", [-.2, .55]), ("hide_reposts", [-.2, .3]))})
+    style = manuscript._figure_style(_specs({"case": case}), _layout())
     fig, ax = plt.subplots()
     try:
         manuscript._draw_panel(fig, ax, case, style)
@@ -309,13 +334,13 @@ def test_bridge_collapses_zero_insertion_counts_but_keeps_inserted_repeats():
     import numpy as np
     from matplotlib.colors import to_rgba
 
-    rows = [{"repost": 0.0, "replicate": replicate, "bridge_shown": 0,
-             "updates": 1000, "delta_separation": 0.0} for replicate in range(16)]
-    rows.extend({"repost": 0.1, "replicate": replicate, "bridge_shown": 1,
-                 "updates": 1000, "delta_separation": value}
+    rows = [_effect(repost=0., replicate=replicate, bridge_shown=0,
+             updates=1000, delta_separation=0.) for replicate in range(16)]
+    rows.extend(_effect(repost=.1, replicate=replicate, bridge_shown=1,
+                 updates=1000, delta_separation=value)
                 for replicate, value in enumerate((-0.2, 0.1, 0.1)))
-    panel = {"kind": "bridge", "metric": "delta_separation", "title": "fixture", "rows": rows}
-    style = manuscript._figure_style({"panels": {"fixture": panel}}, {"style": {"marker_size": 9}})
+    panel = BridgePanel(metric="delta_separation", title="fixture", rows=tuple(rows))
+    style = manuscript._figure_style(_specs({"fixture": panel}), _layout(marker_size=9))
     fig, ax = plt.subplots(figsize=(3.0, 2.5))
     try:
         manuscript._draw_panel(fig, ax, panel, style)
@@ -347,11 +372,10 @@ def test_case_overlap_symbols_keep_recorded_paths_and_report_last_shared_step():
     steps = [256 + 16 * index for index in range(33)]
     shared = [0.8] * len(steps)
     bridge = shared[:27] + [0.0] * 6
-    panel = {"kind": "case", "metric": "separation", "title": "fixture", "threshold": 0.4,
-             "arms": {name: {"step": steps, "value": values} for name, values in (
-                 ("hold", shared), ("switch", shared), ("bridge", bridge))}}
-    style = manuscript._figure_style({"panels": {"fixture": panel}},
-                                     {"style": {"colors": manuscript.COLORS}})
+    panel = CasePanel(metric="separation", title="fixture", threshold=.4,
+        arms={name: CaseCurve(step=tuple(steps), value=tuple(values)) for name, values in (
+                 ("hold", shared), ("switch", shared), ("bridge", bridge))})
+    style = manuscript._figure_style(_specs({"fixture": panel}), _layout())
     fig, ax = plt.subplots(figsize=(2.2, 2.0))
     try:
         manuscript._draw_panel(fig, ax, panel, style)
@@ -364,7 +388,7 @@ def test_case_overlap_symbols_keep_recorded_paths_and_report_last_shared_step():
         marker_steps = []
         for line, arm in zip(curves, ("hold", "switch", "bridge")):
             np.testing.assert_array_equal(line.get_xdata(), steps)
-            np.testing.assert_array_equal(line.get_ydata(), panel["arms"][arm]["value"])
+            np.testing.assert_array_equal(line.get_ydata(), panel.arms[arm].value)
             start, interval = line.get_markevery()
             selected = set(range(start, len(steps), interval))
             assert 1 < len(selected) < len(steps) / 2
@@ -375,7 +399,7 @@ def test_case_overlap_symbols_keep_recorded_paths_and_report_last_shared_step():
         assert "672" in note and "688" not in note
         assert "recorded" in note.lower()
         assert note in [text.get_text() for text in ax.texts]
-        middle = {**panel, "arms": {arm: panel["arms"][arm] for arm in ("hold", "switch")}}
+        middle = replace(panel, arms={arm: panel.arms[arm] for arm in ("hold", "switch")})
         assert manuscript._case_overlap_note(middle) is None
     finally:
         plt.close(fig)

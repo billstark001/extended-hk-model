@@ -21,9 +21,9 @@ def test_generated_tasks_preserve_every_ordered_metadata_field(name, count, iden
     tasks = generate_tasks(name)
     assert len(tasks) == count
     assert fingerprint(tasks) == identity
-    assert len({t["UniqueName"] for t in tasks}) == count
+    assert len({t.UniqueName for t in tasks}) == count
     assert prod(len(values) for values in SCENARIO_AXES[name].values()) == count
-    tasks[0]["HKParams"]["Influence"] = -1
+    tasks[0].HKParams.Influence = -1
     assert fingerprint(generate_tasks(name)) == identity
 
 

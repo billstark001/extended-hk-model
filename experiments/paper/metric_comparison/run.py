@@ -3,45 +3,42 @@
 import argparse
 import json
 from pathlib import Path
+from dataclasses import replace
+
+from ehk.domain import to_wire
+from .contracts import CollectionManifest, CollectionSummary, PipelinePaths, PipelineStatus
 
 from common.experiments.lifecycle import interruptible, session_lock
 from common.io.json import atomic_json, sha
 
 from . import core, raw, report
 
-RETRYABLE_SOURCE_CHANGE = "raw source files changed during legacy metric calculation"
+RETRYABLE_SOURCE_CHANGE = "raw source files changed during canonical metric calculation"
 
 
-def _collection_summary(result):
-    fields = ("status", "planned_paths", "selected_paths", "completed_paths", "pending_paths", "failed_paths", "points")
-    return {
-        **{name: result[name] for name in fields if name in result},
-        "failures": [item for item in result.get("paths", ()) if item.get("status") == "failed"],
-    }
+def _collection_summary(result: CollectionManifest) -> CollectionSummary:
+    return CollectionSummary(result.status, result.planned_paths, result.selected_paths,
+        result.completed_paths, result.pending_paths, result.failed_paths, result.points,
+        tuple(item for item in result.paths if item.status == "failed"))
 
 
-def _complete_collection(result):
-    planned, completed = result.get("planned_paths"), result.get("completed_paths")
-    return (
-        result.get("status") == "complete" and type(planned) is int and type(completed) is int
-        and planned == completed and result.get("pending_paths", 0) == 0 and result.get("failed_paths", 0) == 0
-    )
+def _complete_collection(result: CollectionManifest) -> bool:
+    return (result.status == "complete" and result.planned_paths == result.completed_paths
+            and result.pending_paths == 0 and result.failed_paths == 0)
 
 
-def _retryable(result):
-    failures = [item for item in result.get("paths", ()) if item.get("status") == "failed"]
-    return (
-        result.get("status") == "failed" and result.get("pending_paths", 0) == 0
-        and bool(failures) and result.get("failed_paths") == len(failures)
-        and all(item.get("error") == RETRYABLE_SOURCE_CHANGE for item in failures)
-    )
+def _retryable(result: CollectionManifest) -> bool:
+    failures = tuple(item for item in result.paths if item.status == "failed")
+    return (result.status == "failed" and result.pending_paths == 0 and bool(failures)
+            and result.failed_paths == len(failures)
+            and all(item.error == RETRYABLE_SOURCE_CHANGE for item in failures))
 
 
 def run(preparation, output, *, collection=None, workers=6, attempts=2, make_figures=True, endpoint_complement=True):
     """Finish an offline comparison, stopping explicitly when any data remain missing.
 
     Collection owns authenticated per-path recovery. Only source-change failures
-    may retry; alignment and reports always require new destination directories.
+    may retry; authenticated alignment and report artifacts are resumed.
     """
     if type(workers) is not int or workers < 1 or type(attempts) is not int or attempts < 1:
         raise ValueError("workers and attempts must be positive integers")
@@ -55,57 +52,54 @@ def run(preparation, output, *, collection=None, workers=6, attempts=2, make_fig
         for target in (alignment, destination)
     ):
         raise ValueError("collection must be separate from alignment and report destinations")
-    status = {
-        "schema": 1, "state": "running", "phase": "preflight", "attempt": 0,
-        "workers": workers, "attempts": attempts, "make_figures": make_figures,
-        "endpoint_complement": endpoint_complement,
-        "runner_sha256": sha(Path(__file__)),
-        "paths": {"preparation": str(preparation), "output": str(output), "collection": str(collection),
-                  "alignment": str(alignment), "report": str(destination),
-                  "collection_progress": str(collection / "progress.json")},
-    }
+    status = PipelineStatus(schema=1, state="running", phase="preflight", attempt=0,
+        workers=workers, attempts=attempts, make_figures=make_figures,
+        endpoint_complement=endpoint_complement, runner_sha256=sha(Path(__file__)),
+        paths=PipelinePaths(str(preparation), str(output), str(collection), str(alignment),
+                            str(destination), str(collection / "progress.json")))
 
     def publish(phase, state, **details):
-        status.update(phase=phase, state=state, **details)
+        nonlocal status
+        status = replace(status, phase=phase, state=state, **details)
         atomic_json(output / "run_status.json", status)
 
     with session_lock(output / "runtime"), interruptible():
         try:
             publish("preflight", "running")
-            for target in (alignment, destination):
-                if target.exists():
-                    raise ValueError(f"pipeline destination already exists; choose a new output directory: {target}")
+            for target,marker in ((alignment,"comparison_inputs.json"),(destination,"report_inputs.json")):
+                if target.exists() and not (target/marker).is_file():
+                    raise ValueError(f"pipeline destination already exists without matching inputs: {target}")
             for attempt in range(1, attempts + 1):
                 publish("collect", "running", attempt=attempt)
                 collected = raw.collect_raw(preparation, collection, workers=workers, endpoint_complement=endpoint_complement)
-                status["collection"] = _collection_summary(collected)
+                status = replace(status, collection=_collection_summary(collected))
                 if _complete_collection(collected):
                     break
                 if attempt < attempts and _retryable(collected):
                     publish("collect", "retrying", reason=RETRYABLE_SOURCE_CHANGE)
                     continue
-                state = "failed" if collected.get("status") == "failed" else "pending"
+                state = "failed" if collected.status == "failed" else "pending"
                 publish("collect", state, reason="collection is incomplete; alignment and report were not started")
                 return status
-            status.pop("reason", None)
+            status = replace(status, reason=None)
             publish("alignment", "running")
             aligned = core.compare(preparation, collection, alignment)
-            status["alignment"] = aligned
-            if aligned.get("status") != "complete":
-                publish("alignment", "failed" if aligned.get("status") == "failed" else "pending",
+            status = replace(status, alignment=aligned)
+            if aligned.status != "complete":
+                publish("alignment", "failed" if aligned.status == "failed" else "pending",
                         reason="exact alignment is incomplete; report was not started")
                 return status
             publish("report", "running")
             reported = report.report(preparation, alignment, destination, make_figures=make_figures)
-            status["report"] = reported
-            if reported.get("status") != "complete":
-                publish("report", "failed" if reported.get("status") == "failed" else "pending",
+            status = replace(status, report=reported)
+            if reported.status != "complete":
+                publish("report", "failed" if reported.status == "failed" else "pending",
                         reason="report did not confirm complete coverage")
                 return status
             publish("report", "complete")
             return status
         except BaseException as error:
-            publish(status["phase"], "interrupted" if isinstance(error, KeyboardInterrupt) else "failed", error=str(error))
+            publish(status.phase, "interrupted" if isinstance(error, KeyboardInterrupt) else "failed", error=str(error))
             raise
 
 
@@ -121,8 +115,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     result = run(args.preparation, args.output, collection=args.collection, workers=args.workers,
                  attempts=args.attempts, make_figures=not args.no_figures, endpoint_complement=args.endpoint_complement)
-    print(json.dumps(result, indent=2))
-    return 0 if result["state"] == "complete" else 1
+    print(json.dumps(to_wire(result), indent=2))
+    return 0 if result.state == "complete" else 1
 
 
 if __name__ == "__main__":

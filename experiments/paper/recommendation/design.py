@@ -1,6 +1,9 @@
 """Fixed designs for the paper's paired recommendation experiments."""
 
 from itertools import product
+from dataclasses import replace
+from ehk.domain import (Task, Rng, RecommenderParams, LateActivity, Sensitivity, RecordingProtocol,
+                        TrajectoryPrecision, CampaignProtocol, PrimaryOutcome, RecommendationProtocol)
 
 from ehk.metrics.pathway import EXCESS_THRESHOLD, OBSERVATION_INTERVAL, SEPARATION_THRESHOLD
 from ehk.micro.scenarios import create_scenario_metadata
@@ -34,20 +37,13 @@ FIXED_TRIGGER = 128
 LATEST_TRIGGER = 1536
 STAGE_CHECKPOINTS = (0, 16, 32, 64, 128, 256, 512, 768, 1024, 1536, REFERENCE_HORIZON)
 STAGES = ("early", "middle", "late")
-LATE_ACTIVITY = {"opinion_shift": 1e-3, "rewires": 1e-2, "earliest_step": 128, "intervals": 2}
+LATE_ACTIVITY = LateActivity(opinion_shift=1e-3,rewires=1e-2,earliest_step=128,intervals=2)
 MIN_STAGE_EFFECT = 0.05
 
 
-RECOMMENDER_PARAMS = {
-    "MixRate": 0.1,
-    "NoiseStd": 0.1,
-    "OpRandomNoiseStd": 2.0,
-    "RandomRatio": 0.0,
-    "Tolerance": 0.4,
-    "Steepness": 1.0,
-    "UseCache": True,
-    "LogRecommendations": False,
-}
+RECOMMENDER_PARAMS = RecommenderParams(MixRate=0.1, NoiseStd=0.1, OpRandomNoiseStd=2.0,
+    RandomRatio=0.0, Tolerance=0.4, Steepness=1.0, UseCache=True, LogRecommendations=False)
+
 NODE_COUNT = 500
 POST_SLOTS = 10
 
@@ -56,7 +52,7 @@ def observation_steps(horizon: int) -> list[int]:
     return [*range(0, horizon, OBSERVATION_INTERVAL), horizon]
 
 
-def generate_tasks(study: str) -> list[dict]:
+def generate_tasks(study: str) -> list[Task]:
     if study not in STUDIES:
         raise ValueError(f"unknown intervention study: {study}")
     seed_namespace = SEED_NAMESPACES[study]
@@ -89,110 +85,59 @@ def generate_tasks(study: str) -> list[dict]:
             recsys_count=POST_SLOTS,
             max_sim_step=REFERENCE_HORIZON + FOLLOWUP if study == "staged" else REFERENCE_HORIZON,
         )
-        metadata.update(
-            NodeCount=NODE_COUNT,
-            NodeFollowCount=15,
-            RecSysParams=dict(RECOMMENDER_PARAMS),
-            RNG={
-                "Algorithm": "pcg64-dxsm-v1",
-                "Seed1": f"0x{0x45484B0000000000 + seed:016x}",
-                "Seed2": f"0x{0xB9B7B4FFFFFFFFFF - seed:016x}",
-            },
-        )
-        tasks.append({
-            "id": name, "setting": setting, "sensitivity": sensitivity,
-            "replicate": replicate, "metadata": metadata,
-        })
+        metadata = replace(metadata, NodeCount=NODE_COUNT, NodeFollowCount=15,
+            RecSysParams=replace(RECOMMENDER_PARAMS), RNG=Rng(Algorithm="pcg64-dxsm-v1",
+                Seed1=f"0x{0x45484B0000000000 + seed:016x}", Seed2=f"0x{0xB9B7B4FFFFFFFFFF - seed:016x}"))
+        tasks.append(Task(id=name,setting=setting,sensitivity=sensitivity,replicate=replicate,metadata=metadata))
     return tasks
 
 
-def design_protocol(study: str) -> dict:
+def design_protocol(study: str) -> RecommendationProtocol:
     if study not in STUDIES:
         raise ValueError(f"unknown intervention study: {study}")
-    # Preserve legacy campaign metadata in frozen plans; it no longer schedules variants.
-    common = {
-        "replicates": REPLICATES,
-        "settings": [list(setting) for setting in SETTINGS],
-        "repost_rates": list(REPOST_RATES),
-        "core_epsilon": CORE_EPSILON,
-        "core_history": CORE_HISTORY,
-        "sensitivities": [
-            {"axis": axis, "epsilon": epsilon, "history": history,
-             "setting": list(SENSITIVITY_SETTING), "repost": SENSITIVITY_REPOST}
-            for axis, epsilon, history in SENSITIVITIES
-        ] if study != "staged_timing" else [],
-        "cadence": OBSERVATION_INTERVAL,
-        "recording": {
-            "backend": "persistent_smp",
-            "AgentNumber": True,
-            "OpinionSum": True,
-            "RewiringEvent": True,
-            "PostEvent": True,
-            "ViewPostsEvent": False,
-            "ViewPostsDetails": False,
-            "TrajectoryPrecision": {"opinions": "float64", "opinion_sums": "float64"},
-            "prefix": "replay_from_initialization_with_checkpoint_physical_and_rng_equality",
-            "late_trace": "followup_feed_details_jsonl_gzip" if study == "staged" else None,
-        },
-        "campaign": {
-            "order": ["staged", "recommender_variants", "staged_timing"],
-            "max_native_workers": 6,
-            "timing_requires": "core_stage_gate",
-        },
-        "exposure": "interval_counters_and_late_feed_trace" if study == "staged" else "interval_counters",
-        "separation_threshold": SEPARATION_THRESHOLD,
-        "excess_threshold": EXCESS_THRESHOLD,
-        "cross_camp_margin_in_epsilon": 0.25,
-        "reference_horizon": REFERENCE_HORIZON,
-        "terminal_major_mass": 0.02,
-    }
-    return {
-        **common,
-        "reference": REFERENCE,
-        "switch": SWITCH,
-        "window": FOLLOWUP,
-        **(
-            {
-                "checkpoints": list(STAGE_CHECKPOINTS),
-                "late_activity": LATE_ACTIVITY,
-                "min_stage_effect": MIN_STAGE_EFFECT,
-            }
-            if study == "staged"
-            else {
-                "fixed_trigger": FIXED_TRIGGER,
-                "latest_trigger": LATEST_TRIGGER,
-                "primary_outcome": {
-                    "metric": "end_separation",
-                    "direction": "lower",
-                    "comparison": "state minus fixed",
-                },
-                "gate_evidence": "completed_core_staged_tasks",
-            }
-        ),
-    }
+    protocol = RecommendationProtocol(replicates=REPLICATES, settings=tuple(SETTINGS), repost_rates=REPOST_RATES,
+        core_epsilon=CORE_EPSILON, core_history=CORE_HISTORY,
+        sensitivities=tuple(Sensitivity(axis=axis,epsilon=epsilon,history=history,setting=SENSITIVITY_SETTING,
+            repost=SENSITIVITY_REPOST) for axis,epsilon,history in SENSITIVITIES) if study != "staged_timing" else (),
+        cadence=OBSERVATION_INTERVAL,
+        recording=RecordingProtocol(backend="persistent_smp",AgentNumber=True,OpinionSum=True,
+            RewiringEvent=True,PostEvent=True,ViewPostsEvent=False,ViewPostsDetails=False,
+            TrajectoryPrecision=TrajectoryPrecision(opinions="float64",opinion_sums="float64"),
+            prefix="replay_from_initialization_with_checkpoint_physical_and_rng_equality",
+            late_trace="followup_feed_details_jsonl_gzip" if study == "staged" else None),
+        campaign=CampaignProtocol(order=("staged","recommender_variants","staged_timing"),max_native_workers=6,timing_requires="core_stage_gate"),
+        exposure="interval_counters_and_late_feed_trace" if study == "staged" else "interval_counters",
+        separation_threshold=SEPARATION_THRESHOLD,excess_threshold=EXCESS_THRESHOLD,
+        cross_camp_margin_in_epsilon=0.25,reference_horizon=REFERENCE_HORIZON,terminal_major_mass=0.02,
+        reference=REFERENCE,switch=SWITCH,window=FOLLOWUP)
+    if study == "staged":
+        return replace(protocol,checkpoints=STAGE_CHECKPOINTS,late_activity=LATE_ACTIVITY,min_stage_effect=MIN_STAGE_EFFECT)
+    return replace(protocol,fixed_trigger=FIXED_TRIGGER,latest_trigger=LATEST_TRIGGER,
+        primary_outcome=PrimaryOutcome(metric="end_separation",direction="lower",comparison="state minus fixed"),
+        gate_evidence="completed_core_staged_tasks")
 
 
-def select_stages(points: list[dict]) -> dict[str, dict]:
+def select_stages(points):
     """Select the first eligible checkpoint of each stage along the reference."""
     selected = {}
     quiet = 0
     for point in points:
-        step, state, activity = point["step"], point["pathway"], point["exposure"]
-        updates = activity["updates"]
+        step, state, activity = point.step, point.pathway, point.exposure
+        updates = activity.updates
         if (
             updates
-            and activity["absolute_shift"] / updates <= LATE_ACTIVITY["opinion_shift"]
-            and activity["rewires"] / updates <= LATE_ACTIVITY["rewires"]
+            and activity.absolute_shift / updates <= LATE_ACTIVITY.opinion_shift
+            and activity.rewires / updates <= LATE_ACTIVITY.rewires
         ):
             quiet += 1
         else:
             quiet = 0
         if step not in STAGE_CHECKPOINTS:
             continue
-        elevated = state["separation"] >= SEPARATION_THRESHOLD or (
-            state["excess_concordance"] is not None and state["excess_concordance"] >= EXCESS_THRESHOLD
+        elevated = state.separation >= SEPARATION_THRESHOLD or (
+            state.excess_concordance is not None and state.excess_concordance >= EXCESS_THRESHOLD
         )
-        if quiet >= LATE_ACTIVITY["intervals"] and step >= LATE_ACTIVITY["earliest_step"]:
+        if quiet >= LATE_ACTIVITY.intervals and step >= LATE_ACTIVITY.earliest_step:
             selected["late"] = point
             break
         if elevated and "early" in selected:

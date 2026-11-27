@@ -2,12 +2,13 @@
 
 import io
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
 from common.experiments.execution import TaskAdapter, execute_tasks
-from common.experiments.lifecycle import TaskJournal, Workflow
+from common.experiments.lifecycle import RunRecord, RunStatus, TaskJournal, Workflow, WorkflowStatus
 from common.experiments.plans import coverage, freeze_plan, read_plan
 from common.experiments.progress import Progress
 from common.experiments.registry import TaskRegistry
@@ -59,10 +60,45 @@ def test_task_owned_batch_reports_partial_success_and_resume_skips_committed(tmp
     with pytest.raises(BatchTaskError):
         execute_tasks(tasks, adapter, journal=journal)
     assert saved == {"0": "0", "2": "2"}
-    assert journal.finish(tasks)["state"] == "partial"
+    assert journal.finish(t["id"] for t in tasks).state == "partial"
     execute_tasks(tasks, adapter, journal=journal)
     assert calls == [["0", "1", "2"], ["1"]]
-    assert journal.finish(tasks)["missing"] == []
+    assert journal.finish(t["id"] for t in tasks).missing == ()
+    assert all(isinstance(record, RunRecord) for record in journal.records.values())
+
+
+def test_journal_accepts_only_task_ids_and_keeps_typed_attempt_records(tmp_path):
+    journal = TaskJournal(tmp_path)
+    journal.event("a", "failed", error="scientific failure", attempt=2)
+    result = journal.finish(("a", "b"))
+    assert isinstance(result, RunStatus)
+    assert result.state == "partial" and result.missing == ("a", "b")
+    assert result.records[0].error == "scientific failure"
+    saved = json.loads((tmp_path / "status.json").read_text())
+    assert saved["records"] == [{"id": "a", "state": "failed", "time": result.records[0].time,
+                                 "error": "scientific failure", "attempt": 2}]
+    with pytest.raises(ProtocolError, match="distinct strings"):
+        journal.finish(({"id": "a"},))
+    with pytest.raises(ProtocolError, match="distinct strings"):
+        journal.finish(("a", "a"))
+    assert TaskJournal(tmp_path / "empty").finish(()).completed == 0
+
+
+def test_workflow_uses_shared_status_or_an_explicit_result_adapter(tmp_path):
+    status = RunStatus(planned=1, completed=0, missing=("a",), state="partial", records=())
+    workflow = Workflow({"run": lambda: status}, tmp_path / "attempt.json", workers=2)
+    assert isinstance(workflow.status, WorkflowStatus)
+    assert workflow.dispatch("run") is status
+    assert workflow.status.state == "partial"
+
+    @dataclass
+    class CoverageResult:
+        pending: tuple[str, ...]
+
+    custom = Workflow({"run": lambda: CoverageResult(("a",))},
+                      result_state=lambda result: "partial" if result.pending else "complete")
+    custom.dispatch("run")
+    assert custom.status.state == "partial"
 
 
 def test_fancy_progress_tracks_duration_and_does_not_estimate_from_cache():
@@ -171,6 +207,7 @@ def test_opaque_native_launcher_preserves_results_errors_and_cancels_descendants
     # A killed, adopted child can briefly remain a zombie; it must not be running.
     if os.name == "nt":
         from common.runtime.process import process_exists
+
         assert not process_exists(child_pid)
     else:
         result = subprocess.run(["ps", "-o", "stat=", "-p", str(child_pid)], capture_output=True, text=True)

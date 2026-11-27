@@ -164,8 +164,9 @@ def test_task_failure_kills_active_children_and_never_launches_remaining_tasks(t
         run_tasks(run, [0, 1, 2], 2)
     assert time.monotonic() - started < 5
     assert sorted(seen) == [0, 1]
-    with pytest.raises(ProcessLookupError):
-        os.kill(int(pid_path.read_text()), 0)
+    from common.runtime.process import process_exists
+
+    assert not process_exists(int(pid_path.read_text()))
 
 
 def test_session_lock_prevents_duplicate_launch_and_is_released_on_failure(tmp_path):
@@ -185,7 +186,7 @@ def test_stale_task_lock_is_recovered_but_live_owner_is_preserved(tmp_path, monk
     with pytest.raises(RuntimeError, match="already active"):
         recover_task_lock(tmp_path)
     assert lock.exists()
-    monkeypatch.setattr(os, "kill", lambda *args: (_ for _ in ()).throw(ProcessLookupError()))
+    monkeypatch.setattr("common.runtime.process.process_exists", lambda pid: False)
     recover_task_lock(tmp_path)
     assert not lock.exists()
 

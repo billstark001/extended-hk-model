@@ -5,8 +5,9 @@ import json
 from pathlib import Path
 
 from experiments.paths import SMP_BINARY
+from common.io.json import json_default
 
-from .design import CASES, make_plan
+from .design import CASES, ControlDesign, SEED_NAMESPACE
 from .study import analyze, freeze, plot_snapshots, run_study
 
 
@@ -25,21 +26,20 @@ def main(argv=None):
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--endpoint-complement", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args(argv)
-    options = {
-        key: value
-        for key, value in dict(
-            cases=args.cases,
-            replicates=args.replicates,
-            horizon=args.horizon,
-            node_count=args.nodes,
-            follow_count=args.follow_count,
-            snapshot_steps=args.snapshot_steps,
-            seed_namespace=args.seed_namespace,
-        ).items()
-        if value is not None
-    }
+    changed_design = any(value is not None for value in (
+        args.cases, args.replicates, args.horizon, args.nodes, args.follow_count,
+        args.snapshot_steps, args.seed_namespace))
+    design = ControlDesign(
+        cases=tuple(args.cases) if args.cases is not None else CASES,
+        replicates=args.replicates if args.replicates is not None else 12,
+        horizon=args.horizon if args.horizon is not None else 2048,
+        node_count=args.nodes if args.nodes is not None else 500,
+        follow_count=args.follow_count if args.follow_count is not None else 15,
+        snapshot_steps=tuple(args.snapshot_steps) if args.snapshot_steps is not None else None,
+        seed_namespace=args.seed_namespace if args.seed_namespace is not None else SEED_NAMESPACE,
+    )
     if args.action == "plan":
-        print(json.dumps(make_plan(**options), indent=2))
+        print(json.dumps(design.plan(), indent=2, default=json_default))
         return
     if args.directory is None:
         parser.error("--directory is required except for plan")
@@ -49,9 +49,11 @@ def main(argv=None):
         return plot_snapshots(args.directory)
     binary = args.smp_binary or SMP_BINARY.resolve()
     if args.action == "freeze":
-        return freeze(args.directory, binary, **options)
-    return run_study(args.directory, binary, args.concurrency, **options)
+        return freeze(args.directory, binary, design if changed_design else None)
+    return run_study(args.directory, binary, args.concurrency, design if changed_design else None)
 
 
 if __name__ == "__main__":
-    main()
+    result = main()
+    if result is not None and getattr(result, "state", None) in ("partial", "failed", "interrupted"):
+        raise SystemExit(1)
