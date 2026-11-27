@@ -11,6 +11,7 @@ from scipy.stats import kurtosis, skew
 
 from common.numerics import adaptive_discrete_sampling, area_under_curve, first_more_or_equal_than
 from common.pipeline import Context
+from ehk.metrics.evaluation import MeasurementEvaluator
 from ehk.metrics.homophily import mean_followee_edge_concordance, normalize_homophily
 from ehk.metrics.pathway import OBSERVATION_INTERVAL, first_passage
 from ehk.metrics.polarization import DistanceCalculator, opinion_peak_count
@@ -142,11 +143,12 @@ distance_collector = DistanceCalculator(use_js_divergence=True, min_bandwidth=0.
 
 
 def calc_distance(rec: RawSimulationRecord, step: int):
-    return calc_distance_components(rec, step)[:2]
+    """Evaluate the adopted B=4081 distance indices on one saved state."""
+    return MeasurementEvaluator(calculator=distance_collector).distance(rec, int(step))
 
 
 def calc_distance_components(rec: RawSimulationRecord, step: int):
-    """Revised indices and reconstructed archived directions on the same samples."""
+    """Retain original exact KDE and archived directions for explicit audits."""
     result = distance_collector.calculate(
         rec.get_graph(step), rec.opinions[step], rec.metadata["HKParams"]["Tolerance"], random_state=step
     )
@@ -171,24 +173,7 @@ def followee_post_concordance(rec: RawSimulationRecord, step: int) -> float:
 
 @c.selector(("x_indices", "h_index", "p_index", "g_index"))
 def get_indices(scenario_record: RawSimulationRecord):
-    def point(step):
-        t = int(step)
-        p, g = calc_distance(scenario_record, t)
-        return np.array([p, g, calc_homophily(scenario_record, t)])
-
-    def error(left, right, midpoint, fraction):
-        residual = np.abs(midpoint - (left * (1 - fraction) + right * fraction))
-        return float(np.max(residual, where=np.isfinite(residual), initial=0))
-
-    end = scenario_record.max_step
-    if end == 0:
-        p, g, h = point(0)[:, None]
-        return np.array([0]), h, p, g
-    steps, indices = adaptive_discrete_sampling(
-        point, 0.01, 0, end, max_interval=512, err_func=error, int_midpoint=True
-    )
-    p, g, h = np.array(indices).T
-    return np.asarray(steps, dtype=int), h, p, g
+    return MeasurementEvaluator(calculator=distance_collector).indices(scenario_record)
 
 
 @c.selector
@@ -206,39 +191,18 @@ def get_concordance_series(scenario_record: RawSimulationRecord, x_indices: NDAr
 
 @c.selector(("pathway_label", "separation_step", "segregation_step"))
 def get_pathway_passage(scenario_record: RawSimulationRecord, probe_binary: Path):
-    from contextlib import closing
-
-    from smp_bindings.probe import FrozenSimulationState, run_probe_jobs
-
     end = scenario_record.max_step
     epsilon = scenario_record.metadata["HKParams"]["Tolerance"]
     steps = [*range(0, end, OBSERVATION_INTERVAL), end]
-
-    def requests():
-        for step, graph in scenario_record.iter_graphs(steps):
-            precision = (
-                scenario_record.trajectory.opinion_precision_at(step) if scenario_record.has_trajectory else "float32"
-            )
-            state = FrozenSimulationState(
-                step=step,
-                graph=graph,
-                opinions=scenario_record.opinions[step],
-                posts={},
-                precision="history_" + precision.replace("float", "f"),
-            )
-            yield {
-                "request_id": f"pathway-{step}",
-                "states": [state.to_wire()],
-                "measurements": ["pathway"],
-                "epsilon": epsilon,
-            }
-
-    with closing(run_probe_jobs(requests(), binary_path=str(probe_binary))) as measured:
-        passage = first_passage(
-            (state["step"], state["pathway"]["separation"], state["pathway"]["excess_concordance"])
-            for response in measured
-            for state in response["results"]
-        )
+    measured = scenario_record.evaluate_probe(
+        steps, measurements=["pathway"], epsilon=epsilon, binary_path=str(probe_binary),
+    )
+    if measured["source_max_step"] != end or [state["step"] for state in measured["results"]] != steps:
+        raise ValueError("native pathway observations differ from the requested saved history")
+    passage = first_passage(
+        (state["step"], state["pathway"]["separation"], state["pathway"]["excess_concordance"])
+        for state in measured["results"]
+    )
     return passage.label, passage.separation_step, passage.segregation_step
 
 

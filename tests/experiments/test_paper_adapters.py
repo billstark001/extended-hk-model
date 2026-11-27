@@ -3,6 +3,7 @@
 import numpy as np
 
 from common.experiments.execution import execute_tasks
+from ehk.metrics.protocol import METRIC_REVISION
 from experiments.paper.analysis.records import ScenarioStatistics, StatisticsStore
 from experiments.paper.analysis.statistics import analyze_statistics
 
@@ -49,7 +50,7 @@ def test_statistics_process_pool_upserts_documents_and_keeps_origins(tmp_path):
     assert len(rows) == 2
     assert rows[0].x_indices.dtype == np.int32
     assert rows[0].metadata["UniqueName"] == rows[0].name
-    assert rows[0].protocol["metrics"]["revision"] == 3
+    assert rows[0].protocol["metrics"]["revision"] == METRIC_REVISION
     assert rows[0].source["identity_method"]
     again = analyze_statistics(
         fake_statistics,
