@@ -7,12 +7,26 @@ import hashlib
 import json
 import os
 import tempfile
+from dataclasses import fields, is_dataclass
 from pathlib import Path
+
+
+def json_default(value):
+    """Encode explicit records only at a JSON serialization boundary."""
+    if hasattr(value, "__wire__"):
+        return value.__wire__(preserve_arrays=False)
+    if hasattr(value, "__json__"):
+        return value.__json__()
+    if is_dataclass(value) and not isinstance(value, type):
+        return {field.name: getattr(value, field.name) for field in fields(value)}
+    if isinstance(value, Path):
+        return str(value)
+    raise TypeError(f"unsupported JSON value: {type(value).__name__}")
 
 
 def canonical(value):
     """Serialize JSON with sorted keys and compact separators; reject NaN and infinities."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False, default=json_default)
 
 
 def fingerprint(value):
@@ -36,7 +50,7 @@ def atomic_json(path, value):
     fd, temp = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
     try:
         with os.fdopen(fd, "w") as f:
-            f.write(json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n")
+            f.write(json.dumps(value, indent=2, sort_keys=True, allow_nan=False, default=json_default) + "\n")
             f.flush()
             os.fsync(f.fileno())
         os.replace(temp, path)

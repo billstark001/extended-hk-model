@@ -74,7 +74,7 @@ def test_fancy_progress_tracks_duration_and_does_not_estimate_from_cache():
     tick[0] = 2.5
     progress.event("run", "complete")
     output = stream.getvalue()
-    assert "[1/3]" in output and "ETA —" in output
+    assert "[1/3]" in output and "ETA pending" in output
     assert "[2/3]" in output and "2.5s" in output and "ETA 2.5s" in output
 
 
@@ -154,10 +154,12 @@ def test_opaque_native_launcher_preserves_results_errors_and_cancels_descendants
     marker = tmp_path / "pid"
 
     def interrupt_when_started():
+        import _thread
+
         deadline = time.monotonic() + 15
         while not marker.exists() and time.monotonic() < deadline:
             time.sleep(0.02)
-        os.kill(os.getpid(), signal.SIGINT)
+        _thread.interrupt_main()
 
     timer = threading.Thread(target=interrupt_when_started, daemon=True)
     timer.start()
@@ -167,5 +169,9 @@ def test_opaque_native_launcher_preserves_results_errors_and_cancels_descendants
     assert marker.is_file()
     child_pid = int(marker.read_text())
     # A killed, adopted child can briefly remain a zombie; it must not be running.
-    result = subprocess.run(["ps", "-o", "stat=", "-p", str(child_pid)], capture_output=True, text=True)
-    assert not result.stdout.strip() or result.stdout.strip().startswith("Z")
+    if os.name == "nt":
+        from common.runtime.process import process_exists
+        assert not process_exists(child_pid)
+    else:
+        result = subprocess.run(["ps", "-o", "stat=", "-p", str(child_pid)], capture_output=True, text=True)
+        assert not result.stdout.strip() or result.stdout.strip().startswith("Z")

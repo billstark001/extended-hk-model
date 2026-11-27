@@ -36,12 +36,12 @@ class Progress:
                 self.computed += 1
             elapsed = now - self.started
             remaining = self.total - len(self.finished)
-            eta = duration(elapsed * remaining / self.computed) if self.computed else "—"
+            eta = duration(elapsed * remaining / self.computed) if self.computed else "pending"
             span = duration(now - self.starts.get(identifier, now))
-            mark = {"complete": "✓", "cached": "↪", "failed": "✗", "deferred": "…"}[state]
+            mark = {"complete": "OK", "cached": "CACHE", "failed": "FAIL", "deferred": "WAIT"}[state]
             count = f"{len(self.finished)}/{self.total}"
             print(
-                f"{mark} [{count}] {identifier} · {state} · {span} · elapsed {duration(elapsed)} · ETA {eta}",
+                f"{mark} [{count}] {identifier} | {state} | {span} | elapsed {duration(elapsed)} | ETA {eta}",
                 file=self.stream,
                 flush=True,
             )

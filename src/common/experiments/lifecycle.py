@@ -1,6 +1,5 @@
 """Exclusive sessions, stage dispatch and durable attempt status for all studies."""
 
-import fcntl
 import json
 import os
 import signal
@@ -23,34 +22,51 @@ def read_owned(path: Path, root: Path) -> dict[str, Any]:
 @contextmanager
 def session_lock(directory: Path):
     directory.mkdir(parents=True, exist_ok=True)
-    with (directory / "session.lock").open("a+") as handle:
+    with (directory / "session.lock").open("a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+        else:
+            import fcntl
+
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
+            if os.name == "nt":
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
             raise RuntimeError(f"run already active: {directory}") from error
         try:
             handle.seek(0)
             handle.truncate()
-            handle.write(str(os.getpid()))
+            handle.write(str(os.getpid()).encode("ascii"))
             handle.flush()
             yield
         finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            if os.name == "nt":
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def recover_task_lock(directory: Path) -> None:
+    from common.runtime.process import process_exists
+
     path = directory / "active.lock"
     if not path.exists():
         return
     pid = int(path.read_text())
     if pid <= 0:
         raise ValueError(f"invalid PID lock: {path}")
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        path.unlink()
-    else:
+    if process_exists(pid):
         raise RuntimeError(f"run already active (PID {pid}): {directory}")
+    path.unlink()
 
 
 @contextmanager

@@ -5,7 +5,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, cast
 
-from common.io.json import atomic_json, fingerprint
+from common.io.json import atomic_json, canonical, fingerprint
 from common.runtime.failures import ProtocolError
 from common.types import TaskCoverage
 
@@ -40,9 +40,9 @@ def freeze_plan(path: Path, candidate: Mapping[str, Any]) -> dict[str, Any]:
     return frozen
 
 
-def freeze_manifest(path: Path, candidate: Mapping[str, Any]) -> None:
+def freeze_manifest(path: Path, candidate) -> None:
     if path.exists():
-        if json.loads(path.read_text()) != dict(candidate):
+        if canonical(json.loads(path.read_text())) != canonical(candidate):
             raise ProtocolError(f"binding or manifest changed: {path}; use a new run")
     else:
         atomic_json(path, candidate)

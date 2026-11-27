@@ -16,8 +16,46 @@ _process_lock = threading.Lock()
 _processes = {}
 
 
+def process_exists(pid):
+    """Query process liveness without sending a signal on Windows."""
+    if pid <= 0:
+        return False
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+    handle = kernel.OpenProcess(0x1000, False, pid)
+    if not handle:
+        error = ctypes.get_last_error()
+        if error == 87:
+            return False
+        if error == 5:
+            return True
+        raise ctypes.WinError(error)
+    try:
+        code = wintypes.DWORD()
+        if not kernel.GetExitCodeProcess(handle, ctypes.byref(code)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return code.value == 259
+    finally:
+        kernel.CloseHandle(handle)
+
+
 def _isolated_call(connection, function, arguments):
-    os.setsid()
+    if os.name == "posix":
+        os.setsid()
     try:
         connection.send((True, function(*arguments)))
     except BaseException as error:
@@ -27,6 +65,9 @@ def _isolated_call(connection, function, arguments):
 
 
 def _kill_isolated_tree(pid):
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=10)
+        return
     # A third-party launcher may start children in new sessions. Freeze the
     # launcher before collecting ancestry so those children cannot escape merely
     # by leaving its process group. This uses only OS process IDs, never API names.
