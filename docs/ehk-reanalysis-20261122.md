@@ -1,71 +1,154 @@
-# Original-paper reanalysis and trajectory figures
+# EHK primary analysis routes
 
-This guide covers reanalysis of existing microscopic records and reproducible new runs. Existing raw simulations remain readable. Archived wide-table statistics are preserved separately from the new document database.
+## Measurement contract
 
-## Indices and statistics storage
+Production four-index routes share `MeasurementEvaluator`: clustered-reference
+JS-distance similarity for I_p/I_s, user-weighted current-edge I_h, and full-path
+signed I_w with endpoint completion enabled by default. The numerical method is
+4081-node linear-binned Gaussian KDE. Existing exact/B parameters are used only
+by explicit numerical studies through the same metric formula core.
 
-- `I_p,I_s` use random-reference Jensen–Shannon divergence ratios. Historical JS distance and clustered-reference complements are reconstructed separately in the audit. `I_p` measures departure of the opinion-distance distribution from the random reference; it can rise under consensus and is not bounded by one.
-- `I_h` uses the current opinions at directed follow-edge endpoints. Concordance is averaged equally over nodes with positive out-degree and normalized against the uniform baseline `epsilon-epsilon**2/4`. The confidence condition is strictly `distance < epsilon`. Concordance of received followee posts is stored separately.
-- `I_w` is the chronological signed trapezoidal integral plus `(1-I_p(T))*I_h(T)` by default. This completion to `I_p=1` retains terminal homophily in the trajectory-tendency measure. `--no-endpoint-complement` selects the observed integral alone. Neither convention is clipped to `[0,1]`.
-- The historical `0.6` cutoff is an unvalidated descriptive split. Grouped plots require an explicit `EHK_IW_CUTOFF` and use low/high `I_w` labels.
-- Reanalysis does not call the P/E probe by default. `--include-pathway-probe` adds its independent first-passage labels.
+The former random-reference indices, post-based I_h and historical multi-formula
+audit are removed. Supplementary P/E, exposure opportunities and terminal outcomes
+remain distinct scientific measurements. Saved values are never relabeled under
+a different formula or numerical protocol.
 
-The default statistics database is `outputs/experiments/paper/stats-v3.sqlite`. Standard-library SQLite stores metadata, metric protocols, raw-source identities and arrays in one document per task. Typed NumPy arrays use compressed NPY with pickle disabled. Each document commits in one transaction; adding a statistic does not require a wide-table migration.
+## Coordinated source revisions
 
-Cache identity binds task parameters, recorded raw metadata, available RNG provenance, the endpoint-complement choice, metric source code and input-file identities. Historical records without seeds retain that missing provenance. Historical metric values retain their stored convention; they are never relabeled by the new default. Changed inputs and forced reanalysis invalidate previous documents persistently; a failed retry cannot supply an old complete result to plotting. Readers require an explicit selection when multiple metric revisions or raw sources coexist.
+The typed pipeline uses these coordinated code revisions. This guide follows the
+EHK code revision and changes no measurement implementation.
 
-## Reanalyze existing raw records
+| Repository | Code revision |
+|---|---|
+| `social-media-models` | `902fada29716a6c7235ed3b8863e96735a357bf7` |
+| `extended-hk-model` | `7a9688a1914231a7eae8290bea03e13b798771a2` |
 
-Run these commands from the model repository. Replace the paths with a raw root containing scenario directories such as `s_grad_*` and a separate destination database:
+The EHK typed-interface cutover is
+`844832b713da2c048bf0adcf4f3bd3d1654ea946`, paired with the SMP revision above.
+When inspecting the earlier metric-only intermediate
+`b0568cf8df0d34830374891abc610a33bde84043`, pair it with SMP platform revision
+`e4b1ccf27ba92a10b3fcc70e5866557d16be1840`, which retains the earlier SDK interface.
+Tests and generated verification records stay separate from the external raw
+histories, observation databases and JSON archives.
 
-```sh
-python -m experiments.paper.analysis.run gradation --raw-root /path/to/existing/raw --origin original-paper --database /path/to/reanalysis/stats-v3.sqlite --plan-only
+## Original scans
 
-python -m experiments.paper.analysis.run gradation --raw-root /path/to/existing/raw --origin original-paper --database /path/to/reanalysis/stats-v3.sqlite --limit 1 --concurrency 1
+From this repository in PowerShell:
 
-python -m experiments.paper.analysis.run gradation --raw-root /path/to/existing/raw --origin original-paper --database /path/to/reanalysis/stats-v3.sqlite --concurrency 6
+```powershell
+$env:OPENBLAS_NUM_THREADS = '1'
+$env:OMP_NUM_THREADS = '1'
+$env:MKL_NUM_THREADS = '1'
+.\.venv\Scripts\python.exe -m experiments.paper.analysis.run gradation `
+  --raw-root F:/pathway-index-scan/data2/run `
+  --metadata-source original-design --origin original-data2 `
+  --database outputs/paper/reanalysis_20261127/original/stats.sqlite --concurrency 4
 ```
 
-A successful limited run can be reused by a later full selection. Run `epsilon` and `replicate` similarly; all three modes may share the new statistics database. Omission of the completion flag, or `--endpoint-complement`, uses completion. Add `--no-endpoint-complement` for a separate uncompleted analysis identity. The positional `MODE INSTANCE_NAME` interface still reads `sim_ws.json`. `--force` recomputes documents under the current metric revision. Missing and failed tasks remain visible in the run status, while successful records can resume independently.
+This selects all 12,288 planned tasks. `--limit N` or `--tasks NAME ...` selects a
+subset; repeating the full command reuses matching complete documents. Other
+modes are `epsilon` and `replicate`, each requiring its own actual raw root. The
+inspected F:/pathway-index-scan/data1/2/3 roots contain gradation records only.
+Different data roots remain different origins even when task names match.
 
-By default, reanalysis also reconstructs historical conventions on the same raw trajectory: the uniform baseline, post versus edge concordance, JS reference direction, distance versus divergence, endpoint complement and sampling coverage. Reconstruction uses deterministic current sampling; exact agreement with old products lacking sampling provenance is not guaranteed. Missing post observations are retained as missing. Use `--skip-metric-audit` for an analysis that does not need this comparison.
+The default `--metadata-source record` reads stored metadata.json. The explicit
+`original-design` declaration is for the historical datasets that lack it. Output
+records disclose this parameter provenance and missing RNG seeds. A missing file
+never silently switches parameter sources. Date-stamped accumulated states and
+chunked histories are real supported input formats, not alternate metric routes.
 
-## Audit groups and dependent numerical claims
+The default database location can be configured with SIMULATION_STAT_DIR.
+Explicit `--database` is recommended for a new metric generation. All documents
+bind the protocol, package/source identities and original inputs. Missing,
+failed and stale tasks remain visible. Incomplete commands return nonzero.
 
-```sh
-python -m experiments.paper.pathway_index.audit --database /path/to/reanalysis/stats-v3.sqlite --origin original-paper --analysis-id ANALYSIS_ID --cutoff 0.6 --output /path/to/reanalysis/audit
+For descriptive matched k_h=0 summaries:
 
-python -m experiments.paper.pathway_index.grouped_summary --database /path/to/reanalysis/stats-v3.sqlite --origin original-paper --analysis-id ANALYSIS_ID --cutoff 0.6 --output /path/to/reanalysis/audit
+```powershell
+.\.venv\Scripts\python.exe -m experiments.paper.pathway_index.grouped_summary `
+  --database outputs/paper/reanalysis_20261127/original/stats.sqlite `
+  --origin original-data2 --cutoff 0.6 --output outputs/paper/reanalysis_20261127/groups
 ```
 
-Use the `ANALYSIS_ID` returned by gradation analysis. The audit exports per-run convention changes, group migrations at the selected cutoff, and edge/post concordance trajectories. `--legacy /path/to/old/stats.db` adds a read-only comparison with archived scores; an archived statistics database is optional.
+Use the returned analysis_id when a database contains multiple revisions. The
+historical 0.6 split must be reassessed; it does not establish PbS/SbP first passage.
 
-`grouped_summary` compares the two M9 policies at matched `k_h=0`. It exports run-level observations, group means and standard deviations, and percentage changes with explicit reference-group denominators. Metrics cover rewiring counts, normalized rewiring times, `I_s` area and closed triads. These are descriptive group comparisons. Inspect sample counts, missingness and group migration before reusing a historical cutoff or reported percentage.
+## Recommendation observations and analysis
 
-## Plotting
+The migrated local batch is already available at
+`E:/ResearchData/ehk/recommendation/20261127/<profile>/analysis.sqlite`, with its
+plan and binding. Its original JSON observations have verified ZIP archives in
+the same directories. Source JSON cleanup status is recorded in the receipts;
+complete raw histories remain on F:. Use this SQLite copy directly for analysis.
 
-The seven original statistics-plot entry points read the document database. Use the default `stats-v3.sqlite`, or set `SIMULATION_STAT_DIR` to its containing directory. `EHK_ANALYSIS_ID` selects a metric revision within a mode, and `EHK_STATS_ORIGIN` selects a raw source. Different modes may have different analysis IDs.
+The canonical study directory contains plan.json, executable bindings and
+analysis.sqlite. Existing JSON datasets are imported explicitly once:
 
-```sh
-EHK_STATS_ORIGIN=original-paper python -m experiments.paper.main_scan.plot
-EHK_STATS_ORIGIN=original-paper python -m experiments.paper.pathway_index.plot_trajectories
-EHK_STATS_ORIGIN=original-paper EHK_IW_CUTOFF=0.6 python -m experiments.paper.pathway_index.plot
-EHK_STATS_ORIGIN=original-paper EHK_IW_CUTOFF=0.6 python -m experiments.paper.pathway_index.plot_raw
-EHK_STATS_ORIGIN=original-paper EHK_IW_CUTOFF=0.6 python -m experiments.paper.mechanism_cases.plot_cluster_and_repost
-EHK_STATS_ORIGIN=original-paper python -m experiments.paper.epsilon_scan.plot
-EHK_STATS_ORIGIN=original-paper python -m experiments.paper.replicate.plot
+```powershell
+.\.venv\Scripts\python.exe -m experiments.paper.recommendation_shared.import_json `
+  --source F:/ehk_cache/run/staged `
+  --raw-root F:/ehk_cache/run/staged `
+  --output outputs/paper/reanalysis_20261127/staged
 ```
 
-The main algorithm comparisons use `k_h=0`; the raw history-group plot retains separate history controls. Readers reject stale documents and do not pool different raw sources or metric revisions.
+Repeat for staged_timing and recommender_variants. Import authenticates task and
+arm identities, recorded binaries, observation grids and update denominators.
+Available raw summaries are cross-checked. Missing raw files remain missing in
+the receipt; saved observations can still be analyzed. Normal study readers use
+SQLite only. Existing scientific raw files and complete recovery checkpoints are
+unchanged by storage migration.
 
-## Run new simulations
+New native runs stream observations to Python and a single SQLite writer; they
+produce neither per-arm observations.json nor task-level JSON result files.
+Online control and non-reconstructible opportunity counters remain recorded.
+Changing an actual intervention trigger changes the experiment, whereas offline
+state metrics and statistical summaries can be recomputed from saved inputs.
 
-```sh
-python -m experiments.paper.run gradation --plan-only
-python -m experiments.paper.run gradation --run-dir /path/to/new/raw --freeze-only
-python -m experiments.paper.run gradation --run-dir /path/to/new/raw --concurrency 4
+Export authenticated SQLite observations and analysis tables:
+
+```powershell
+.\.venv\Scripts\python.exe -m experiments.paper.recommendation_shared.bundle export `
+  --dataset outputs/paper/reanalysis_20261127/staged `
+  --output outputs/paper/reanalysis_20261127/staged-bundle --require-complete
 ```
 
-The same interface supports `epsilon`, `replicate` and `mech`. Use new raw directories. Historical task names and axis order are retained, while new runs record independent PCG root seeds, coordinates, model/recommender parameters, collection settings, float64 precision and executable/source identities. Freeze a formal run after completing code changes; an old unseeded same-name simulation cannot be resumed under a new seed identity.
+Use each study's plot entry for its analysis/figures. The bundle records both the
+observation database location and original raw root. Its SQLite snapshot uses
+the backup API, including committed WAL content. CSVs are explicit exports.
 
-The independent [process-control workflow](../experiments/paper/pathway_controls/README.md) compares full, `q=0` and `alpha=0` arms from the same complete initial state and RNG. It exports actual directed edges, opinions and posts without requiring P/E thresholds. Small smoke runs check the workflow; representative manuscript figures require completed scientific-scale trajectories.
+## Recompute the four indices on paired-study histories
+
+Prepare one or more authenticated bundles, then collect, align and report:
+
+```powershell
+.\.venv\Scripts\python.exe -m experiments.paper.metric_comparison prepare `
+  --bundle outputs/paper/reanalysis_20261127/staged-bundle `
+  --output outputs/paper/reanalysis_20261127/paired-preparation
+.\.venv\Scripts\python.exe -m experiments.paper.metric_comparison.run `
+  --preparation outputs/paper/reanalysis_20261127/paired-preparation `
+  --output outputs/paper/reanalysis_20261127/paired-metrics --workers 4
+```
+
+Repeat --bundle to include timing and implementation-comparison studies. These
+commands start no simulations. Exact joins match recorded P/E observations to
+the adopted four indices; full-path I_w uses each branch's complete shared prefix
+and its independent adaptive grid, not just the 16-step exported points. Numerical
+receipts and tables live in SQLite, with explicit report exports.
+
+## Process controls, numerical studies and rendering
+
+Pathway controls use the same four-index evaluator and SQLite storage. Checkpoint
+exports retain physical graph/opinion/post data independently of the metrics.
+Mechanism plots use authenticated SQLite derived records rather than an
+unversioned task-name pickle. KDE approximation studies explicitly evaluate exact
+and candidate densities with the shared metric core; they do not change formal
+analysis defaults or retain another formula implementation.
+
+Original figure entry points remain main_scan.plot, pathway_index.plot,
+pathway_index.plot_raw, pathway_index.plot_trajectories,
+mechanism_cases.plot_cluster_and_repost, epsilon_scan.plot and replicate.plot
+under experiments.paper. Set SIMULATION_STAT_DIR to the selected database's
+containing directory and select EHK_STATS_ORIGIN/EHK_ANALYSIS_ID explicitly.
+The registered original-figure filename is stats-v3.sqlite; an explicitly named
+database used elsewhere does not change it. Grouped plots additionally require
+EHK_IW_CUTOFF. Missing or obsolete protocols cause a clear error, never a fallback.
