@@ -1,5 +1,9 @@
 # Pathway metrics: continuous tendencies and P/E observations
 
+Read-only full-scan threshold, historical-pilot and Figure 5 entry points and
+complete execution commands are documented in [AUDITS.md](AUDITS.md). Their
+paper-side copies have been removed; the paper retains compact evidence.
+
 This experiment compares the recorded continuous `I_w` pathway tendency with
 independent P/E observations on the same saved trajectories. PbS/SbP are
 tendency labels; `I_w = 0.6` is a working split. P/E first-observed threshold
@@ -174,3 +178,29 @@ Run the experiment's focused tests:
 ```powershell
 & $PathwayPython -m pytest tests/experiments/pathway_metrics -q
 ```
+
+## Original Figure 5 threshold comparison
+
+`figure5` reads the separate primary statistics database directly and redraws
+the original eight-panel grouped-bar figure for completed `data2+data3`,
+`k_h=0`, under formal analysis `e499b1ab…`. It compares the working splits
+`I_w=0.6` and `0.7`, using the existing normalized event timing and the clipped
+piecewise-linear `I_s` AUC. It does not use the 512-run P/E comparison dataset;
+`report analyze/export` above remains responsible for that separate study.
+
+From the model repository root, write explicit paper exhibits with:
+
+```powershell
+& $PathwayPython -m experiments.paper.pathway_metrics.figure5 `
+  --database E:/ResearchData/ehk/original/20261127/primary/stats-v3.sqlite `
+  --output D:/Research/extended-hk-model-paper/artifacts/ehk_figure5_threshold_20261128
+```
+
+`--output` is required. Use a different explicit directory for validation or
+another rendering; there is no default output inside the source package.
+The frozen cohort check expects 12,285 runs. Output includes both vector PDF
+and 300-dpi PNG figures, external captions, compact mean/SD and contrast CSVs,
+group counts/composition, threshold-direction changes, a Chinese `REPORT.md`
+and source/snapshot provenance. CSVs are generated exhibits rather than input
+caches; no per-run copy is exported. Neither simulation nor state metrics or
+`I_w` is recalculated. The earlier paper-side `analyze.py` copy is removed.
