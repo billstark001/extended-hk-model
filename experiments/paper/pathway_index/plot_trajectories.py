@@ -1,3 +1,4 @@
+import argparse
 from typing import Dict, Iterable, List, Sequence, Tuple
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from sklearn.cluster import KMeans
 import experiments.paper.scenarios as cfg
 from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
 from experiments.paper.analysis.records import ScenarioStatistics
-from experiments.paper.analysis.selection import read_statistics, select_statistics
+from experiments.paper.analysis.selection import read_statistics, select_statistics, source_counts
 from experiments.paper.paths import PATHWAY_OUTPUT, statistics_database
 
 retweet_groups: List[float] = list(cfg.REPOST_AXIS)
@@ -253,16 +254,27 @@ def write_trajectory_caption(stem: Path, session: Sequence[ScenarioStatistics]) 
         "Saved trajectories and I_w values remain unchanged; values outside the color scale use endpoint colors, and portions outside the axes are not shown.",
     ]
     if session:
-        lines.append(f"Origin: {session[0].origin}; analysis_id: {session[0].analysis_id}.")
+        lines.append(f"Origins (available runs): {source_counts(session)}; "
+                     f"analysis_id: {', '.join(sorted({row.analysis_id for row in session}))}.")
     lines.extend(f"p={repost:g}, {policy}/k={history}: n={len(curves)}"
                  for (repost, policy, history), curves in groups.items())
     stem.with_name(stem.name + "_caption.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-if __name__ == "__main__":
-    figure_dir = PATHWAY_OUTPUT.resolve() / "figures"
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Render the original policy/history trajectory facets.")
+    parser.add_argument("--database", type=Path, default=statistics_database())
+    parser.add_argument("--origin", action="append", help="Repeat to explicitly pool named sources.")
+    parser.add_argument("--analysis-id")
+    parser.add_argument("--output", type=Path, default=PATHWAY_OUTPUT.resolve())
+    args = parser.parse_args(argv)
+    figure_dir = args.output / "figures"
     figure_dir.mkdir(parents=True, exist_ok=True)
-    session = read_statistics(statistics_database(), mode="gradation")
+    session = read_statistics(args.database, mode="gradation", origins=args.origin, analysis_id=args.analysis_id)
     fig = plot_p_h_index_trajectories(session)
     plt_save_and_close(fig, str(figure_dir / "f_p_h_index_trajectory"), jpg=True)
     write_trajectory_caption(figure_dir / "f_p_h_index_trajectory", session)
+
+
+if __name__ == "__main__":
+    main()

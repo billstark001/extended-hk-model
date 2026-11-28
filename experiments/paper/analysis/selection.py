@@ -1,8 +1,9 @@
-"""Read a single, explicit statistics revision for the original-paper figures."""
+"""Read an explicit, compatible statistics cohort for the original-paper figures."""
 
 from __future__ import annotations
 
 import math
+from collections import Counter
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
@@ -32,19 +33,45 @@ def recorded_endpoint_complement(row: ScenarioStatistics) -> bool | None:
 
 
 def read_statistics(
-    database: str | Path | None = None, *, mode: str, origin: str | None = None, analysis_id: str | None = None
+    database: str | Path | None = None, *, mode: str, origin: str | None = None,
+    origins: Iterable[str] | None = None, analysis_id: str | None = None
 ) -> list[ScenarioStatistics]:
     """Load one mode without pooling incompatible revisions or duplicate raw runs.
 
-    ``EHK_STATS_ORIGIN`` and ``EHK_ANALYSIS_ID`` select an explicit subset when a
-    document store contains multiple source datasets or analysis protocols.
+    ``origins`` or comma-separated ``EHK_STATS_ORIGINS`` explicitly pools named
+    batches. The singular ``origin``/``EHK_STATS_ORIGIN`` remains supported.
+    Unselected batches are never silently pooled. Every requested batch must
+    exist and share the complete recorded analysis protocol.
     Reading closes the SQLite connection before plotting begins.
     """
 
-    origin = origin or environment_value("EHK_STATS_ORIGIN")
+    if origin is not None and origins is not None:
+        raise ValueError("select origin or origins, not both")
+    if origin is None and origins is None:
+        origin = environment_value("EHK_STATS_ORIGIN")
+        raw_origins = environment_value("EHK_STATS_ORIGINS")
+        if origin is not None and raw_origins is not None:
+            raise ValueError("set EHK_STATS_ORIGIN or EHK_STATS_ORIGINS, not both")
+        if raw_origins is not None:
+            origins = raw_origins.split(",")
+    if isinstance(origins, str):
+        raise ValueError("origins must be a sequence of exact source names, not a string")
+    selected = [origin] if origin is not None else list(origins) if origins is not None else None
+    if selected is not None:
+        if not selected or any(not isinstance(item, str) or not item.strip() for item in selected):
+            raise ValueError("source selection must contain nonempty origin names")
+        selected = [item.strip() for item in selected]
+        if len(selected) != len(set(selected)):
+            raise ValueError("duplicate requested origins")
     analysis_id = analysis_id or environment_value("EHK_ANALYSIS_ID")
     with StatisticsStore(database or statistics_database(), readonly=True) as store:
-        rows = store.records(origin=origin, mode=mode, analysis_id=analysis_id)
+        rows = store.records(origin=selected[0] if selected and len(selected) == 1 else None,
+                             mode=mode, analysis_id=analysis_id)
+    if selected is not None:
+        rows = [row for row in rows if row.origin in selected]
+        missing = set(selected) - {row.origin for row in rows}
+        if missing:
+            raise ValueError(f"requested source datasets have no matching statistics: {', '.join(sorted(missing))}")
     if not rows:
         raise ValueError(f"no {mode!r} statistics match the selected dataset and analysis revision")
     revisions = {row.analysis_id for row in rows}
@@ -52,8 +79,8 @@ def read_statistics(
         raise ValueError("multiple analysis revisions match; select EHK_ANALYSIS_ID before plotting")
     if len({recorded_endpoint_complement(row) for row in rows}) != 1:
         raise ValueError("mixed endpoint-complement conventions in the selected analysis revision")
-    if len({row.origin for row in rows}) != 1:
-        raise ValueError("multiple source datasets match; select EHK_STATS_ORIGIN before plotting")
+    if selected is None and len({row.origin for row in rows}) != 1:
+        raise ValueError("multiple source datasets match; select EHK_STATS_ORIGIN or EHK_STATS_ORIGINS before plotting")
     stale = [row.name for row in rows if row.stale or row.complete is not True]
     if stale:
         raise ValueError(f"stale or incomplete statistics must be reanalyzed before plotting: {', '.join(stale[:5])}")
@@ -66,10 +93,17 @@ def read_statistics(
             or row.protocol.metrics != metric_protocol(endpoint_complement=complement)
         ):
             raise ValueError(f"statistics use an obsolete or missing metric protocol; reanalyze {row.name}")
+        if row.protocol != rows[0].protocol:
+            raise ValueError("incompatible recorded analysis protocols in the selected cohort")
     identities = [(row.name, row.origin) for row in rows]
     if len(identities) != len(set(identities)):
         raise ValueError("duplicate source identities in statistics selection")
     return rows
+
+
+def source_counts(records: Iterable[ScenarioStatistics]) -> dict[str, int]:
+    """Stable per-source counts for captions and receipts, preserving batch identity."""
+    return dict(sorted(Counter(row.origin for row in records).items()))
 
 
 def select_statistics(records: Iterable[ScenarioStatistics], *predicates: StatisticFilter) -> list[ScenarioStatistics]:

@@ -1,4 +1,6 @@
-"""Figure readers must not pool incompatible reanalyses or unmatched histories."""
+"""Figure readers require explicit compatible sources and declared design scopes."""
+
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -7,6 +9,12 @@ from ehk.metrics.protocol import METRIC_REVISION, metric_protocol
 
 from experiments.paper.analysis.records import ScenarioStatistics, StatisticsStore
 from experiments.paper.analysis.selection import is_high_iw, is_low_iw, read_statistics
+
+
+@pytest.fixture(autouse=True)
+def clear_source_selection(monkeypatch):
+    for key in ("EHK_STATS_ORIGIN", "EHK_STATS_ORIGINS", "EHK_ANALYSIS_ID"):
+        monkeypatch.delenv(key, raising=False)
 
 
 def _record(name="s_grad_fixture", *, origin="raw-a", history=0, value=0.4):
@@ -55,6 +63,48 @@ def test_disjoint_partial_sources_are_not_silently_pooled(tmp_path):
         read_statistics(database, mode="gradation", analysis_id="r1")
 
 
+def test_explicit_multiple_sources_preserve_same_name_runs_and_environment(tmp_path, monkeypatch):
+    database = tmp_path / "combined.sqlite"
+    with StatisticsStore(database) as store:
+        for origin in ("raw-a", "raw-b", "unselected"):
+            store.put(_record(origin=origin), analysis_id="r1", mode="gradation",
+                      protocol=AnalysisProtocol(metrics=metric_protocol()))
+    rows = read_statistics(database, mode="gradation", origins=("raw-a", "raw-b"), analysis_id="r1")
+    assert sorted((row.origin, row.name) for row in rows) == [
+        ("raw-a", "s_grad_fixture"), ("raw-b", "s_grad_fixture")]
+    monkeypatch.setenv("EHK_STATS_ORIGINS", "raw-a, raw-b")
+    assert len(read_statistics(database, mode="gradation", analysis_id="r1")) == 2
+    # An explicit one-source request overrides the environment.
+    assert len(read_statistics(database, mode="gradation", origin="raw-a", analysis_id="r1")) == 1
+    monkeypatch.setenv("EHK_STATS_ORIGIN", "raw-a")
+    with pytest.raises(ValueError, match="not both"):
+        read_statistics(database, mode="gradation", analysis_id="r1")
+
+
+@pytest.mark.parametrize("origins, message", [
+    ((), "nonempty"), (("raw-a", ""), "nonempty"),
+    (("raw-a", "raw-a"), "duplicate"), (("raw-a", "missing"), "no matching"),
+    ("raw-a", "not a string"),
+])
+def test_multiple_sources_reject_incomplete_or_ambiguous_requests(tmp_path, origins, message):
+    database = tmp_path / "selection.sqlite"
+    with StatisticsStore(database) as store:
+        store.put(_record(), analysis_id="r1", mode="gradation", protocol=AnalysisProtocol(metrics=metric_protocol()))
+    with pytest.raises(ValueError, match=message):
+        read_statistics(database, mode="gradation", origins=origins)
+
+
+def test_multiple_sources_reject_same_revision_with_incompatible_protocols(tmp_path):
+    database = tmp_path / "protocol.sqlite"
+    protocol = AnalysisProtocol(metrics=metric_protocol())
+    with StatisticsStore(database) as store:
+        store.put(_record(origin="raw-a"), analysis_id="r1", mode="gradation", protocol=protocol)
+        store.put(_record(origin="raw-b"), analysis_id="r1", mode="gradation",
+                  protocol=replace(protocol, active_threshold=.5))
+    with pytest.raises(ValueError, match="incompatible recorded analysis protocols"):
+        read_statistics(database, mode="gradation", origins=("raw-a", "raw-b"))
+
+
 def test_invalidated_source_statistics_cannot_be_used_in_a_figure(tmp_path):
     database = tmp_path / "stale.sqlite"
     row = _record()
@@ -65,7 +115,7 @@ def test_invalidated_source_statistics_cannot_be_used_in_a_figure(tmp_path):
         read_statistics(database, mode="gradation")
 
 
-def test_main_heatmap_matches_history_but_raw_bars_keep_history_controls():
+def test_main_and_raw_pool_original_design_but_keep_explicit_history_controls():
     from experiments.paper.main_scan.plot import create_heatmap_evaluator
     from experiments.paper.pathway_index.bar_plot import summarize_bar
     from experiments.paper.pathway_index.plot_raw import k_filters_1, k_filters_2
@@ -76,8 +126,12 @@ def test_main_heatmap_matches_history_but_raw_bars_keep_history_controls():
     ]
     mean, _ = create_heatmap_evaluator(rows, "OpinionM9")(lambda row: row.pathway_integral)
     assert np.count_nonzero(np.isfinite(mean)) == 1
-    assert mean[np.isfinite(mean)].item() == 0.2
-    for filters, expected in ((k_filters_1[2], 0.2), (k_filters_2[1], 0.7), (k_filters_2[2], 1.2)):
+    assert mean[np.isfinite(mean)].item() == pytest.approx(0.7)
+    mean_zero, _ = create_heatmap_evaluator(rows, "OpinionM9", history_scope="zero")(lambda row: row.pathway_integral)
+    assert mean_zero[np.isfinite(mean_zero)].item() == 0.2
+    summary = summarize_bar(rows, k_filters_1[2], lambda row: row.pathway_integral)
+    assert summary.mean == pytest.approx(.7) and summary.count == 3
+    for filters, expected in ((k_filters_2[1], 0.7), (k_filters_2[2], 1.2)):
         summary = summarize_bar(rows, filters, lambda row: row.pathway_integral)
         assert summary.mean == expected and summary.std == 0 and summary.count == 1
 

@@ -11,7 +11,7 @@ import pandas as pd
 
 from common.io.json import atomic_json
 from experiments.paper.analysis.records import ScenarioStatistics
-from experiments.paper.analysis.selection import read_statistics, recorded_endpoint_complement
+from experiments.paper.analysis.selection import read_statistics, recorded_endpoint_complement, source_counts
 from experiments.paper.paths import PATHWAY_OUTPUT, statistics_database
 from experiments.paper.pathway_index.data_utils import piecewise_linear_integral_trapz
 
@@ -151,8 +151,8 @@ def summarize(rows: list[ScenarioStatistics], cutoff: float, *, history_scope="z
     return data, summary, pd.DataFrame(contrasts)
 
 
-def analyze(database, output, *, cutoff, origin=None, analysis_id=None, history_scope="zero"):
-    rows = read_statistics(database, mode="gradation", origin=origin, analysis_id=analysis_id)
+def analyze(database, output, *, cutoff, origin=None, origins=None, analysis_id=None, history_scope="zero"):
+    rows = read_statistics(database, mode="gradation", origin=origin, origins=origins, analysis_id=analysis_id)
     data, summary, contrasts = summarize(rows, cutoff, history_scope=history_scope)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -162,9 +162,10 @@ def analyze(database, output, *, cutoff, origin=None, analysis_id=None, history_
     atomic_json(
         output / "grouped_summary_receipt.json",
         {
-            "schema": 1,
+            "schema": 2,
             "analysis_id": rows[0].analysis_id,
-            "origin": rows[0].origin,
+            "origins": source_counts(rows),
+            "selected_origins": data.groupby("origin").size().to_dict(),
             "endpoint_complement": recorded_endpoint_complement(rows[0]),
             "cutoff": cutoff,
             "grouping": "descriptive low/high I_w; not first-passage labels",
@@ -187,11 +188,11 @@ def main(argv=None):
     parser.add_argument(
         "--cutoff", type=float, required=True, help="Explicit descriptive split; historical value was 0.6."
     )
-    parser.add_argument("--origin")
+    parser.add_argument("--origin", action="append", help="Repeat to explicitly pool named sources.")
     parser.add_argument("--analysis-id")
-    parser.add_argument("--history-scope", choices=HISTORY_SCOPES, default="zero")
+    parser.add_argument("--history-scope", choices=HISTORY_SCOPES, default="original-design")
     args = parser.parse_args(argv)
-    return analyze(args.database, args.output, cutoff=args.cutoff, origin=args.origin,
+    return analyze(args.database, args.output, cutoff=args.cutoff, origins=args.origin,
                    analysis_id=args.analysis_id, history_scope=args.history_scope)
 
 

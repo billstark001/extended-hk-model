@@ -1,11 +1,36 @@
 """Recompute named contrasts for explicit history scopes and denominators."""
 
 import numpy as np
+import json
 from dataclasses import replace
 import pytest
 
 from experiments.paper.analysis.records import ScenarioStatistics
 from experiments.paper.pathway_index.grouped_summary import summarize
+
+
+def test_combined_source_receipt_distinguishes_available_and_selected_counts(tmp_path):
+    from experiments.paper.analysis.models import AnalysisProtocol
+    from experiments.paper.analysis.records import StatisticsStore
+    from ehk.metrics.protocol import METRIC_REVISION, metric_protocol
+    from experiments.paper.pathway_index.grouped_summary import analyze
+
+    database = tmp_path / "stats.sqlite"
+    with StatisticsStore(database) as store:
+        for origin, history in (("raw-a", 2), ("raw-b", 0)):
+            store.put(ScenarioStatistics(
+                name="s_grad_same_name", origin=origin, recsys_type="OpinionM9",
+                post_retain_count=history, pathway_integral=.8, repost_rate=0,
+                triads=100, event_count=10, complete=True, metric_revision=METRIC_REVISION,
+                endpoint_complement=True), mode="gradation", analysis_id="fixture",
+                protocol=AnalysisProtocol(metrics=metric_protocol()))
+    result = analyze(database, tmp_path / "groups", cutoff=.6, origins=("raw-a", "raw-b"),
+                     analysis_id="fixture", history_scope="zero")
+    assert result["runs"] == 1
+    receipt = json.loads((tmp_path / "groups/grouped_summary_receipt.json").read_text())
+    assert receipt["schema"] == 2
+    assert receipt["origins"] == {"raw-a": 1, "raw-b": 1}
+    assert receipt["selected_origins"] == {"raw-b": 1}
 
 
 def test_zero_scope_percentages_use_reference_means():

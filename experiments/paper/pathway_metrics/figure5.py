@@ -18,7 +18,6 @@ from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -27,7 +26,6 @@ NAMESPACE = "ehk-paper-statistics-v3"
 MODEL_ROOT = Path(__file__).resolve().parents[3]
 CUTOFFS = (.6, .7)
 METRICS = ("rewiring_events", "normalized_rewiring_time", "subjective_index_auc", "closed_triads")
-AXIS_LABELS = ("Rewiring events", "Normalized event time", r"AUC of $I_s$", "Closed triads")
 
 
 def require(condition, message):
@@ -86,40 +84,11 @@ def history_statistics(data, cutoff):
 
 
 def plot(summary, cutoff, limits, destination):
-    from common.plotting import PAPER_WIDTH, plt_figure, plt_save_and_close, setup_paper_params
+    from common.plotting import plt_save_and_close
+    from experiments.paper.pathway_index.bar_plot import render_figure5
 
-    setup_paper_params()
-    fig, axes = plt_figure(n_row=2, n_col=4, total_width=PAPER_WIDTH*(2/3), hw_ratio=1.35,
-                           sharey="col", constrained_layout=False)
-    for row, (dimension, categories, labels) in enumerate((
-        ("policy", ("StructureM9", "OpinionM9"), ("St.", "Op.")),
-        ("reposting", ("off", "on"), ("!R", "R")),
-    )):
-        for col, (metric, ylabel) in enumerate(zip(METRICS, AXIS_LABELS)):
-            ax = axes[row, col]
-            for offset, (group, color) in enumerate((("low", "tab:blue"), ("high", "tab:red"))):
-                records = [summary[(summary["dimension"] == dimension) & (summary["category"] == category) &
-                                   (summary["group"] == group) & (summary["metric"] == metric)].iloc[0]
-                           for category in categories]
-                require(all(record["n_observed"] > 0 for record in records), "Empty Figure 5 bar")
-                ax.bar(np.arange(2)+(offset-.5)*.30, [r["mean"] for r in records], width=.30,
-                       yerr=[r["population_std"] for r in records], color=color, alpha=.55,
-                       edgecolor="black", linewidth=.7, capsize=2,
-                       error_kw=dict(elinewidth=1, capthick=1), label=rf"{group} $I_w$")
-            ax.set_xticks(np.arange(2), labels)
-            ax.set_ylabel(ylabel)
-            ax.set_title(f"({chr(97+row*4+col)})", loc="left")
-            ax.set_yscale(limits[metric]["scale"])
-            ax.set_ylim(*limits[metric]["limits"])
-            if limits[metric]["scale"] == "linear" and metric in ("rewiring_events", "closed_triads"):
-                ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0), useMathText=True)
-            ax.grid(axis="y", alpha=.25, linestyle="--")
-            ax.set_axisbelow(True)
-    handles, labels = axes[0, 0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False, bbox_to_anchor=(.5, 1.01))
-    fig.tight_layout(rect=(0, 0, 1, .965), h_pad=1.4, w_pad=.7)
-    stem = destination / f"figure5_iw_{cutoff:.1f}"
-    plt_save_and_close(fig, str(stem))
+    fig, _ = render_figure5(summary, limits=limits)
+    plt_save_and_close(fig, str(destination / f"figure5_iw_{cutoff:.1f}"))
 
 
 def write_report(destination, history_scope, database, records, counts, by_cut, changes, gaps, compositions, histories):
@@ -234,7 +203,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=Path("E:/ResearchData/ehk/original/20261127/primary/stats-v3.sqlite"))
     parser.add_argument("--output", type=Path, required=True, help="Explicit directory for Figure 5 exhibits; no source-tree default")
-    parser.add_argument("--history-scope", choices=("zero", "original-design"), default="zero")
+    parser.add_argument("--history-scope", choices=("zero", "original-design"), default="original-design")
     parser.add_argument("--expected-runs", type=int, help="Optional explicit override of the scope's frozen cohort check")
     args = parser.parse_args()
     from common.storage.documents import DocumentStore, decode_document
@@ -313,17 +282,8 @@ def main():
         gaps.append(dict(metric=metric, comparison="Op high-minus-low gap minus St high-minus-low gap",
                          gap_difference_at_0_6=values[0], gap_difference_at_0_7=values[1],
                          direction_reversed=bool(values[0]*values[1] < 0)))
-    limits = {}
-    for metric in METRICS:
-        selected = [r for r in tables if r["metric"] == metric]
-        lower = min(r["mean"]-r["population_std"] for r in selected)
-        upper = max(r["mean"]+r["population_std"] for r in selected)
-        log = metric in ("rewiring_events", "closed_triads") and lower > 0
-        if log:
-            limits[metric] = dict(scale="log", limits=[lower/1.15, upper*1.15])
-        else:
-            span = upper-min(0., lower)
-            limits[metric] = dict(scale="linear", limits=[min(0., lower)-.04*span, upper+.10*span])
+    from experiments.paper.pathway_index.bar_plot import figure5_axis_limits
+    limits = figure5_axis_limits(pd.DataFrame(tables))
 
     args.output.mkdir(parents=True, exist_ok=True)
     for name, rows in (("grouped_metric_summary", tables), ("grouped_metric_contrasts", contrasts),
@@ -345,7 +305,8 @@ def main():
                    "See group_counts.csv and group_composition.csv for the unequal group sizes and pooled parameter composition.\n")
         (args.output / f"figure5_iw_{cutoff:.1f}_caption.txt").write_text(caption, encoding="utf-8")
 
-    source_files = ("experiments/paper/pathway_index/plot.py", "experiments/paper/pathway_index/grouped_summary.py",
+    source_files = ("experiments/paper/pathway_index/plot.py", "experiments/paper/pathway_index/bar_plot.py",
+                    "experiments/paper/pathway_index/grouped_summary.py",
                     "experiments/paper/pathway_index/data_utils.py", "src/common/plotting/core.py",
                     "src/common/storage/documents.py", "experiments/paper/analysis/records.py")
     provenance = dict(database=str(args.database.resolve()), analysis_id=ANALYSIS, origins=["original-data2", "original-data3"],

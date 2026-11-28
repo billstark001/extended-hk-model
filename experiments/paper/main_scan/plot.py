@@ -1,5 +1,7 @@
-"""Render original-scan heatmaps from one explicitly selected analysis snapshot."""
+"""Render original-scan heatmaps with an explicit retained-post history scope."""
 
+import argparse
+from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +15,7 @@ from common.plotting import plt_figure, plt_save_and_close, setup_paper_params
 from experiments.paper.analysis.records import ScenarioStatistics
 from experiments.paper.analysis.selection import read_statistics, select_statistics
 from experiments.paper.paths import MAIN_SCAN_OUTPUT, statistics_database
+from experiments.paper.pathway_index.grouped_summary import HISTORY_SCOPES, history_in_scope
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,24 +62,37 @@ class CaptionGroup:
 @dataclass(frozen=True, slots=True)
 class HeatmapCaption:
     analysis_id: str
-    origin: str
+    origin_counts: tuple[tuple[str, int], ...]
     available_completed: int
+    history_scope: str
+    scope_origin_counts: tuple[tuple[str, int], ...]
+    history_counts: tuple[tuple[str, int, int], ...]
     groups: tuple[CaptionGroup, ...]
 
     def write(self, path: Path):
         lines = [
             "Original-scan heatmaps from the selected completed trajectories.",
             f"analysis_id: {self.analysis_id}",
-            f"origin: {self.origin}",
+            "origins: " + ", ".join(origin for origin, _ in self.origin_counts),
             f"Available completed trajectories in the selected snapshot: n={self.available_completed}.",
+            *[f"source {origin}: snapshot n={count}; selected history scope n={dict(self.scope_origin_counts).get(origin, 0)}."
+              for origin, count in self.origin_counts],
+            f"history_scope: {self.history_scope}; " + (
+                "StructureM9 k=0; OpinionM9 pooled over k=0,2,6."
+                if self.history_scope == "original-design" else
+                "StructureM9 k=0; OpinionM9 k=0 (auxiliary reference subset)."
+            ),
+            *[f"History composition: {policy}, k={history}: n={count}."
+              for policy, history, count in self.history_counts],
             *[f"{group.label}: n={group.count}; fixed {group.scale.cmap} scale {group.scale.limits}; "
               f"individual values below/above this scale: {group.below_scale}/{group.above_scale}."
               for group in self.groups],
             "Counts refer to finite observations after each metric's filters; these counts do not imply a complete scan.",
-            "Each heatmap cell is the mean of the matching trajectories. Cells without matching finite values are blank, not zero.",
+            "Each heatmap cell gives equal weight to its matching finite trajectories; history levels are not reweighted to equal shares. Cells without matching finite values are blank, not zero.",
             "Difference panels, where present, show opinion minus structure only where both cells have observations.",
+            "These are descriptive means of the selected design ensembles, not paired effects or evidence of common initial states or random-number streams.",
             "Color maps, limits and ticks follow the existing paper figures. Values beyond a displayed color scale saturate at its endpoints; the underlying values remain unchanged.",
-            "All heatmaps restrict retained-post history to k=0. For the TV(I_p) panels, TV is the observed sum of absolute successive changes in I_p; #P=1 denotes one final opinion peak.",
+            "For the TV(I_p) panels, TV is the observed sum of absolute successive changes in I_p; #P=1 denotes one final opinion peak.",
         ]
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -108,50 +124,65 @@ def _create_evaluator(full_data_selector: Iterable[ScenarioStatistics]):
     return evaluate
 
 
-def _heatmap_rows(session: Iterable[ScenarioStatistics], rs_key: str, opinion_peak_count: int | None = None):
+def _heatmap_rows(
+    session: Iterable[ScenarioStatistics], rs_key: str, opinion_peak_count: int | None = None,
+    *, history_scope: str = "original-design",
+):
+    if history_scope not in HISTORY_SCOPES:
+        raise ValueError(f"unknown history scope: {history_scope}")
     return select_statistics(
         session,
         *((lambda row: row.last_opinion_peak_count == opinion_peak_count,) if opinion_peak_count is not None else ()),
         lambda row: row.name.startswith("s_grad"),
         lambda row: row.recsys_type == rs_key,
-        lambda row: row.post_retain_count == 0,
+        lambda row: history_in_scope(row.recsys_type, row.post_retain_count, history_scope),
         lambda row: row.pathway_integral is not None,
     )
 
 
-def create_heatmap_evaluator(session: Iterable[ScenarioStatistics], rs_key: str, opinion_peak_count: int | None = None):
-    return _create_evaluator(_heatmap_rows(session, rs_key, opinion_peak_count))
+def create_heatmap_evaluator(
+    session: Iterable[ScenarioStatistics], rs_key: str, opinion_peak_count: int | None = None,
+    *, history_scope: str = "original-design",
+):
+    return _create_evaluator(_heatmap_rows(session, rs_key, opinion_peak_count, history_scope=history_scope))
 
 
 def _retweet_rows(
-    session: Iterable[ScenarioStatistics], retweet_rate: float, rs_key: str | None = None
+    session: Iterable[ScenarioStatistics], retweet_rate: float, rs_key: str | None = None,
+    *, history_scope: str = "original-design",
 ):
+    if history_scope not in HISTORY_SCOPES:
+        raise ValueError(f"unknown history scope: {history_scope}")
     return select_statistics(
         session,
         lambda row: row.name.startswith("s_grad"),
         *((lambda row: row.recsys_type == rs_key,) if rs_key else ()),
         lambda row: row.repost_rate == retweet_rate,
-        lambda row: row.post_retain_count == 0,
+        lambda row: history_in_scope(row.recsys_type, row.post_retain_count, history_scope),
         lambda row: row.pathway_integral is not None,
     )
 
 
 def create_heatmap_evaluator_retweet(
-    session: Iterable[ScenarioStatistics], retweet_rate: float, rs_key: str | None = None
+    session: Iterable[ScenarioStatistics], retweet_rate: float, rs_key: str | None = None,
+    *, history_scope: str = "original-design",
 ):
-    return _create_evaluator(_retweet_rows(session, retweet_rate, rs_key))
+    return _create_evaluator(_retweet_rows(session, retweet_rate, rs_key, history_scope=history_scope))
 
 
 def write_heatmap_caption(
-    path: Path, session: Sequence[ScenarioStatistics], metrics: Sequence[HeatmapMetric], *, by_retweet=False
+    path: Path, session: Sequence[ScenarioStatistics], metrics: Sequence[HeatmapMetric], *, by_retweet=False,
+    history_scope: str = "original-design",
 ):
+    if not session:
+        raise ValueError("cannot caption an empty statistics snapshot")
     groups = []
     for metric in metrics:
         if by_retweet:
-            selections = ((f"{strategy}, p={repost:g}", _retweet_rows(session, repost, strategy))
+            selections = ((f"{strategy}, p={repost:g}", _retweet_rows(session, repost, strategy, history_scope=history_scope))
                           for repost, strategy in RETWEET_GROUPS)
         else:
-            selections = ((strategy, _heatmap_rows(session, strategy, metric.peaks))
+            selections = ((strategy, _heatmap_rows(session, strategy, metric.peaks, history_scope=history_scope))
                           for strategy in ("StructureM9", "OpinionM9"))
         for label, rows in selections:
             values = np.asarray([metric.measure(row) for row in rows], dtype=float)
@@ -159,7 +190,17 @@ def write_heatmap_caption(
             lower, upper = metric.color_scale.limits
             groups.append(CaptionGroup(f"{metric.label} ({label})", int(values.size), metric.color_scale,
                                        int(np.count_nonzero(values < lower)), int(np.count_nonzero(values > upper))))
-    HeatmapCaption(session[0].analysis_id, session[0].origin, len(session), tuple(groups)).write(path)
+    scoped = [row for row in session if row.name.startswith("s_grad")
+              and history_in_scope(row.recsys_type, row.post_retain_count, history_scope)]
+    origins = Counter(row.origin for row in session)
+    scope_origins = Counter(row.origin for row in scoped)
+    histories = Counter((row.recsys_type, row.post_retain_count) for row in scoped)
+    HeatmapCaption(
+        session[0].analysis_id, tuple(sorted(origins.items())), len(session), history_scope,
+        tuple(sorted(scope_origins.items())),
+        tuple((policy, history, count) for (policy, history), count in sorted(histories.items())),
+        tuple(groups),
+    ).write(path)
 
 
 def _plot_single_heatmap(ax, data_mean, data_std, title, scale: ColorScale, with_std=True):
@@ -191,7 +232,8 @@ def _setup_heatmap_axes(axes: Sequence[Axes], *, n_rows: int, n_columns: int):
 
 
 def plot_combined_heatmaps(
-    session: Sequence[ScenarioStatistics], metrics: Sequence[HeatmapMetric], *, with_diff=True, with_std=True
+    session: Sequence[ScenarioStatistics], metrics: Sequence[HeatmapMetric], *, with_diff=True, with_std=True,
+    history_scope: str = "original-design",
 ):
     if not metrics:
         raise ValueError("at least one heatmap metric is required")
@@ -199,8 +241,8 @@ def plot_combined_heatmaps(
         raise ValueError("difference heatmaps require an explicit color scale")
     all_data: list[HeatmapData] = []
     for metric in metrics:
-        mean_st, std_st = create_heatmap_evaluator(session, "StructureM9", metric.peaks)(metric.measure)
-        mean_op, std_op = create_heatmap_evaluator(session, "OpinionM9", metric.peaks)(metric.measure)
+        mean_st, std_st = create_heatmap_evaluator(session, "StructureM9", metric.peaks, history_scope=history_scope)(metric.measure)
+        mean_op, std_op = create_heatmap_evaluator(session, "OpinionM9", metric.peaks, history_scope=history_scope)(metric.measure)
         all_data.append(HeatmapData(metric, mean_st, std_st, mean_op, std_op))
 
     n_columns = 3 if with_diff else 2
@@ -231,8 +273,10 @@ def plot_combined_heatmaps(
     return fig
 
 
-def plot_heatmap_by_retweet(session: Sequence[ScenarioStatistics], metric: HeatmapMetric):
-    statistics = [create_heatmap_evaluator_retweet(session, repost, strategy)(metric.measure)
+def plot_heatmap_by_retweet(
+    session: Sequence[ScenarioStatistics], metric: HeatmapMetric, *, history_scope: str = "original-design",
+):
+    statistics = [create_heatmap_evaluator_retweet(session, repost, strategy, history_scope=history_scope)(metric.measure)
                   for repost, strategy in RETWEET_GROUPS]
     fig, axes = plt_figure(n_row=1, n_col=len(RETWEET_GROUPS), hw_ratio=1, constrained_layout=False)
     for index, (axis, (mean, std), (repost, strategy)) in enumerate(zip(axes, statistics, RETWEET_GROUPS)):
@@ -255,10 +299,21 @@ def _format_summary(label: str, values: Iterable[float]) -> str:
             f"min={array.min():.4f}, max={array.max():.4f}")
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--database", type=Path, default=statistics_database())
+    parser.add_argument("--origin", action="append", help="Source origin; repeat to explicitly pool sources.")
+    parser.add_argument("--analysis-id")
+    parser.add_argument("--output", type=Path, default=MAIN_SCAN_OUTPUT.resolve(),
+                        help="Output root; figures use figures/, or zero/figures/ for the auxiliary scope.")
+    parser.add_argument("--history-scope", choices=HISTORY_SCOPES, default="original-design",
+                        help="Original design by default; zero restricts both algorithms to k=0.")
+    args = parser.parse_args(argv)
     setup_paper_params()
-    session = read_statistics(statistics_database(), mode="gradation")
-    figure_dir = MAIN_SCAN_OUTPUT.resolve() / "figures"
+    session = read_statistics(args.database, mode="gradation", origins=tuple(args.origin) if args.origin else None,
+                              analysis_id=args.analysis_id)
+    output = args.output / "zero" if args.history_scope == "zero" else args.output
+    figure_dir = output / "figures"
     figure_dir.mkdir(parents=True, exist_ok=True)
 
     def pathway(row: ScenarioStatistics) -> float:
@@ -275,26 +330,24 @@ def main():
 
     metrics = [HeatmapMetric(pathway, "$I_w$", IW_SCALE, IW_DIFFERENCE_SCALE),
                HeatmapMetric(total_variation, r"TV($I_p$), #P=1", TV_SCALE, TV_DIFFERENCE_SCALE, peaks=1)]
-    plt_save_and_close(plot_combined_heatmaps(session, metrics, with_std=False),
+    plt_save_and_close(plot_combined_heatmaps(session, metrics, with_std=False, history_scope=args.history_scope),
                        str(figure_dir / "f_grad_and_pol_trad_index"))
-    write_heatmap_caption(figure_dir / "f_grad_and_pol_trad_index_caption.txt", session, metrics)
+    write_heatmap_caption(figure_dir / "f_grad_and_pol_trad_index_caption.txt", session, metrics,
+                          history_scope=args.history_scope)
 
     summaries = []
     for strategy, label in (("OpinionM9", "p_index_op"), ("StructureM9", "p_index_st")):
-        rows = select_statistics(session, lambda row: row.name.startswith("s_grad"),
-                                 lambda row: row.recsys_type == strategy,
-                                 lambda row: row.post_retain_count == 0,
-                                 lambda row: row.last_opinion_peak_count == 1,
-                                 lambda row: row.pathway_integral is not None)
+        rows = _heatmap_rows(session, strategy, 1, history_scope=args.history_scope)
         summaries.append(_format_summary(label, (row.p_index[-1] for row in rows
                                                 if row.p_index is not None and row.p_index.size)))
     for summary in summaries:
         print(summary)
     (figure_dir / "f_p_backdrop_stats.txt").write_text("\n".join(summaries) + "\n", encoding="utf-8")
     active_metric = HeatmapMetric(active_step, r"$\log_{10}(t_a)$", ACTIVE_STEP_SCALE)
-    plt_save_and_close(plot_heatmap_by_retweet(session, active_metric),
+    plt_save_and_close(plot_heatmap_by_retweet(session, active_metric, history_scope=args.history_scope),
                        str(figure_dir / "f_p_active_step"))
-    write_heatmap_caption(figure_dir / "f_p_active_step_caption.txt", session, [active_metric], by_retweet=True)
+    write_heatmap_caption(figure_dir / "f_p_active_step_caption.txt", session, [active_metric], by_retweet=True,
+                          history_scope=args.history_scope)
 
 
 if __name__ == "__main__":

@@ -8,13 +8,13 @@ from experiments.paper.analysis.records import ScenarioStatistics
 from experiments.paper.main_scan import plot
 
 
-def _row(*, value=1.3, strategy="OpinionM9", repost=0.0, peaks=2):
+def _row(*, value=1.3, strategy="OpinionM9", repost=0.0, peaks=2, history=0, origin="raw-fixture", active=9):
     return ScenarioStatistics(
         name="s_grad_partial", rewiring=0.005, decay=0.005,
-        recsys_type=strategy, repost_rate=repost, post_retain_count=0,
-        pathway_integral=value, active_step=9, last_opinion_peak_count=peaks,
+        recsys_type=strategy, repost_rate=repost, post_retain_count=history,
+        pathway_integral=value, active_step=active, last_opinion_peak_count=peaks,
         p_index=np.array([-0.2, 0.4]), p_backdrop=0.6,
-        analysis_id="revision-fixture", origin="raw-fixture",
+        analysis_id="revision-fixture", origin=origin,
     )
 
 
@@ -75,7 +75,7 @@ def test_main_uses_one_read_and_renders_when_consensus_subset_is_empty(tmp_path,
         plt.close(figure)
 
     monkeypatch.setattr(plot, "plt_save_and_close", save)
-    plot.main()
+    plot.main([])
     assert len(reads) == 1
     assert len(saved) == 2
     scales, ticks = rendered_scales[0]
@@ -88,7 +88,9 @@ def test_main_uses_one_read_and_renders_when_consensus_subset_is_empty(tmp_path,
     assert summary.strip() == capsys.readouterr().out.strip()
     combined_caption = (tmp_path / "figures" / "f_grad_and_pol_trad_index_caption.txt").read_text(encoding="utf-8")
     assert "analysis_id: revision-fixture" in combined_caption
-    assert "origin: raw-fixture" in combined_caption
+    assert "origins: raw-fixture" in combined_caption
+    assert "source raw-fixture: snapshot n=1; selected history scope n=1" in combined_caption
+    assert "history_scope: original-design" in combined_caption
     assert "snapshot: n=1" in combined_caption
     assert "$I_w$ (OpinionM9): n=1" in combined_caption
     assert "individual values below/above this scale: 0/1" in combined_caption
@@ -98,6 +100,71 @@ def test_main_uses_one_read_and_renders_when_consensus_subset_is_empty(tmp_path,
     active_caption = (tmp_path / "figures" / "f_p_active_step_caption.txt").read_text(encoding="utf-8")
     assert "(OpinionM9, p=0): n=1" in active_caption
     assert "(OpinionM9, p=0.5): n=0" in active_caption
+
+
+@pytest.mark.parametrize(("scope", "expected"), [("original-design", .425), ("zero", .2)])
+def test_history_scope_means_use_the_declared_design_only(scope, expected):
+    rows = [_row(value=.2), _row(value=.2), _row(value=.5, history=2), _row(value=.8, history=6),
+            _row(value=100, history=3), _row(value=100, strategy="Random"),
+            _row(value=.1, strategy="StructureM9"), _row(value=100, strategy="StructureM9", history=2)]
+    measure = lambda row: row.pathway_integral
+    mean, _ = plot.create_heatmap_evaluator(rows, "OpinionM9", history_scope=scope)(measure)
+    mean_retweet, _ = plot.create_heatmap_evaluator_retweet(rows, 0., "OpinionM9", history_scope=scope)(measure)
+    mean_st, _ = plot.create_heatmap_evaluator(rows, "StructureM9", history_scope=scope)(measure)
+    assert mean[0, 0] == pytest.approx(expected)
+    assert mean_retweet[0, 0] == pytest.approx(expected)
+    assert mean_st[0, 0] == pytest.approx(.1)
+    default_mean, _ = plot.create_heatmap_evaluator(rows, "OpinionM9")(measure)
+    assert default_mean[0, 0] == pytest.approx(.425)
+
+
+@pytest.mark.parametrize(("scope", "expected_n", "expected_iw", "expected_active", "directory"), [
+    ("original-design", 3, .5, np.mean(np.log10([9, 99, 999])), ""),
+    ("zero", 1, .2, np.log10(9), "zero"),
+])
+def test_cli_applies_one_scope_to_heatmaps_summary_and_captions(
+    tmp_path, monkeypatch, scope, expected_n, expected_iw, expected_active, directory,
+):
+    rows = [_row(value=.2, peaks=1), _row(value=.5, peaks=1, history=2, origin="other-source", active=99),
+            _row(value=.8, peaks=1, history=6, origin="other-source", active=999)]
+    reads = []
+
+    def read(*args, **kwargs):
+        reads.append((args, kwargs))
+        return rows
+
+    monkeypatch.setattr(plot, "read_statistics", read)
+    saved = {}
+
+    def save(figure, path):
+        panels = [axis for axis in figure.axes if axis.images]
+        saved[path] = [axis.images[0].get_array().copy() for axis in panels]
+        plt.close(figure)
+
+    monkeypatch.setattr(plot, "plt_save_and_close", save)
+    database = tmp_path / "stats-v3.sqlite"
+    arguments = ["--database", str(database), "--origin", "raw-fixture", "--origin", "other-source",
+                 "--analysis-id", "revision-fixture", "--output", str(tmp_path)]
+    if scope == "zero":
+        arguments.extend(["--history-scope", scope])
+    plot.main(arguments)
+    assert reads == [((database,), {"mode": "gradation", "origins": ("raw-fixture", "other-source"),
+                                   "analysis_id": "revision-fixture"})]
+    figure_dir = tmp_path / directory / "figures"
+    assert saved[str(figure_dir / "f_grad_and_pol_trad_index")][1][0, 0] == pytest.approx(expected_iw)
+    assert saved[str(figure_dir / "f_p_active_step")][1][0, 0] == pytest.approx(expected_active)
+    summary = (figure_dir / "f_p_backdrop_stats.txt").read_text(encoding="utf-8")
+    assert f"p_index_op: n={expected_n}," in summary
+    for stem in ("f_grad_and_pol_trad_index", "f_p_active_step"):
+        caption = (figure_dir / f"{stem}_caption.txt").read_text(encoding="utf-8")
+        assert "origins: other-source, raw-fixture" in caption
+        assert "source raw-fixture: snapshot n=1; selected history scope n=1" in caption
+        assert f"source other-source: snapshot n=2; selected history scope n={expected_n - 1}" in caption
+        assert f"history_scope: {scope}" in caption
+        assert "equal weight" in caption and "not paired effects" in caption
+        assert ("History composition: OpinionM9, k=2: n=1" in caption) == (scope == "original-design")
+    if scope == "zero":
+        assert not (tmp_path / "figures").exists()
 
 
 def test_empty_metric_list_is_rejected_before_allocating_a_figure():
