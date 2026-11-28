@@ -58,12 +58,30 @@ def group_composition(data, cutoff):
                 block = data[(data[dimension] == category) & (data["group"] == group)]
                 for axis, levels in (("origin", ("original-data2", "original-data3")),
                                      ("p", (0., .1, .25, .5)),
-                                     ("D_sign", ("q<alpha", "q=alpha", "q>alpha"))):
+                                     ("D_sign", ("q<alpha", "q=alpha", "q>alpha")),
+                                     ("kh", (0, 2, 6))):
                     for level in levels:
                         count = int((block[axis] == level).sum())
                         rows.append(dict(cutoff=cutoff, dimension=dimension, category=category, group=group,
                                          group_n=len(block), axis=axis, level=level, n=count,
                                          fraction=count/len(block) if len(block) else None))
+    return rows
+
+
+def history_statistics(data, cutoff):
+    """Aggregate the same evaluated metrics by each declared history condition."""
+    rows = []
+    totals = data.groupby(["policy", "group"]).size()
+    for (policy, kh, group), block in data.groupby(["policy", "kh", "group"], sort=True):
+        total = int(totals.loc[(policy, group)])
+        for metric in METRICS:
+            values = block[metric].to_numpy(dtype=float)
+            values = values[np.isfinite(values)]
+            rows.append(dict(cutoff=cutoff, policy=policy, kh=int(kh), group=group,
+                             metric=metric, n_runs=len(block), n_observed=len(values),
+                             mean=float(values.mean()) if len(values) else None,
+                             population_std=float(values.std()) if len(values) else None,
+                             policy_group_n=total, history_weight=len(block)/total))
     return rows
 
 
@@ -104,81 +122,124 @@ def plot(summary, cutoff, limits, destination):
     plt_save_and_close(fig, str(stem))
 
 
-def write_report(destination, counts, by_cut, gaps):
-    claim_specs = (
-        ("高组：R 相对 !R 的换边数", "+34%", ("reposting_on_minus_off", "", "high", "rewiring_events")),
-        ("高组：Op 相对 St 的归一化换边时刻", "−32%", ("opinion_minus_structure", "", "high", "normalized_rewiring_time")),
-        ("高组：R 相对 !R 的归一化换边时刻", "+41%", ("reposting_on_minus_off", "", "high", "normalized_rewiring_time")),
-        ("St：高组相对低组的闭合三元组", "+17%", ("high_minus_low", "policy:StructureM9", "", "closed_triads")),
-        ("Op：高组相对低组的闭合三元组", "+123%", ("high_minus_low", "policy:OpinionM9", "", "closed_triads")),
-        ("!R：高组相对低组的闭合三元组", "+32%", ("high_minus_low", "reposting:off", "", "closed_triads")),
-        ("R：高组相对低组的闭合三元组", "+98%", ("high_minus_low", "reposting:on", "", "closed_triads")),
-        ("高组：Op 相对 St 的闭合三元组", "+7%", ("opinion_minus_structure", "", "high", "closed_triads")),
+def write_report(destination, history_scope, database, records, counts, by_cut, changes, gaps, compositions, histories):
+    """Describe the selected design using its actual counts and calculated values."""
+    original = history_scope == "original-design"
+    scope_name = "原设计集合汇总" if original else "零历史辅助限制"
+    policy_counts = Counter(r.recsys_type for r in records)
+    history_counts = Counter((r.recsys_type, int(r.post_retain_count)) for r in records)
+    repost_counts = Counter("!R" if r.repost_rate == 0 else "R" for r in records)
+    count_index = {(r["cutoff"], r["dimension"], r["category"], r["group"]): r["n"] for r in counts}
+    history_rows = [r for r in histories if r["metric"] == "closed_triads"]
+    def comparison(key, cutoff):
+        return by_cut[cutoff].loc[key]
+    def pct(key, cutoff):
+        return float(comparison(key, cutoff)["relative_percent"])
+    def pair(key):
+        return " / ".join(f"{pct(key, c):+.2f}%" for c in CUTOFFS)
+    command = (f"{MODEL_ROOT.as_posix()}/.venv/Scripts/python.exe -m experiments.paper.pathway_metrics.figure5 "
+               f"--history-scope {history_scope} --database {database.resolve().as_posix()} --output {destination.resolve().as_posix()}")
+    design_text = (
+        "本范围按原设计汇总 StructureM9 的 `k_h=0` 与 OpinionM9 的 `k_h=0,2,6`。Opinion 帖子的历史选择已有自然规则；Structure 若追加历史，需要另选随机、衰减等额外机制，属于新的模型设定。因此这里比较的是原设计的算法机制集合，不需要为这次复核新增 Structure 历史运行。各历史条件的分层同时保留。"
+        if original else
+        "本范围同时限制两算法 `k_h=0`，作为单独的辅助分层。原设计主范围是 StructureM9 `k_h=0` 与 OpinionM9 `k_h=0,2,6` 的集合汇总；两者回答不同范围的问题。Opinion 历史已有自然选择规则，Structure 追加历史则需另定义随机、衰减等机制，本辅助限制不要求这种新设定。"
     )
     lines = [
-        "# Figure 5：0.6 与 0.7 工作分界复核", "",
-        "日期：2026-11-28。读取 data2+data3 的正式主库，分析身份为 `"+ANALYSIS+"`；原始模拟和状态指标均未重算。", "",
-        "本次只用 `k_h=0`，共 **12,285** 条完整运行（StructureM9 6,144，OpinionM9 6,141）。data1 没有接入；512 条 P/E 诊断与旧 32 条 pilot 也没有混入。保留当前 `L` 指标及默认终点补项，低组为 `I_w<c`、高组为 `I_w>=c`。分组用于描述路径倾向。", "",
-        "## 统计口径与可复现性", "",
-        "直接调用模型仓库 `pathway_index/grouped_summary.py:summarize`，与 Figure 5 原制图入口逐项核对。所有选中运行的 `active_step>0`，因此以下表达与原 `plot.py` 的 `max(active_step,1)` 完全相同：", "",
-        "- 换边数、最终闭合三元组数直接读主库。换边时刻是每条运行在完整 `[0,T]` 内的 `event_step_mean/active_step`；包括活动时刻之后的事件，没有另截断事件窗口。",
-        "- AUC 精确调用 `piecewise_linear_integral_trapz(x_indices/active_step, g_index, 0, 1)`：在保存的自适应点间折线插值、补齐积分边界并截取归一化 `[0,1]`。它不是 `mean(g_index)`，也不是 `g_index_mean_active`。",
-        "- 每条运行等权；柱是算术均值，误差棒是总体 SD（`ddof=0`）。没有先对每格取均值，没有事件加权，也没有把 SD 当置信区间。各柱四项指标均无缺失。",
-        "- 百分比统一为 `100*(target_mean-reference_mean)/reference_mean`，对应分母见下表比较方向。", "",
-        "复现命令（使用模型仓库已安装依赖的环境）：", "",
-        "```powershell",
-        f"Set-Location {MODEL_ROOT.as_posix()}",
-        f"{MODEL_ROOT.as_posix()}/.venv/Scripts/python.exe -m experiments.paper.pathway_metrics.figure5 --output {destination.resolve().as_posix()}",
-        "```", "",
-        "入口位于模型仓库 `experiments/paper/pathway_metrics/figure5.py`，本展品目录不保留代码副本。默认主库路径是 `E:/ResearchData/ehk/original/20261127/primary/stats-v3.sqlite`；`--database` 可显式指定输入，`--output` 必填，禁止把源码目录当默认输出。入口核对当前 12,285 条样本，样本数变化会拒绝静默替换；同人数下的内容变化可通过快照 SHA 识别。`provenance.csv` 记录选中 SQLite 文档快照 SHA、协议、来源、源码 SHA 与软件版本。所有 CSV 是显式派生产物，不作输入缓存；没有落地逐运行轨迹或表。", "",
-        "## 分组大小与迁移", "",
-        "| 条件 | 0.6 低组 | 0.6 高组 | 0.7 低组 | 0.7 高组 | 从高组移入低组 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+        f"# Figure 5：{scope_name}，0.6 与 0.7 工作分界", "",
+        f"日期：2026-11-28。分析身份 `{ANALYSIS}`，来源为 data2+data3；`history_scope={history_scope}`。本范围共 **{len(records):,}** 条完整运行（StructureM9 {policy_counts['StructureM9']:,}，OpinionM9 {policy_counts['OpinionM9']:,}）。data1 和独立的 P/E 诊断不参与这里的汇总。", "",
+        design_text, "",
+        "## 定义与复现", "",
+        "保留主库 revision 6 的 L 指标与默认终点补项；低组为 `I_w<c`、高组为 `I_w>=c`。状态指标和 I_w 不重算，模拟也不重跑。直接复用 `pathway_index.grouped_summary.summarize(..., history_scope=...)` 的唯一指标计算核心。", "",
+        "- 换边数、终态闭合三元组数直接读主库。归一化换边时刻为每条运行完整 `[0,T]` 内的 `event_step_mean/max(active_step,1)`，事件窗口未在活动时刻截断。",
+        "- AUC 精确调用 `piecewise_linear_integral_trapz(x_indices/max(active_step,1), g_index, 0, 1)`，保持原 Figure 5 的折线插值、边界和归一化时钟；不用 `mean(g_index)` 或 `g_index_mean_active` 替代。当前所有活动时刻均为正。",
+        "- 每条运行等权，柱为算术均值及总体 SD（ddof=0）；不是先对各历史条件取均值再等权。百分比为 `100*(target_mean-reference_mean)/reference_mean`。SD 不作置信区间或显著性检验。", "",
+        "```powershell", f"Set-Location {MODEL_ROOT.as_posix()}", command, "```", "",
+        f"`--output` 必填，输入路径可通过 `--database` 显式指定。当前 scope 核对 {len(records):,} 条样本；快照 SHA、协议和源码 SHA 记录在 `provenance.csv`。CSV 是展品，不作输入缓存，本目录不复制计算代码或逐运行数据。", "",
+        "## 设计集合与权重", "",
+        "| 算法 | kh | 完整运行数 | 在算法集合中的运行权重 |", "| --- | ---: | ---: | ---: |",
     ]
-    count_index = {(r["cutoff"], r["dimension"], r["category"], r["group"]): r["n"] for r in counts}
+    for (policy, kh), n in sorted(history_counts.items()):
+        lines.append(f"| {policy} | {kh} | {n:,} | {n/policy_counts[policy]:.4%} |")
+    lines += ["", f"!R 仅 `p=0`，共 {repost_counts['!R']:,} 条；R 合并 `.1,.25,.5`，共 {repost_counts['R']:,} 条。高低组内的实际 kh 权重还会随分界改变：", "",
+              "| 分界 | 算法 | kh | 高组 n | 高组内权重 | 三元组均值 |", "| ---: | --- | ---: | ---: | ---: | ---: |"]
+    for row in history_rows:
+        if row["group"] == "high":
+            lines.append(f"| {row['cutoff']:.1f} | {row['policy']} | {row['kh']} | {row['n_runs']:,} | {row['history_weight']:.4%} | {row['mean']:,.3f} |")
+    lines += ["", "`history_groups.csv` 对每个算法／kh／高低组列出四项指标的均值、SD、有效 n 和历史权重；`group_composition.csv` 同时记录 kh、来源、p 和 D 的组成。原设计汇总与单独历史条件的分层相互补充。", "",
+              "## 分界与样本迁移", "",
+              "| 条件 | 0.6 低组 | 0.6 高组 | 0.7 低组 | 0.7 高组 | 从高组移入低组 |", "| --- | ---: | ---: | ---: | ---: | ---: |"]
+    moved = 0
     for dimension, category, label in (("policy", "StructureM9", "St"), ("policy", "OpinionM9", "Op"),
                                        ("reposting", "off", "!R"), ("reposting", "on", "R")):
         ns = [count_index[c, dimension, category, group] for c in CUTOFFS for group in ("low", "high")]
+        if dimension == "policy": moved += ns[1]-ns[3]
         lines.append(f"| {label} | {ns[0]:,} | {ns[1]:,} | {ns[2]:,} | {ns[3]:,} | {ns[1]-ns[3]:,} |")
-    lines += ["", "总计 847 条，即全体的 6.89%，位于 `[0.6,0.7)`，随提高分界从高组进入低组；原有低组不会反向迁移。", "",
-              "这些是运行结束后的条件分组，算法／转发组的参数组成并不相同。!R 仅 `p=0`，共 3,071 条；R 合并 `.1,.25,.5` 三个速率，共 9,214 条。以 0.6 高组为例，`q>alpha` 占 St 的 73.58%、Op 的 65.32%；提高至 0.7 后分别为 81.32%、70.67%。算法间均值差和分界变化因此都含分组组成的影响，不能写作相同初态下的配对干预效应。完整组成见 `group_composition.csv`。", "",
-              "## 对照旧正文的数字", "",
-              "| 比较 | 旧正文 | 当前 0.6 | 当前 0.7 |", "| --- | ---: | ---: | ---: |"]
-    for label, old, key in claim_specs:
-        values = [float(by_cut[c].loc[key]["relative_percent"]) for c in CUTOFFS]
-        lines.append(f"| {label} | {old} | {values[0]:+.2f}% | {values[1]:+.2f}% |")
-    lines += ["", "**对旧正文最重要的方向变化是高组的闭合三元组：Op 相对 St 从旧称 +7% 改为 −14.16%／−16.86%。** 0.6 下均值为 St 18,646、Op 16,006；0.7 下为 St 20,108、Op 16,718。因而当前公平比较支持高组内 St 的三元组均值更大。两分界都如此，不能把这一反向归结为把 0.6 改成 0.7；本次也没有拆解指标修订、历史条件混合及数据覆盖变化各自的贡献。", "",
-              "转发组在高组的换边数更多、归一化换边更晚，两分界方向均保持，但幅度不同。Op 高组换边时刻更早也保持，幅度由 −20.19% 收窄至 −15.66%。高组 Op 相对 St 的换边数由 +7.79% 收窄至 +1.89%；AUC 优势由 +2.34% 收窄至 +0.55%。应保留方向与量级的区别，不能称全部百分比对分界稳定。", "",
-              "## 0.6 改为 0.7 时，哪些方向发生变化", "",
-              "32 项标准组均值对比中，只有一项百分比符号变化：**低组内 Op 相对 St 的归一化换边时刻，−0.73% 变为 +0.38%**。0.6 下为 Op `.260701`、St `.262612`；0.7 下为 Op `.260989`、St `.259993`。这是接近零的数值符号翻转，不作统计效应或机制反转解读，也没有据 SD 推断显著性。其余 31 项标准对比方向不变，详见 `threshold_changes.csv`。", "",
-              "旧文称低组“相对稳定”，不能只凭柱高相近直接沿用：低组 Op/St 换边数差为 +6.45%／+11.27%，R/!R 为 +0.47%／+3.04%；换边时刻差虽均在 1% 以内，也没有做等效性或稳定性检验。若扩展到其他指标，低组三元组 Op/St 差为 −41.33%／−39.30%，显然不是所有性质都相近。应明确所说的指标、分组、分界与描述尺度。", "",
-              "另外，若比较各条件内部“高组均值−低组均值”的差距大小，算法排序有两项变化（`group_gap_comparison.csv`）：", "",
-              "| 高低组差距的算法比较 | 0.6：Op差距−St差距 | 0.7：Op差距−St差距 |", "| --- | ---: | ---: |"]
-    for row in gaps:
-        if row["direction_reversed"]:
-            lines.append(f"| {row['metric']} | {row['gap_difference_at_0_6']:+.6f} | {row['gap_difference_at_0_7']:+.6f} |")
-    lines += ["", "这是差距大小的描述性排序变化，不是新增因果估计。AUC 在四个算法／转发条件中仍始终是高组大于低组：0.6 相对增幅约 15.04%–19.23%，0.7 为 20.36%–24.27%。较大的 AUC 只表明在该运行归一化活动时钟内局部模板相似度更高／更前置；不等价于总体极化更大或物理时间更早。", "",
-              "## 图形与范围", "",
-              "两图保持 Figure 5 的八面板顺序。字体、数学字形和线宽沿用 `common.plotting`；PDF 是矢量导出，PNG 为 300 dpi。两分界和上下行使用相同坐标范围，覆盖全部均值±SD端点，取消原入口的固定 `ylim`。换边数和三元组用对数轴；归一化时刻和 AUC 用线性轴。部分时刻均值减 SD 小于零，完整展示的是对称离散度范围，不是负的事件时刻观测。样本数和统计定义放在外置 caption 中。", "",
-              "旧正文 `[ehk/results.tex]` 的 +34%/−32%/+41% 与三元组百分比需要整体同步；换边时序解释末尾引用 `(g)` 也不符，时序面板是 `(f)`，而 `(g)` 是 AUC。本图5复核仅在 artifacts 生成展品，未替换正文图5及其展示文字；SI新增完整诊断另见[路径指标诊断](../ehk_iw_threshold_20261128/README.md)。", "",
-              "- `figure5_iw_0.6.pdf/png`、`figure5_iw_0.7.pdf/png`：两版图。",
-              "- `grouped_metric_summary.csv`：64 个柱均值／SD及逐指标有效 n。",
-              "- `grouped_metric_contrasts.csv`：两分界全部 64 项标准比较。",
-              "- `threshold_changes.csv`、`group_gap_comparison.csv`：分界变更与差距排序。",
-              "- `group_counts.csv`、`group_composition.csv`：不均衡组数及来源／p／D 组成。",
-              "- `provenance.csv`：输入与实现凭证。", ""]
-    (destination / "REPORT.md").write_text("\n".join(lines), encoding="utf-8")
+    lines += ["", f"共 {moved:,} 条（{moved/len(records):.2%}）位于 `[0.6,0.7)`，提高分界后从高组进入低组。分组在运行结束后形成，条件间参数和 kh 组成不同；以下是设计集合的描述性均值比较，不是同初态／同种子的配对干预效应。", "",
+              "## 主要均值比较", ""]
+    specs = (
+        ("高组：R/!R 换边数", "+34%", ("reposting_on_minus_off", "", "high", "rewiring_events")),
+        ("高组：Op/St 归一化换边时刻", "−32%", ("opinion_minus_structure", "", "high", "normalized_rewiring_time")),
+        ("高组：R/!R 归一化换边时刻", "+41%", ("reposting_on_minus_off", "", "high", "normalized_rewiring_time")),
+        ("St：高/低组三元组", "+17%", ("high_minus_low", "policy:StructureM9", "", "closed_triads")),
+        ("Op：高/低组三元组", "+123%", ("high_minus_low", "policy:OpinionM9", "", "closed_triads")),
+        ("!R：高/低组三元组", "+32%", ("high_minus_low", "reposting:off", "", "closed_triads")),
+        ("R：高/低组三元组", "+98%", ("high_minus_low", "reposting:on", "", "closed_triads")),
+        ("高组：Op/St 三元组", "+7%", ("opinion_minus_structure", "", "high", "closed_triads")),
+    )
+    lines += (["| 比较 | 旧正文约数 | 当前 0.6 | 当前 0.7 |", "| --- | ---: | ---: | ---: |"] if original else
+              ["| 辅助范围比较 | 0.6 | 0.7 |", "| --- | ---: | ---: |"])
+    for label, old, key in specs:
+        values = [pct(key, c) for c in CUTOFFS]
+        prefix = f"| {label} | {old} |" if original else f"| {label} |"
+        lines.append(f"{prefix} {values[0]:+.4f}% | {values[1]:+.4f}% |")
+    triad_key = ("opinion_minus_structure", "", "high", "closed_triads")
+    vals = [comparison(triad_key, c) for c in CUTOFFS]
+    lines += ["", "高组的三元组均值如下：", "", "| 分界 | St | Op | Op 相对 St |", "| ---: | ---: | ---: | ---: |"]
+    for c, value in zip(CUTOFFS, vals):
+        lines.append(f"| {c:.1f} | {value['reference_mean']:,.6f} | {value['target_mean']:,.6f} | {value['relative_percent']:+.6f}% |")
+    if original:
+        lines += ["", "这一原设计集合的高组 Op 三元组均值在两分界均小幅高于 St；0.7 的差值更接近零，不能据总体 SD 作显著性或机制效应判断。旧文约数的来源还包含旧三批数据与旧指标分组；范围和旧值的核对见独立 legacy-stats audit。", ""]
+    else:
+        lines += ["", "这里的数值只描述 kh=0 辅助限制。它与原设计的三历史集合不是同一个汇总对象，应与原设计范围的结果分别阅读。", ""]
+    lines += [f"高组 Op/St 换边数差为 {pair(('opinion_minus_structure', '', 'high', 'rewiring_events'))}；换边时刻差为 {pair(('opinion_minus_structure', '', 'high', 'normalized_rewiring_time'))}；AUC 差为 {pair(('opinion_minus_structure', '', 'high', 'subjective_index_auc'))}。报告方向同时保留具体量级，分组份额和百分比都随分界而变。", "",
+              "## 数值方向与解释边界", ""]
+    reversed_rows = [r for r in changes if r["direction_reversed"]]
+    lines.append(f"{len(changes)} 项标准比较中，0.6 与 0.7 间有 {len(reversed_rows)} 项百分比符号变化：")
+    for row in reversed_rows:
+        lines.append(f"- `{row['comparison']}`，`{row['category'] or row['group']}`，`{row['metric']}`：{row['relative_percent_at_0_6']:+.4f}% → {row['relative_percent_at_0_7']:+.4f}%。")
+    if not reversed_rows: lines.append("- 无。")
+    lines += ["", "接近零的数值符号或排序变化不作统计效应解读；标准比较详见 `threshold_changes.csv`。高低组差距大小的算法排序另列于 `group_gap_comparison.csv`。较大 AUC 仅描述该运行归一化活动时钟内的局部模板相似度，不自动代表物理时间更早。旧文低组“稳定”也需要明确指标与描述尺度，不能仅凭柱形相近断言。", "",
+              "## 图形与文件", "",
+              "八面板顺序保持原 Figure 5：上排按算法，下排按转发；列为换边数、归一化换边时刻、Is AUC、闭合三元组。沿用 common.plotting 字体和线宽，输出矢量 PDF、300-dpi PNG 及外置 caption。两阈值共用涵盖全部均值±SD端点的坐标范围；部分时刻 SD 下界为负时也保留完整对称离散度，不代表负的时刻观测。", "",
+              "- `grouped_metric_summary.csv`、`grouped_metric_contrasts.csv`：柱与比较。",
+              "- `history_groups.csv`、`group_composition.csv`：kh 分层及权重。",
+              "- `group_counts.csv`、`threshold_changes.csv`、`group_gap_comparison.csv`：组数及阈值变化。",
+              "- `provenance.csv`：输入快照、scope、协议和源码凭证。", "",
+              "本图生成仅写 artifacts，不替换正文图5；SI 另说明设计范围。既有 kh=0 辅助目录保留不覆盖。", ""]
+    (destination/"REPORT.md").write_text("\n".join(lines), encoding="utf-8")
+    readme = [f"# Figure 5：{scope_name}", "", design_text, "", "从模型仓库运行：", "", "```powershell",
+              f"Set-Location {MODEL_ROOT.as_posix()}", command, "```", "",
+              f"数据源：`{database.resolve().as_posix()}`；正式分析 `{ANALYSIS}`；data2+data3；本 scope n={len(records):,}。`--output` 必填。", "",
+              "所有运行等权；Op 的历史条件按有效运行数汇总，各高低组实际权重见 `history_groups.csv`。!R 为 p=0，R 汇总三个正转发率。SD 是总体离散度，不是置信区间。两个 scope 共用同一指标核心，不新增状态指标或历史机制。", "",
+              "- [中文分析](REPORT.md)", "- [0.6 PDF](figure5_iw_0.6.pdf) · [PNG](figure5_iw_0.6.png)",
+              "- [0.7 PDF](figure5_iw_0.7.pdf) · [PNG](figure5_iw_0.7.png)",
+              "- [各历史条件均值／SD／n／权重](history_groups.csv)", "- [全部柱](grouped_metric_summary.csv) · [全部比较](grouped_metric_contrasts.csv)",
+              "- [组数](group_counts.csv) · [kh／p／D／来源组成](group_composition.csv)",
+              "- [阈值变化](threshold_changes.csv) · [高低组差距排序](group_gap_comparison.csv) · [来源凭证](provenance.csv)", "",
+              "本目录只保留说明、紧凑汇总和图形；代码位于模型仓库 `experiments/paper/pathway_metrics/figure5.py`。本图生成仅写 artifacts，不替换正文图5；SI 另说明设计范围。既有 kh=0 辅助展品保留不覆盖。", ""]
+    (destination/"README.md").write_text("\n".join(readme), encoding="utf-8")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=Path("E:/ResearchData/ehk/original/20261127/primary/stats-v3.sqlite"))
     parser.add_argument("--output", type=Path, required=True, help="Explicit directory for Figure 5 exhibits; no source-tree default")
-    parser.add_argument("--expected-runs", type=int, default=12285)
+    parser.add_argument("--history-scope", choices=("zero", "original-design"), default="zero")
+    parser.add_argument("--expected-runs", type=int, help="Optional explicit override of the scope's frozen cohort check")
     args = parser.parse_args()
     from common.storage.documents import DocumentStore, decode_document
     from experiments.paper.analysis.records import ScenarioStatistics
-    from experiments.paper.pathway_index.grouped_summary import summarize
+    from experiments.paper.pathway_index.grouped_summary import history_in_scope, summarize
 
     source_hash = hashlib.sha256()
     records = []
@@ -189,32 +250,35 @@ def main():
             (NAMESPACE, ANALYSIS)).fetchone()[0]
         query = """SELECT key,body,updated_ns FROM documents WHERE namespace=?
                    AND json_extract(body,'$.analysis_id')=?
-                   AND json_extract(body,'$.post_retain_count')=0
                    AND json_extract(body,'$.origin') IN ('original-data2','original-data3')
                    ORDER BY key"""
         timestamps = []
         for key, body, updated in store.connection.execute(query, (NAMESPACE, ANALYSIS)):
+            wire = json.loads(body)
+            if not history_in_scope(wire["recsys_type"], wire["post_retain_count"], args.history_scope):
+                continue
             source_hash.update(key.encode()+b"\0"+body.encode()+b"\n")
-            row = ScenarioStatistics.from_wire(decode_document(json.loads(body)))
+            row = ScenarioStatistics.from_wire(decode_document(wire))
             require(row.mode == "gradation" and row.complete and not row.stale, "Incomplete or unrelated source record")
             require(row.metric_revision == 6 and row.endpoint_complement is True, "Wrong metric convention")
             require(row.active_step is not None and row.active_step > 0, "Figure 5 timing/AUC require positive activity time")
             require(row.pathway_integral is not None and math.isfinite(row.pathway_integral), "Nonfinite I_w")
-            require(row.recsys_type in ("StructureM9", "OpinionM9"), "Unmatched recommendation policy")
+            require(row.recsys_type in ("StructureM9", "OpinionM9"), "Unsupported recommendation policy")
             records.append(row)
             timestamps.append(updated)
-    require(len(records) == args.expected_runs, f"Source cohort changed: expected {args.expected_runs}, found {len(records)}")
+    expected = args.expected_runs if args.expected_runs is not None else (12285 if args.history_scope == "zero" else 24566)
+    require(len(records) == expected, f"Source cohort changed: expected {expected}, found {len(records)}")
     require(len({(r.origin, r.name) for r in records}) == len(records), "Duplicate source run identity")
     require(all(r.protocol == records[0].protocol for r in records), "Mixed formal analysis protocol")
     # Positive t_a makes grouped_summary._metrics exactly the plot.py definitions:
     # event_step_mean/max(t_a,1), and clipped piecewise-linear integral of
     # g_index against x_indices/max(t_a,1) on [0,1]. No g_index_mean_active proxy.
-    metadata = pd.DataFrame([dict(name=r.name, origin=r.origin, p=r.repost_rate,
+    metadata = pd.DataFrame([dict(name=r.name, origin=r.origin, p=r.repost_rate, kh=int(r.post_retain_count),
                                   D_sign="q<alpha" if r.rewiring < r.decay else "q>alpha" if r.rewiring > r.decay else "q=alpha") for r in records])
-    tables, contrasts, compositions, cohort_rows = [], [], [], []
+    tables, contrasts, compositions, cohort_rows, histories = [], [], [], [], []
     summaries = {}
     for cutoff in CUTOFFS:
-        data, summary, comparison = summarize(records, cutoff)
+        data, summary, comparison = summarize(records, cutoff, history_scope=args.history_scope)
         data = data.merge(metadata, on=["name", "origin"], validate="one_to_one")
         summary.insert(0, "cutoff", cutoff)
         comparison.insert(0, "cutoff", cutoff)
@@ -222,6 +286,7 @@ def main():
         tables.extend(summary.to_dict("records"))
         contrasts.extend(comparison.to_dict("records"))
         compositions.extend(group_composition(data, cutoff))
+        histories.extend(history_statistics(data, cutoff))
         for (dimension, categories) in (("policy", ("StructureM9", "OpinionM9")), ("reposting", ("off", "on"))):
             for category in categories:
                 for group in ("low", "high"):
@@ -262,12 +327,14 @@ def main():
 
     args.output.mkdir(parents=True, exist_ok=True)
     for name, rows in (("grouped_metric_summary", tables), ("grouped_metric_contrasts", contrasts),
-                       ("threshold_changes", changes), ("group_counts", cohort_rows), ("group_composition", compositions)):
+                       ("threshold_changes", changes), ("group_counts", cohort_rows),
+                       ("group_composition", compositions), ("history_groups", histories)):
         write_csv(args.output / f"{name}.csv", rows)
     write_csv(args.output / "group_gap_comparison.csv", gaps)
     for cutoff in CUTOFFS:
         plot(summaries[cutoff], cutoff, limits, args.output)
-        caption = (f"Formal analysis {ANALYSIS}; data2+data3; kh=0; n={len(records)}. "
+        history_description = "StructureM9 kh=0; OpinionM9 kh=0" if args.history_scope == "zero" else "StructureM9 kh=0; OpinionM9 pooled kh=0,2,6"
+        caption = (f"Formal analysis {ANALYSIS}; data2+data3; history scope={args.history_scope}; {history_description}; n={len(records)}. "
                    f"Descriptive low/high I_w split at {cutoff:g}, with endpoint completion retained. "
                    "Top row: StructureM9 and OpinionM9; bottom row: p=0 (!R) and pooled p=.1,.25,.5 (R). "
                    "Bars show equally weighted run means and population standard deviations, not confidence intervals. "
@@ -282,7 +349,8 @@ def main():
                     "experiments/paper/pathway_index/data_utils.py", "src/common/plotting/core.py",
                     "src/common/storage/documents.py", "experiments/paper/analysis/records.py")
     provenance = dict(database=str(args.database.resolve()), analysis_id=ANALYSIS, origins=["original-data2", "original-data3"],
-                      formal_all_history_runs=formal_n, selected_kh0_runs=len(records),
+                      formal_all_history_runs=formal_n, selected_runs=len(records), history_scope=args.history_scope,
+                      policy_histories={"StructureM9": [0], "OpinionM9": [0] if args.history_scope == "zero" else [0, 2, 6]},
                       selected_document_snapshot_sha256=source_hash.hexdigest(), snapshot_max_updated_ns=max(timestamps),
                       protocol=records[0].protocol.__wire__(),
                       endpoint_complement=True, metric_revision=6, cutoffs=list(CUTOFFS),
@@ -294,8 +362,9 @@ def main():
                       matplotlib=matplotlib.__version__, pandas=pd.__version__, script_sha256=sha(__file__),
                       source_sha256={p: sha(MODEL_ROOT/p) for p in source_files})
     write_csv(args.output / "provenance.csv", [dict(property=k, value=json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v) for k, v in provenance.items()])
-    write_report(args.output, cohort_rows, by_cut, gaps)
-    print(json.dumps(dict(selected=len(records), cutoffs=list(CUTOFFS), reversed_comparisons=[r for r in changes if r["direction_reversed"]], axis_limits=limits, output=str(args.output.resolve())), ensure_ascii=False, indent=2))
+    write_report(args.output, args.history_scope, args.database, records, cohort_rows, by_cut,
+                 changes, gaps, compositions, histories)
+    print(json.dumps(dict(selected=len(records), history_scope=args.history_scope, cutoffs=list(CUTOFFS), reversed_comparisons=[r for r in changes if r["direction_reversed"]], axis_limits=limits, output=str(args.output.resolve())), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

@@ -85,3 +85,34 @@ Baseline-only counterfactual bounds preserve the unknown pre-clipping values
 at historical zeros, signed chronological integration and endpoint completion.
 The sequential comparisons describe reaggregation, without identifying causal
 contribution shares or inventing a frozen execution protocol for the archive.
+
+## Figure 5: explicit history scope
+
+Figure 5 has two separately named scopes. `original-design` is the original
+main comparison: StructureM9 at `k_h=0`, and OpinionM9 pooled over `k_h=0,2,6`.
+Opinion post history already has its defined selection rule. Adding history
+to StructureM9 would require a new choice such as random selection or decay,
+so this audit neither requires nor schedules a Structure-history experiment.
+`zero` remains the default auxiliary restriction and is kept in a separate
+artifact directory; it does not replace the main design-set comparison.
+
+```powershell
+Set-Location D:/Research/extended-hk-model
+& .venv/Scripts/python.exe -m experiments.paper.pathway_metrics.figure5 `
+  --database E:/ResearchData/ehk/original/20261127/primary/stats-v3.sqlite `
+  --history-scope original-design `
+  --output D:/Research/extended-hk-model-paper/artifacts/ehk_figure5_design_20261128
+```
+
+The entry reads only the formal `e499b1ab…` data2/data3 cohort: 24,566 runs in
+the original design, or 12,285 under `--history-scope zero`. Both use the single
+`pathway_index.grouped_summary.summarize` metric core. Run-weighted means and
+population SD retain the original timing and `I_s` AUC definitions. The new
+`history_groups.csv` gives each policy/history/pathway group's four metrics,
+effective counts and weights; `group_composition.csv` also includes history.
+Different numbers of retained runs supply the actual pooling weights.
+
+The generated README/REPORT and captions state their selected scope, sources,
+weights and full command. `.6/.7` figures use shared unclipped display ranges;
+the existing zero-history exhibits are preserved. No simulation, new history
+mechanism, manuscript or supplementary-material edit is part of this entry.

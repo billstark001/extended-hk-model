@@ -16,6 +16,18 @@ from experiments.paper.paths import PATHWAY_OUTPUT, statistics_database
 from experiments.paper.pathway_index.data_utils import piecewise_linear_integral_trapz
 
 METRICS = ("rewiring_events", "normalized_rewiring_time", "subjective_index_auc", "closed_triads")
+HISTORY_SCOPES = ("zero", "original-design")
+
+
+def history_in_scope(policy: str, history: int | None, scope: str) -> bool:
+    """Select the declared design set, without inventing structural history."""
+    if scope not in HISTORY_SCOPES:
+        raise ValueError(f"unknown history scope: {scope}")
+    if policy == "StructureM9":
+        return history == 0
+    if policy == "OpinionM9":
+        return history == 0 if scope == "zero" else history in (0, 2, 6)
+    return False
 
 
 def _metrics(row: ScenarioStatistics) -> dict[str, float | None]:
@@ -33,20 +45,24 @@ def _metrics(row: ScenarioStatistics) -> dict[str, float | None]:
     }
 
 
-def summarize(rows: list[ScenarioStatistics], cutoff: float) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Use matched zero-history policies and an explicitly descriptive I_w split.
+def summarize(rows: list[ScenarioStatistics], cutoff: float, *, history_scope="zero") -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Summarize an explicit history design and descriptive I_w split.
 
     Contrasts compare group means. They are not paired intervention effects;
     percentages use the named reference group's mean as the denominator.
+    ``original-design`` pools OpinionM9 histories 0/2/6 against StructureM9 0;
+    ``zero`` is the separate zero-history restriction retained by default.
     """
 
     if not math.isfinite(cutoff):
         raise ValueError("cutoff must be finite")
+    if history_scope not in HISTORY_SCOPES:
+        raise ValueError(f"unknown history scope: {history_scope}")
     observations = []
     for row in rows:
-        if not row.name.startswith("s_grad") or row.post_retain_count != 0:
+        if not row.name.startswith("s_grad"):
             continue
-        if row.recsys_type not in ("OpinionM9", "StructureM9"):
+        if not history_in_scope(row.recsys_type, row.post_retain_count, history_scope):
             continue
         if row.pathway_integral is None or not math.isfinite(row.pathway_integral):
             continue
@@ -64,7 +80,9 @@ def summarize(rows: list[ScenarioStatistics], cutoff: float) -> tuple[pd.DataFra
             }
         )
     if not observations:
-        raise ValueError("no finite zero-history gradation records for the matched comparison")
+        if history_scope == "zero":
+            raise ValueError("no finite zero-history gradation records for the matched comparison")
+        raise ValueError("no finite gradation records for the selected history scope")
     data = pd.DataFrame(observations)
     summaries = []
     for dimension in ("policy", "reposting"):
@@ -133,9 +151,9 @@ def summarize(rows: list[ScenarioStatistics], cutoff: float) -> tuple[pd.DataFra
     return data, summary, pd.DataFrame(contrasts)
 
 
-def analyze(database, output, *, cutoff, origin=None, analysis_id=None):
+def analyze(database, output, *, cutoff, origin=None, analysis_id=None, history_scope="zero"):
     rows = read_statistics(database, mode="gradation", origin=origin, analysis_id=analysis_id)
-    data, summary, contrasts = summarize(rows, cutoff)
+    data, summary, contrasts = summarize(rows, cutoff, history_scope=history_scope)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     data.to_csv(output / "grouped_run_metrics.csv", index=False)
@@ -150,7 +168,9 @@ def analyze(database, output, *, cutoff, origin=None, analysis_id=None):
             "endpoint_complement": recorded_endpoint_complement(rows[0]),
             "cutoff": cutoff,
             "grouping": "descriptive low/high I_w; not first-passage labels",
-            "history": 0,
+            "history_scope": history_scope,
+            **({"history": 0} if history_scope == "zero" else {}),
+            "policy_histories": {"StructureM9": [0], "OpinionM9": [0] if history_scope == "zero" else [0, 2, 6]},
             "policies": ["OpinionM9", "StructureM9"],
             "runs": len(data),
             "metrics": list(METRICS),
@@ -169,8 +189,10 @@ def main(argv=None):
     )
     parser.add_argument("--origin")
     parser.add_argument("--analysis-id")
+    parser.add_argument("--history-scope", choices=HISTORY_SCOPES, default="zero")
     args = parser.parse_args(argv)
-    return analyze(args.database, args.output, cutoff=args.cutoff, origin=args.origin, analysis_id=args.analysis_id)
+    return analyze(args.database, args.output, cutoff=args.cutoff, origin=args.origin,
+                   analysis_id=args.analysis_id, history_scope=args.history_scope)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,2 @@
+# This shared helper is bound by pathway-metrics analysis receipts.
+grouped_summary.py text eol=lf

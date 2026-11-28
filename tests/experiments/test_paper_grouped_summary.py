@@ -1,4 +1,4 @@
-"""Recompute named contrasts with matched histories and explicit denominators."""
+"""Recompute named contrasts for explicit history scopes and denominators."""
 
 import numpy as np
 from dataclasses import replace
@@ -8,7 +8,7 @@ from experiments.paper.analysis.records import ScenarioStatistics
 from experiments.paper.pathway_index.grouped_summary import summarize
 
 
-def test_grouped_percentages_use_reference_means_and_exclude_history_confounding():
+def test_zero_scope_percentages_use_reference_means():
     records = []
     for policy, base in (("OpinionM9", 10), ("StructureM9", 20)):
         for group, addition, integral in (("low", 0, 0.4), ("high", 10, 0.8)):
@@ -52,3 +52,39 @@ def test_grouped_percentages_use_reference_means_and_exclude_history_confounding
     assert repost.relative_percent == 20
     with pytest.raises(ValueError, match="finite"):
         summarize(records, float("nan"))
+    with pytest.raises(ValueError, match="no finite zero-history gradation records for the matched comparison"):
+        summarize([], 0.6)
+
+
+def test_original_design_pools_only_defined_opinion_histories_using_same_metrics():
+    records = []
+    for policy, history, low, high in (("StructureM9", 0, 10, 20),
+                                       ("OpinionM9", 0, 10, 30),
+                                       ("OpinionM9", 2, 20, 100),
+                                       ("OpinionM9", 6, 30, 200),
+                                       ("StructureM9", 2, 999, 999),
+                                       ("OpinionM9", 4, 999, 999)):
+        for group, integral, triads in (("low", .4, low), ("high", .8, high)):
+            records.append(ScenarioStatistics(
+                name=f"s_grad_{policy}_{history}_{group}", origin="raw", analysis_id="r6",
+                recsys_type=policy, post_retain_count=history, repost_rate=0,
+                pathway_integral=integral, event_count=10, event_step_mean=5,
+                active_step=10, x_indices=np.array([0, 5, 10]),
+                g_index=np.array([0., .5, 1.]), triads=triads,
+            ))
+    zero, _, _ = summarize(records, .6)
+    original, summary, contrasts = summarize(records, .6, history_scope="original-design")
+    assert len(zero) == 4 and len(original) == 8
+    assert not original["name"].str.contains("StructureM9_2|OpinionM9_4").any()
+    shared = zero.merge(original, on=["name", "origin"], suffixes=("_zero", "_original"))
+    for metric in ("rewiring_events", "normalized_rewiring_time", "subjective_index_auc", "closed_triads"):
+        np.testing.assert_array_equal(shared[metric+"_zero"], shared[metric+"_original"])
+    high = summary[(summary.dimension == "policy") & (summary.category == "OpinionM9") &
+                   (summary.group == "high") & (summary.metric == "closed_triads")].iloc[0]
+    assert high.n_runs == 3 and high["mean"] == 110
+    comparison = contrasts[(contrasts.comparison == "opinion_minus_structure") &
+                           (contrasts.group == "high") & (contrasts.metric == "closed_triads")].iloc[0]
+    assert comparison.target_mean == 110 and comparison.reference_mean == 20
+    assert comparison.relative_percent == 450
+    with pytest.raises(ValueError, match="history scope"):
+        summarize([], .6, history_scope="undefined")
