@@ -2,7 +2,7 @@
 
 from itertools import product
 from dataclasses import replace
-from ehk.domain import (Task, Rng, RecommenderParams, LateActivity, Sensitivity, RecordingProtocol,
+from ehk.domain import (Task, Rng, RecommenderParams, LateActivity, Sensitivity, RecordingProtocol, RANKED_TIE_RULE,
                         TrajectoryPrecision, CampaignProtocol, PrimaryOutcome, RecommendationProtocol)
 
 from ehk.metrics.pathway import EXCESS_THRESHOLD, OBSERVATION_INTERVAL, SEPARATION_THRESHOLD
@@ -109,7 +109,7 @@ def design_protocol(study: str) -> RecommendationProtocol:
         exposure="interval_counters_and_late_feed_trace" if study == "staged" else "interval_counters",
         separation_threshold=SEPARATION_THRESHOLD,excess_threshold=EXCESS_THRESHOLD,
         cross_camp_margin_in_epsilon=0.25,reference_horizon=REFERENCE_HORIZON,terminal_major_mass=0.02,
-        reference=REFERENCE,switch=SWITCH,window=FOLLOWUP)
+        reference=REFERENCE,switch=SWITCH,window=FOLLOWUP,ranked_tie_rule=RANKED_TIE_RULE)
     if study == "staged":
         return replace(protocol,checkpoints=STAGE_CHECKPOINTS,late_activity=LATE_ACTIVITY,min_stage_effect=MIN_STAGE_EFFECT)
     return replace(protocol,fixed_trigger=FIXED_TRIGGER,latest_trigger=LATEST_TRIGGER,

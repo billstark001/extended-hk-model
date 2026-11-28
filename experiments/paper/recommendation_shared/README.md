@@ -34,4 +34,10 @@ python -m experiments.paper.recommendation_shared.bundle export --dataset /path/
 
 Frozen plans and executable bindings are immutable. Changed parameters, additional arms or a different executable require a new dataset directory. Historical frozen plans remain readable under their original protocol.
 
+New EHK plans record `ranked_tie_rule="uniform-per-query-without-replacement-v1"` as a fixed scientific contract. It is not a selectable simulator parameter. Build the corrected SMP before creating such a dataset; the existing executable SHA binding authenticates the producer. Keep the original task coordinates, seeds and initial states, but use a new output directory and binding. Do not continue from old Structure caches: they lack the noisy scores required by the corrected rule. Historical raw trajectories remain readable for analysis.
+
+An older plan without this field has an unrecorded rule, not an implied uniform rule; reading and exporting it preserves its original fingerprint. Timing runs require staged evidence with the current recorded rule, so a gate from the old experiments cannot release a corrected timing campaign. Recompute that gate after rerunning staged.
+
+The validated SMP source is [`77c0352`](https://github.com/billstark001/social-media-models/commit/77c0352a872c89c63dc7c516cdfbd4014c17b511). Build `cmd/smp` and `cmd/smp-probe` from the corrected checkout before binding a new study; a stale executable is not updated by changing the Python plan.
+
 Frozen native jobs using the retired file-output protocol must be migrated explicitly with `python -m experiments.paper.recommendation_shared.migrate_jobs /path/to/dataset`. This archives their original bytes and changes output control metadata only. It does not change executable bindings or scientific checkpoints. A separate executable change must satisfy the study's provenance requirements; there is no automatic old-protocol fallback.

@@ -15,6 +15,10 @@ from smp_bindings.domain import (
 )
 
 
+# Scientific identity of the one supported ranked tie rule, not a runtime option.
+RANKED_TIE_RULE = "uniform-per-query-without-replacement-v1"
+
+
 @dataclass(kw_only=True, slots=True)
 class Coordinates(WireRecord):
     case: str | None = None
@@ -116,6 +120,7 @@ class RecommendationProtocol(WireRecord):
     gate_evidence: str | None = None
     variants: dict[str, tuple[str, ...]] | None = None
     variant_arms: dict[str, ArmConfiguration] | None = None
+    ranked_tie_rule: str | None = None
 
 
 @dataclass(kw_only=True, slots=True)
@@ -128,6 +133,7 @@ class ControlProtocol(WireRecord):
     seed_namespace: str
     pairing: str
     classification: str | None = field(default=None, metadata={"emit_none": True})
+    ranked_tie_rule: str | None = None
 
 
 @dataclass(kw_only=True, slots=True)
@@ -136,6 +142,7 @@ class OriginalProtocol(WireRecord):
     rng: str
     axes: dict[str, tuple[str | int | float, ...]]
     legacy_unique_names: bool
+    ranked_tie_rule: str | None = None
 
 
 P = TypeVar("P")

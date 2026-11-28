@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from itertools import product
 
 from ehk.micro.scenarios import reproducible_metadata
-from ehk.domain import Coordinates, ControlProtocol, Plan, Task
+from ehk.domain import Coordinates, ControlProtocol, Plan, Task, RANKED_TIE_RULE
 
 from ..scenarios import MECHANISM_CASES
 
@@ -72,7 +72,8 @@ def make_plan(
     return Plan(schema=1, study="paper_pathway_controls", profile="paired_process_controls",
                 protocol=ControlProtocol(cases=cases, replicates=replicates, horizon=horizon,
                     snapshot_steps=tuple(steps), arms=ARMS, seed_namespace=seed_namespace,
-                    pairing="same initial graph, opinions, posts and complete RNG state", classification=None),
+                    pairing="same initial graph, opinions, posts and complete RNG state", classification=None,
+                    ranked_tie_rule=RANKED_TIE_RULE),
                 tasks=tuple(tasks))
 
 

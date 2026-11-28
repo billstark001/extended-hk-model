@@ -8,7 +8,7 @@ from dataclasses import replace
 import pytest
 from common.experiments.lifecycle import RunStatus
 
-from ehk.domain import Binding, FullResult, PolicyChange, Rng, StageGate, freeze_plan, to_wire
+from ehk.domain import Binding, FullResult, PolicyChange, Rng, StageGate, freeze_plan, to_wire, RANKED_TIE_RULE
 from tests.experiments.recommendation_fixtures import arm, exposure, point, plan as fixture_plan
 from common.io.json import atomic_json, fingerprint, sha
 from experiments.paper.recommendation import analysis as staged_analysis
@@ -38,9 +38,13 @@ def forbid_native_processes(monkeypatch):
 
 
 @pytest.mark.parametrize("profile", PLAN_FINGERPRINTS)
-def test_complete_plans_keep_original_fingerprints(profile):
+def test_current_tie_contract_changes_only_the_recorded_protocol(profile):
     plan = study.make_plan() if profile == "recommender_variants" else staged_study.make_plan(profile)
-    assert fingerprint(plan) == PLAN_FINGERPRINTS[profile]
+    assert plan.protocol.ranked_tie_rule == RANKED_TIE_RULE
+    historical = to_wire(plan)
+    historical["protocol"].pop("ranked_tie_rule")
+    assert fingerprint(historical) == PLAN_FINGERPRINTS[profile]
+    assert fingerprint(plan) != PLAN_FINGERPRINTS[profile]
     if profile == "recommender_variants":
         assert plan.tasks == tuple(design.generate_tasks())
 

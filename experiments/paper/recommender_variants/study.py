@@ -42,7 +42,10 @@ def _binding(plan, path, binary_sha):
             hashes is None or set(hashes) != names
             or any(not isinstance(value, str) or not value for value in hashes.values())
         ):
-            raise ValueError("variant binary provenance needs an explicit migrate_plan --smp-binary migration")
+            raise ValueError(
+                "variant executable bindings do not match the frozen arm registry; "
+                "preserve the original binding and use a new dataset directory"
+            )
     else:
         hashes = dict.fromkeys(names, binary_sha)
     return Binding(binary_sha256=binary_sha, stage_evidence=None, arm_binary_sha256=hashes)

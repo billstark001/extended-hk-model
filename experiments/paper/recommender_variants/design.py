@@ -6,6 +6,7 @@ from itertools import product
 from ehk.domain import (
     ArmConfiguration, CampaignProtocol, RecommendationProtocol, RecordingProtocol,
     RecommenderParams, Rng, Sensitivity, Task, TrajectoryPrecision,
+    RANKED_TIE_RULE,
 )
 from ehk.metrics.pathway import EXCESS_THRESHOLD, OBSERVATION_INTERVAL, SEPARATION_THRESHOLD
 from ehk.micro.scenarios import create_scenario_metadata
@@ -119,5 +120,5 @@ def design_protocol(study: str = STUDY) -> RecommendationProtocol:
         exposure="interval_counters", separation_threshold=SEPARATION_THRESHOLD,
         excess_threshold=EXCESS_THRESHOLD, cross_camp_margin_in_epsilon=.25,
         reference_horizon=REFERENCE_HORIZON, terminal_major_mass=.02,
-        variants=dict(VARIANTS), variant_arms=variant_arms(),
+        variants=dict(VARIANTS), variant_arms=variant_arms(), ranked_tie_rule=RANKED_TIE_RULE,
     )

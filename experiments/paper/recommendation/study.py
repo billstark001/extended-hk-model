@@ -3,7 +3,7 @@
 from pathlib import Path
 from dataclasses import replace
 from ehk.domain import (Plan, PolicyChange, FullResult, StagedResult, StageResult, Binding,
-                        StageEvidence, DeferredRun, CampaignStatus)
+                        StageEvidence, DeferredRun, CampaignStatus, RANKED_TIE_RULE)
 
 from common.experiments.lifecycle import interruptible, session_lock
 from common.experiments.plans import freeze_manifest
@@ -88,6 +88,11 @@ def run_study(study, directory, binary, workers, *, stage_evidence=None):
 
         source = Path(stage_evidence).resolve() if stage_evidence else Path(directory).resolve().parent / "staged"
         source_plan, records = read_study(source, "staged")
+        if source_plan.protocol.ranked_tie_rule != RANKED_TIE_RULE:
+            raise ValueError(
+                "stage evidence has a different or unrecorded ranked tie rule; "
+                "rerun staged with the corrected simulator in a new dataset before timing"
+            )
         gate = stage_gate(source_plan.tasks, records)
         if not gate.passed:
             raise ValueError(f"stage contrast gate did not pass: {gate}")

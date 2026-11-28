@@ -4,7 +4,7 @@ import json
 import platform
 import subprocess
 from pathlib import Path
-from ehk.domain import Plan, OriginalProtocol, Binding, GitProvenance, freeze_plan
+from ehk.domain import Plan, OriginalProtocol, Binding, GitProvenance, freeze_plan, RANKED_TIE_RULE
 
 from common.experiments.execution import execute_tasks
 from common.experiments.lifecycle import TaskJournal, Workflow, interruptible, session_lock
@@ -20,7 +20,8 @@ from .analysis.models import AnalysisOutcome
 def make_plan(name, *, seed_namespace=cfg.SEED_NAMESPACE) -> Plan[OriginalProtocol]:
     return Plan(schema=2, study="paper", profile=name,
                 protocol=OriginalProtocol(seed_namespace=seed_namespace, rng="ehk-independent-pcg-v1",
-                                          axes=cfg.SCENARIO_AXES[name], legacy_unique_names=True),
+                                          axes=cfg.SCENARIO_AXES[name], legacy_unique_names=True,
+                                          ranked_tie_rule=RANKED_TIE_RULE),
                 tasks=tuple(cfg.execution_tasks(name, seed_namespace=seed_namespace)))
 
 
