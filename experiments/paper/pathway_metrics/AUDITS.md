@@ -59,3 +59,29 @@ copies for the first two audits are retained at its documented external archive.
 
 The complete 512-run workflow remains `study` / `report`, documented in
 [README.md](README.md). It is a different analysis from these main-scan audits.
+
+## Compare the archived statistics with the formal reanalysis
+
+`legacy_stats_audit` reads the archived ORM SQLite table with pickle disabled,
+matches its `data2` / `ssd_tmp` runs to the two formal primary batches using
+parameters and invariant outcomes, and separates history pooling, batch
+coverage, grouping, activity clocks, saved index curves and old NULL values.
+It executes only the archived AUC helper from an identified Git object. It
+does not execute the historical plotting driver or rerun raw simulations.
+
+```powershell
+Set-Location D:/Research/extended-hk-model
+& .venv/Scripts/python.exe -m experiments.paper.pathway_metrics.legacy_stats_audit analyze `
+  --legacy-database E:/ResearchData/ehk/original/archived/stats.db `
+  --database E:/ResearchData/ehk/original/20261127/primary/stats-v3.sqlite `
+  --output E:/ResearchData/ehk/original/20261128/pathway_metrics/legacy-stats-audit/report `
+  --export-directory D:/Research/extended-hk-model-paper/artifacts/ehk_legacy_stats_audit_20261128
+```
+
+The derived `analysis.sqlite` stores immutable report/table identities; its
+CSV/JSON/PDF/PNG exports are compact exhibits. The `export` subcommand accepts
+that database and a report ID without reopening either source database.
+Baseline-only counterfactual bounds preserve the unknown pre-clipping values
+at historical zeros, signed chronological integration and endpoint completion.
+The sequential comparisons describe reaggregation, without identifying causal
+contribution shares or inventing a frozen execution protocol for the archive.
