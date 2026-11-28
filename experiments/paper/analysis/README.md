@@ -45,7 +45,17 @@ commits results transactionally. Input identity, formula, numerical parameters
 and source changes invalidate cached results. A failed recomputation cannot
 supply a stale complete result. Repeated matching runs resume; `--force` recomputes.
 Incomplete selections return a nonzero command status. Figure readers reject old
-or missing metric protocols and mixed origins or endpoint conventions.
+or missing metric protocols and mixed endpoint conventions. Multiple origins
+are pooled only through repeated `--origin` on the formal plotting CLIs or
+`EHK_STATS_ORIGINS=original-data2,original-data3`; a single source still uses
+`EHK_STATS_ORIGIN`. Do not set both environment selectors. Each selected source
+must exist, and all rows must share one analysis ID and recorded protocol.
+Same-named runs from different sources retain their separate identities.
+
+Formal figures default to the original design: StructureM9 history 0 and
+OpinionM9 histories 0/2/6. The auxiliary `--history-scope zero` writes a separate
+subdirectory. See [formal plotting commands](../pathway_index/README.md) for the
+current data2/data3 database, full commands and output conventions.
 
 Plans, tasks, parameters, source identities and statistics are explicit dataclasses.
 Decoders reject unknown record fields. JSON and SQLite adapters serialize these

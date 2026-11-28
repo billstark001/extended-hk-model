@@ -26,6 +26,7 @@ $PathwayPaper = 'D:/Research/extended-hk-model-paper'
 
 & $PathwayPython -m experiments.paper.pathway_metrics.figure5 `
   --database $PathwayPrimary `
+  --history-scope zero `
   --output "$PathwayPaper/artifacts/ehk_figure5_threshold_20261128"
 ```
 
@@ -45,10 +46,12 @@ primary `I_w`. It neither reuses old `I_w` as current values nor merges this
 pilot with the fixed 512-run diagnostic. Its diagnostic CSV is a frozen input,
 so it must be supplied explicitly.
 
-`figure5` draws both `.6` and `.7` variants from the formal matched primary
-cohort. Its computation reuses `pathway_index.grouped_summary.summarize`; it
-adds the authenticated combined-batch selection, shared display ranges and
-explicit direction-change report missing from the historical plotting CLI.
+`figure5` draws both `.6` and `.7` variants from the formal primary cohort.
+The command above explicitly reproduces the auxiliary zero-history exhibits.
+Its metric core is `pathway_index.grouped_summary.summarize`; its renderer is
+shared with the formal `pathway_index.plot` entry. The audit adds authenticated
+combined-batch selection, shared display ranges across cutoffs, history weights
+and an explicit direction-change report.
 
 The relocation was verified outside Git data directories: six main-scan audit
 CSVs, four pilot numeric CSVs and six Figure 5 numeric CSVs were byte-identical
@@ -93,8 +96,10 @@ main comparison: StructureM9 at `k_h=0`, and OpinionM9 pooled over `k_h=0,2,6`.
 Opinion post history already has its defined selection rule. Adding history
 to StructureM9 would require a new choice such as random selection or decay,
 so this audit neither requires nor schedules a Structure-history experiment.
-`zero` remains the default auxiliary restriction and is kept in a separate
-artifact directory; it does not replace the main design-set comparison.
+`original-design` is the plotting default. `zero` is an explicit auxiliary
+restriction and is kept in a separate artifact directory; it does not replace
+the main design-set comparison. Always name the scope when reproducing an
+existing exhibit, whose frozen provenance is not rewritten by a code update.
 
 ```powershell
 Set-Location D:/Research/extended-hk-model
@@ -116,3 +121,6 @@ The generated README/REPORT and captions state their selected scope, sources,
 weights and full command. `.6/.7` figures use shared unclipped display ranges;
 the existing zero-history exhibits are preserved. No simulation, new history
 mechanism, manuscript or supplementary-material edit is part of this entry.
+
+The formal Figure 5, raw/history bars, main heatmaps and cluster/repost plot now
+use the same default design scope. See the complete [formal plotting commands](../pathway_index/README.md).

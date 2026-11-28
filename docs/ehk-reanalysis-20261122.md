@@ -62,16 +62,21 @@ Explicit `--database` is recommended for a new metric generation. All documents
 bind the protocol, package/source identities and original inputs. Missing,
 failed and stale tasks remain visible. Incomplete commands return nonzero.
 
-For descriptive matched k_h=0 summaries:
+For the main original-design descriptive summary (St0; Op0/2/6):
 
 ```powershell
 .\.venv\Scripts\python.exe -m experiments.paper.pathway_index.grouped_summary `
   --database outputs/paper/reanalysis_20261127/original/stats.sqlite `
-  --origin original-data2 --cutoff 0.6 --output outputs/paper/reanalysis_20261127/groups
+  --origin original-data2 --history-scope original-design --cutoff 0.6 `
+  --output outputs/paper/reanalysis_20261127/groups
 ```
 
 Use the returned analysis_id when a database contains multiple revisions. The
 historical 0.6 split must be reassessed; it does not establish PbS/SbP first passage.
+Use `--history-scope zero` in a separate output directory for the auxiliary
+k_h=0 subset. Pooling data2/data3 requires both named `--origin` arguments;
+the full current commands and output conventions are in the
+[formal figure guide](../experiments/paper/pathway_index/README.md).
 
 ## Recommendation observations and analysis
 
@@ -148,7 +153,11 @@ Original figure entry points remain main_scan.plot, pathway_index.plot,
 pathway_index.plot_raw, pathway_index.plot_trajectories,
 mechanism_cases.plot_cluster_and_repost, epsilon_scan.plot and replicate.plot
 under experiments.paper. Set SIMULATION_STAT_DIR to the selected database's
-containing directory and select EHK_STATS_ORIGIN/EHK_ANALYSIS_ID explicitly.
+containing directory and select EHK_STATS_ORIGIN/EHK_ANALYSIS_ID explicitly,
+or EHK_STATS_ORIGINS for a declared compatible batch union. The main-scan,
+pathway and cluster/repost entries also accept explicit --database, repeated
+--origin, --analysis-id and --output arguments. Their main scope is the original
+design; --history-scope zero keeps auxiliary figures in a separate subdirectory.
 The registered original-figure filename is stats-v3.sqlite; an explicitly named
 database used elsewhere does not change it. Grouped plots additionally require
 EHK_IW_CUTOFF. Missing or obsolete protocols cause a clear error, never a fallback.
